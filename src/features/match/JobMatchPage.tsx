@@ -4,6 +4,7 @@ import { ApiError } from '@/shared/api/client';
 import { useCvs, useMatch, useMatches, useRunMatch } from '@/shared/api/queries';
 import type { MatchResult } from '@/shared/api/types';
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
+import { pendingJob } from '@/shared/lib/pendingJob';
 import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, PageHeader, ProgressBar } from '@/shared/ui/Display';
@@ -110,7 +111,7 @@ export default function JobMatchPage() {
   const existing = useMatch(matchId);
   const run = useRunMatch();
   const [cvId, setCvId] = useState('');
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => (matchId ? '' : pendingJob.get()));
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -144,7 +145,10 @@ export default function JobMatchPage() {
     run.mutate(
       { cvId, jobText: text },
       {
-        onSuccess: (m) => nav(`/app/match/${m.id}`, { replace: true }),
+        onSuccess: (m) => {
+          pendingJob.clear();
+          nav(`/app/match/${m.id}`, { replace: true });
+        },
         onError: (e) =>
           setError(
             e instanceof ApiError

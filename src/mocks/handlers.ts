@@ -9,7 +9,7 @@ import type {
 } from '@/shared/api/types';
 import { STATUSES } from '@/shared/api/types';
 import { clearCookie, db, issueTokens, publicUser, readCookie, save, type UserData } from './db';
-import { analyseMatch, tailorSuggestions } from './matcher';
+import { analyseMatch, extractSkills, tailorSuggestions } from './matcher';
 import { emptyProfile, toContent, uid } from './seed';
 
 const B = '/api/v1';
@@ -272,6 +272,11 @@ export const handlers = [
       if (jobText.trim().length < 40)
         return err(422, 'Paste a bit more of the job post so we can compare it.', {
           jobText: 'Paste at least a few sentences.',
+        });
+      if (!extractSkills(jobText).length)
+        return err(422, 'We could not find any skills in this post.', {
+          jobText:
+            'We could not find any skills in this post. Paste the full description, including the requirements.',
         });
       await delay(import.meta.env.MODE === 'test' ? 0 : 1600);
       const r = {

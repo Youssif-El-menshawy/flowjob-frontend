@@ -9,6 +9,7 @@ import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Field';
 import { Icon } from '@/shared/ui/Icons';
+import { pendingJob } from '@/shared/lib/pendingJob';
 import { useAuth } from './AuthProvider';
 import { AuthShell, passwordScore } from './AuthShell';
 
@@ -34,6 +35,7 @@ export default function RegisterPage() {
   const { register: signUp } = useAuth();
   const nav = useNavigate();
   const [formError, setFormError] = useState('');
+  const job = pendingJob.label();
   const { register, handleSubmit, watch, setError, formState } = useForm<Form>({
     resolver: zodResolver(registerSchema),
     defaultValues: { name: '', email: '', password: '' },
@@ -58,6 +60,12 @@ export default function RegisterPage() {
       title="Start with one good CV."
       text="Build it once, check it against any job, and keep every application in one calm place."
     >
+      {job && (
+        <p className="mb-5 rounded-2xl bg-accent-soft px-4 py-3 text-sm leading-relaxed animate-in">
+          We saved <strong className="font-medium">{job}</strong> for you. Create your account and we will
+          check how you match it.
+        </p>
+      )}
       <h1 className="text-[40px] font-semibold">Create your account.</h1>
       <p className="mt-2 text-soft">Free for students. Takes under a minute.</p>
       <form onSubmit={handleSubmit(onSubmit)} className="mt-8 flex flex-col gap-5" noValidate>

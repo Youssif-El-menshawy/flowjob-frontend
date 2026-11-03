@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { ThemeToggle } from '@/features/auth/AuthShell';
-import { analyseMatch } from '@/mocks/matcher';
-import { demoProfile } from '@/mocks/seed';
+import { pendingJob } from '@/shared/lib/pendingJob';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Logo, ProgressBar, StatusPill } from '@/shared/ui/Display';
@@ -36,10 +35,8 @@ export default function LandingPage() {
   useDocumentTitle('');
   const { status } = useAuth();
   const authed = status === 'authenticated';
-  const [job, setJob] = useState(
-    'Junior Frontend Developer, Allegro. React, TypeScript, Git, unit testing, REST APIs, English B2+.',
-  );
-  const [result, setResult] = useState<ReturnType<typeof analyseMatch> | null>(null);
+  const nav = useNavigate();
+  const [job, setJob] = useState('');
 
   return (
     <div className="min-h-screen">
@@ -79,40 +76,30 @@ export default function LandingPage() {
             className="mt-9 max-w-[560px] rounded-3xl border border-line bg-surface p-5"
             onSubmit={(e) => {
               e.preventDefault();
-              setResult(analyseMatch(demoProfile(), job));
+              pendingJob.set(job);
+              nav(authed ? '/app/match' : '/register');
             }}
           >
             <label htmlFor="try-job" className="text-sm font-medium">
-              Try it: paste a job you like
+              Got a job in mind? See how well you match it.
             </label>
             <div className="mt-2.5 flex flex-col gap-2.5 sm:flex-row">
               <input
                 id="try-job"
                 value={job}
                 onChange={(e) => setJob(e.target.value)}
+                placeholder="Paste a job post or title, e.g. Junior Frontend Developer at Allegro"
                 className={`${controlClass()} min-h-12 flex-1`}
               />
-              <Button type="submit" className="min-h-12">
-                Check my match
+              <Button type="submit" className="min-h-12 gap-2">
+                Check my match <Icon.arrowRight />
               </Button>
             </div>
-            {result && (
-              <div key={result.score + job} className="mt-5 border-t border-line pt-5 animate-in">
-                <div className="flex flex-wrap items-baseline gap-3">
-                  <span className="font-display text-4xl font-semibold">{result.score}%</span>
-                  <span className="text-sm text-soft">{result.verdict} · example using a sample CV</span>
-                </div>
-                <ProgressBar value={result.score} className="mt-3" label="Match score" />
-                <p className="mt-3 text-[15px] leading-relaxed text-soft">{result.summary}</p>
-                <Link
-                  to={authed ? '/app/match' : '/register'}
-                  className="mt-3 inline-flex items-center gap-1.5 text-[15px] font-medium text-accent-ink hover:underline"
-                >
-                  {authed ? 'Check it with your own CV' : 'Create a free account to use your own CV'}{' '}
-                  <Icon.arrowRight />
-                </Link>
-              </div>
-            )}
+            <p className="mt-3 text-[13px] text-soft">
+              {authed
+                ? 'We will compare it with your CV.'
+                : 'Free account, under a minute. Then we compare the job with your own CV, not a guess.'}
+            </p>
           </form>
         </div>
         <div

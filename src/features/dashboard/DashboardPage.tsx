@@ -3,6 +3,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { useApplications, useCvs, useGmail, useMatches, useReviewSuggestion } from '@/shared/api/queries';
 import type { Application } from '@/shared/api/types';
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
+import { pendingJob } from '@/shared/lib/pendingJob';
 import { cn, firstName, fmtDate, greeting, suggestionPhrase } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import {
@@ -128,7 +129,9 @@ function Onboarding({ hasCv, hasMatch, hasApp }: { hasCv: boolean; hasMatch: boo
     {
       done: hasMatch,
       t: 'Check a job match',
-      d: 'Paste a job post and see your fit before you apply.',
+      d: pendingJob.get()
+        ? `Your saved job is waiting: ${pendingJob.label()}.`
+        : 'Paste a job post and see your fit before you apply.',
       to: '/app/match',
       cta: 'Check a job',
     },
@@ -232,7 +235,13 @@ export default function DashboardPage() {
         </div>
       ) : isNew ? (
         <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-          <Onboarding hasCv={!!cvs.data?.length} hasMatch={!!matches.data?.length} hasApp={list.length > 0} />
+          <div className="flex flex-col gap-5">
+            <Onboarding
+              hasCv={!!cvs.data?.length}
+              hasMatch={!!matches.data?.length}
+              hasApp={list.length > 0}
+            />
+          </div>
           <Note className="h-fit p-6">
             <p className="font-display text-lg font-semibold">How FlowJob helps</p>
             <p className="mt-2 text-soft">
