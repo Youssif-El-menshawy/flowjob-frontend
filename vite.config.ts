@@ -9,7 +9,11 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
-  server: { port: 5173, allowedHosts: ['.devtunnels.ms'] },,
+  server: {
+    port: 5173,
+    allowedHosts: ['.devtunnels.ms'],
+    proxy: { '/api/v1': { target: 'http://localhost:8000', changeOrigin: true } },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

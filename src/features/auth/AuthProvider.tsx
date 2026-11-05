@@ -14,6 +14,8 @@ interface AuthState {
 
 const Ctx = createContext<AuthState | null>(null);
 
+let initialSession: Promise<AuthResponse | null> | null = null;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
@@ -33,10 +35,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     qc.clear();
   }, [qc]);
 
-  // Restore the session from the refresh cookie on first load.
+  // Restore a session using the HttpOnly refresh cookie on first load.
   useEffect(() => {
     let alive = true;
-    refreshSession()
+    if (!initialSession) initialSession = refreshSession().catch(() => null);
+    initialSession
       .then((r) => {
         if (!alive) return;
         if (r) accept(r);
@@ -58,13 +61,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login: async (email, password) =>
         accept(await api<AuthResponse>('/auth/login', { method: 'POST', json: { email, password } })),
       register: async (name, email, password) =>
-        accept(
-          await api<AuthResponse>('/auth/register', { method: 'POST', json: { name, email, password } }),
-        ),
+        accept(await api<AuthResponse>('/auth/register', { method: 'POST', json: { name, email, password } })),
       logout: async () => {
         try {
           await api('/auth/logout', { method: 'POST' });
         } finally {
+          initialSession = null;
           clear();
         }
       },

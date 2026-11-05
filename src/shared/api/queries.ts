@@ -1,6 +1,6 @@
 // TanStack Query hooks for every resource. Screens only talk to the API through these.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from './client';
+import { api, apiBlob } from './client';
 import type {
   Application,
   ApplicationInput,
@@ -56,6 +56,13 @@ export function useUpdateCv() {
     },
   });
 }
+/** Fetch the backend-rendered Harvard PDF for a saved CV (same document for preview and download). */
+export const fetchCvPdfBlob = (id: string) => apiBlob(`/cvs/${id}/pdf`);
+
+/** Render unsaved CV content to a Harvard PDF for the live builder preview (no DB write). */
+export const fetchCvPreviewPdf = (content: unknown) =>
+  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content } });
+
 export function useDeleteCv() {
   const qc = useQueryClient();
   return useMutation({
@@ -157,7 +164,7 @@ export function useSyncGmail() {
 // Account
 export const useUpdateMe = () =>
   useMutation({
-    mutationFn: (b: { name?: string; email?: string }) => api<User>('/me', { method: 'PATCH', json: b }),
+    mutationFn: (b: { name?: string; email?: string; currentPassword?: string }) => api<User>('/me', { method: 'PATCH', json: b }),
   });
 export const useChangePassword = () =>
   useMutation({

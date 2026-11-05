@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useCreateCv, useCvs, useProfile, useUpdateCv } from '@/shared/api/queries';
+import { fetchCvPdfBlob, useCreateCv, useCvs, useProfile, useUpdateCv } from '@/shared/api/queries';
 import type { Cv, CvContent, Education, Experience, Project } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
-import { cn, fmtRelative } from '@/shared/lib/utils';
+import { cn, downloadBlob, fmtRelative } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { Card, EmptyState, Note, PageHeader } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
 import { useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { blank, ItemEditor, SkillsEditor, type Kind } from '@/features/profile/profileParts';
-import { CvSheet } from './CvSheet';
+import { CvLivePreview } from './CvLivePreview';
 
 const STEPS = [
   { id: 'personal', label: 'Personal' },
@@ -27,6 +27,7 @@ function Editor({ cv }: { cv: Cv }) {
   const [c, setC] = useState<CvContent>(() => structuredClone(cv.content));
   const [name, setName] = useState(cv.name);
   const [step, setStep] = useState(0);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [editing, setEditing] = useState<{
     kind: Kind;
     item: Experience | Education | Project;
@@ -47,6 +48,20 @@ function Editor({ cv }: { cv: Cv }) {
         onError: () => toast({ text: 'Could not save your CV.', tone: 'error' }),
       },
     );
+
+  // Download the real backend Harvard PDF. Save first so the file matches what's on screen.
+  const downloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      if (dirty) await update.mutateAsync({ id: cv.id, name, content: c });
+      const blob = await fetchCvPdfBlob(cv.id);
+      downloadBlob(blob, `${name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'CV'}.pdf`);
+    } catch {
+      toast({ text: 'Could not generate the PDF.', tone: 'error' });
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   const items = (kind: Kind) => {
     const list = c[kind] as Array<Experience & Education & Project>;
@@ -95,7 +110,7 @@ function Editor({ cv }: { cv: Cv }) {
         }
         actions={
           <>
-            <Button variant="secondary" onClick={() => window.print()}>
+            <Button variant="secondary" onClick={downloadPdf} loading={pdfBusy}>
               Download PDF
             </Button>
             <Button onClick={saveCv} loading={update.isPending} disabled={!dirty}>
@@ -206,8 +221,7 @@ function Editor({ cv }: { cv: Cv }) {
           </div>
         </Card>
         <div className="xl:sticky xl:top-8">
-          <p className="mb-2.5 text-sm font-medium text-soft">Live preview</p>
-          <CvSheet cv={c} highlight={cur} className="print-area" />
+          <CvLivePreview content={c} />
         </div>
       </div>
       {editing && (

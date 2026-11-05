@@ -131,6 +131,7 @@ export default function SettingsPage() {
   const del = useDeleteAccount();
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [accErr, setAccErr] = useState<Record<string, string>>({});
   const [pw, setPw] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -158,6 +159,11 @@ export default function SettingsPage() {
               error={accErr.email}
               onChange={(e) => setEmail(e.target.value)}
             />
+            {email !== user?.email && (
+              <Input label="Current password (required to change email)" type="password"
+                autoComplete="current-password" value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)} />
+            )}
             <div className="flex flex-wrap gap-2.5 pt-1">
               <Button
                 disabled={!accountDirty}
@@ -165,10 +171,11 @@ export default function SettingsPage() {
                 onClick={() => {
                   setAccErr({});
                   updateMe.mutate(
-                    { name, email },
+                    { name, email, currentPassword },
                     {
                       onSuccess: (u) => {
                         setUser(u);
+                        setCurrentPassword('');
                         toast({ text: 'Account updated.' });
                       },
                       onError: (e) => setAccErr(e instanceof ApiError && e.fieldErrors ? e.fieldErrors : {}),

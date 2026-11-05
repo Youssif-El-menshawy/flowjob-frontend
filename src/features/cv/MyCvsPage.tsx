@@ -6,9 +6,10 @@ import { useDocumentTitle } from '@/shared/lib/hooks';
 import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, Note, PageHeader } from '@/shared/ui/Display';
-import { ConfirmDialog, Modal, useToast } from '@/shared/ui/Overlay';
+import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { CvSheet } from './CvSheet';
+import { CvPreviewModal } from './CvPreviewModal';
 
 export default function MyCvsPage() {
   useDocumentTitle('My CVs');
@@ -116,17 +117,7 @@ export default function MyCvsPage() {
         </div>
       )}
 
-      <Modal
-        open={!!viewing}
-        onClose={() => setViewing(null)}
-        title={viewing?.name ?? ''}
-        size="lg"
-        footer={<Button onClick={() => window.print()}>Download PDF</Button>}
-      >
-        {viewing && (
-          <CvSheet cv={viewing.content} className="print-area shadow-none ring-1 ring-line" compact />
-        )}
-      </Modal>
+      <CvPreviewModal cv={viewing} onClose={() => setViewing(null)} />
       <ConfirmDialog
         open={!!removing}
         onClose={() => setRemoving(null)}
