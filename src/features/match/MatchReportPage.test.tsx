@@ -146,9 +146,9 @@ describe('MatchReportPage', () => {
   });
 
   describe('actions', () => {
-    it('offers a way to start a new match', () => {
+    it('has no separate bottom "Next steps" section', () => {
       renderReport();
-      expect(screen.getByRole('link', { name: 'Start a new match' })).toHaveAttribute('href', '/app/match');
+      expect(screen.queryByText('Next steps')).toBeNull();
     });
   });
 

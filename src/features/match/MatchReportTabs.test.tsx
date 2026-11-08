@@ -245,36 +245,29 @@ describe('expandable requirement cards', () => {
 });
 
 describe('actions', () => {
-  it('top and bottom sections link to the same Tailor and Applications targets', () => {
-    renderReport();
-    const tailor = screen.getAllByRole('link', { name: 'Tailor my CV for this job' });
-    const apps = screen.getAllByRole('link', { name: 'Add to Applications' });
-    expect(tailor).toHaveLength(2);
-    expect(apps).toHaveLength(2);
-    for (const a of tailor) expect(a).toHaveAttribute('href', '/app/match/m1/tailor');
-    expect(apps[0].getAttribute('href')).toBe(apps[1].getAttribute('href'));
-    const q = new URLSearchParams(apps[0].getAttribute('href')!.split('?')[1]);
-    expect([q.get('company'), q.get('jobTitle'), q.get('jobUrl'), q.get('cvId')]).toEqual(['Acme', 'Backend Engineer', 'acme.com/j', 'cv1']);
-    expect(screen.getAllByRole('link', { name: 'Start a new match' })).toHaveLength(1);
-  });
-
-  it('places primary actions before the requirement breakdown and bottom actions after questions', () => {
-    renderReport();
-    const order = (el: HTMLElement) => el.compareDocumentPosition(screen.getByRole('tablist'));
-    const topTailor = screen.getAllByRole('link', { name: 'Tailor my CV for this job' })[0];
-    expect(order(topTailor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // tablist follows top action
-    const q = screen.getByText('A few things to confirm');
-    expect(q.compareDocumentPosition(screen.getAllByRole('link', { name: 'Start a new match' })[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it('puts the primary actions in the header next to the title, with no separate top action section', () => {
+  it('offers exactly one Tailor and one Add to Applications link, in the header, with the right targets', () => {
     renderReport();
     const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
-    expect(within(header).getByRole('link', { name: 'Tailor my CV for this job' })).toBeInTheDocument();
-    expect(within(header).getByRole('link', { name: 'Add to Applications' })).toBeInTheDocument();
-    expect(within(header).queryByRole('link', { name: 'Start a new match' })).toBeNull();
-    // Exactly one more pair: the bottom Next steps.
-    expect(screen.getAllByRole('link', { name: 'Tailor my CV for this job' })).toHaveLength(2);
+    const tailor = within(header).getByRole('link', { name: 'Tailor my CV for this job' });
+    const apps = within(header).getByRole('link', { name: 'Add to Applications' });
+    expect(tailor).toHaveAttribute('href', '/app/match/m1/tailor');
+    const q = new URLSearchParams(apps.getAttribute('href')!.split('?')[1]);
+    expect([q.get('company'), q.get('jobTitle'), q.get('jobUrl'), q.get('cvId')]).toEqual(['Acme', 'Backend Engineer', 'acme.com/j', 'cv1']);
+    expect(screen.getAllByRole('link', { name: 'Tailor my CV for this job' })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: 'Add to Applications' })).toHaveLength(1);
+  });
+
+  it('has no bottom "Next steps" section', () => {
+    renderReport();
+    expect(screen.queryByText('Next steps')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Start a new match' })).toBeNull();
+    expect(screen.queryByText(/never adds skills you do not have/i)).toBeNull();
+  });
+
+  it('places the header actions before the requirement breakdown', () => {
+    renderReport();
+    const tailor = screen.getByRole('link', { name: 'Tailor my CV for this job' });
+    expect(tailor.compareDocumentPosition(screen.getByRole('tablist')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('keeps recommendations and questions visible below the tabs', () => {

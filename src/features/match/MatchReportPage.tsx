@@ -349,16 +349,14 @@ function QuickCard({
   );
 }
 
-/** Shared by the top and bottom action sections — plain links, so no request is ever made here. */
+/** Header actions — plain links, so no request is ever made here. */
 function Actions({
   matchId,
   appQuery,
-  newMatch,
   className,
 }: {
   matchId: string;
   appQuery: string;
-  newMatch?: boolean;
   className?: string;
 }) {
   return (
@@ -367,11 +365,6 @@ function Actions({
       <ButtonLink to={`/app/applications/new?${appQuery}`} variant="secondary">
         Add to Applications
       </ButtonLink>
-      {newMatch && (
-        <ButtonLink to="/app/match" variant="ghost">
-          Start a new match
-        </ButtonLink>
-      )}
     </div>
   );
 }
@@ -519,14 +512,6 @@ function Report({ m }: { m: MatchResult }) {
           </ul>
         </Panel>
       )}
-
-      <Panel headingId="next-h" title="Next steps">
-        <Actions matchId={m.id} appQuery={appQuery} newMatch />
-        <p className="mt-4 text-[13px] text-soft">
-          Tailoring creates a new CV version for you to review — it never changes your original, and FlowJob
-          never adds skills you do not have.
-        </p>
-      </Panel>
     </div>
   );
 }
