@@ -7,10 +7,11 @@ import { cn, downloadBlob, fmtRelative } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { Card, EmptyState, Note, PageHeader } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
-import { useToast } from '@/shared/ui/Overlay';
+import { Modal, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { blank, ItemEditor, SkillsEditor, type Kind } from '@/features/profile/profileParts';
 import { CvLivePreview, type CvPreviewHandle } from './CvLivePreview';
+import { CvSelector } from './CvSelector';
 
 const STEPS = [
   { id: 'personal', label: 'Personal' },
@@ -21,12 +22,37 @@ const STEPS = [
   { id: 'skills', label: 'Skills' },
 ] as const;
 
-function Editor({ cv }: { cv: Cv }) {
+/** Subtitle text from real metadata only. */
+function versionLabel(cv: Cv) {
+  if (cv.kind === 'original') return 'Original CV';
+  const target = cv.company || cv.jobTitle;
+  return target ? `${cv.name}, tailored for ${target}` : `${cv.name}, tailored CV`;
+}
+
+/**
+ * One editor per saved CV (the page keys it by CV id), so form state, the unsaved-changes
+ * snapshot and the Harvard preview engine always belong to exactly one CV. Switching CVs
+ * navigates to /app/cv-builder/:id, which remounts this component with the new CV's data.
+ */
+function Editor({
+  cv,
+  cvs,
+  step,
+  setStep,
+}: {
+  cv: Cv;
+  cvs: Cv[];
+  step: number;
+  setStep: (i: number) => void;
+}) {
   const toast = useToast();
+  const nav = useNavigate();
   const update = useUpdateCv();
   const [c, setC] = useState<CvContent>(() => structuredClone(cv.content));
   const [name, setName] = useState(cv.name);
-  const [step, setStep] = useState(0);
+  // Target CV id while the unsaved-changes dialog is open.
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const previewRef = useRef<CvPreviewHandle>(null);
   // Navigation refreshes the Harvard preview only when the content is actually stale,
@@ -59,6 +85,41 @@ function Editor({ cv }: { cv: Cv }) {
         onError: () => toast({ text: 'Could not save your CV.', tone: 'error' }),
       },
     );
+
+  const goToCv = (id: string) => nav(`/app/cv-builder/${id}`);
+
+  const requestSwitch = (id: string) => {
+    if (id === cv.id || update.isPending) return;
+    if (!dirty) return goToCv(id); // nothing to lose: switch straight away
+    setSwitchError(false);
+    setPendingId(id);
+  };
+  const closeDialog = () => {
+    if (update.isPending) return; // never abandon a save that is still running
+    setPendingId(null);
+    setSwitchError(false);
+  };
+  const discardAndSwitch = () => {
+    // Drops only the local edits; nothing is sent to the backend.
+    const id = pendingId;
+    setPendingId(null);
+    if (id) goToCv(id);
+  };
+  const saveAndSwitch = async () => {
+    const id = pendingId;
+    if (!id || update.isPending) return;
+    setSwitchError(false);
+    try {
+      // Always this CV's own id; the target's data is never involved until after the save succeeds.
+      await update.mutateAsync({ id: cv.id, name, content: c });
+    } catch {
+      setSwitchError(true); // stay on this CV with every edit intact
+      return;
+    }
+    toast({ text: 'CV saved.' });
+    setPendingId(null);
+    goToCv(id);
+  };
 
   // Download the real backend Harvard PDF. Save first so the file matches what's on screen.
   const downloadPdf = async () => {
@@ -115,7 +176,7 @@ function Editor({ cv }: { cv: Cv }) {
         title="CV builder"
         subtitle={
           <>
-            {cv.kind === 'original' ? 'Original CV' : `${cv.name}, tailored for ${cv.company}`} ·{' '}
+            {versionLabel(cv)} ·{' '}
             {dirty ? 'unsaved changes' : `saved ${fmtRelative(cv.updatedAt)}`}
           </>
         }
@@ -153,6 +214,8 @@ function Editor({ cv }: { cv: Cv }) {
       </ol>
 
       <div className="grid items-start gap-6 xl:grid-cols-2">
+        <div className="min-w-0">
+        <CvSelector cvs={cvs} value={cv.id} onSelect={requestSwitch} disabled={update.isPending || !!pendingId} />
         <Card key={cur} className="flex flex-col gap-5 animate-in">
           <h2 className="text-xl font-semibold">{STEPS[step].label}</h2>
           {cur === 'personal' && (
@@ -231,10 +294,38 @@ function Editor({ cv }: { cv: Cv }) {
             )}
           </div>
         </Card>
-        <div className="xl:sticky xl:top-8">
+        </div>
+        <div className="min-w-0 xl:sticky xl:top-8">
           <CvLivePreview ref={previewRef} content={c} />
         </div>
       </div>
+      <Modal
+        open={!!pendingId}
+        onClose={closeDialog}
+        title="Unsaved changes"
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeDialog} disabled={update.isPending}>
+              Keep editing
+            </Button>
+            <Button variant="danger" onClick={discardAndSwitch} disabled={update.isPending}>
+              Discard changes and switch
+            </Button>
+            <Button onClick={saveAndSwitch} loading={update.isPending}>
+              Save and switch
+            </Button>
+          </>
+        }
+      >
+        <p className="leading-relaxed text-soft">
+          You have unsaved changes to “{name || cv.name}”. Switching to another CV would lose them.
+        </p>
+        {switchError && (
+          <p role="alert" className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">
+            Could not save your CV, so nothing was switched. Your changes are still here.
+          </p>
+        )}
+      </Modal>
       {editing && (
         <ItemEditor
           kind={editing.kind}
@@ -264,6 +355,8 @@ export default function CvBuilderPage() {
   const cvs = useCvs();
   const profile = useProfile();
   const create = useCreateCv();
+  // Lifted so the current step survives switching to another CV.
+  const [step, setStep] = useState(0);
   const cv = cvId ? cvs.data?.find((x) => x.id === cvId) : cvs.data?.find((x) => x.kind === 'original');
 
   useEffect(() => {
@@ -271,7 +364,18 @@ export default function CvBuilderPage() {
   }, [cvId, cvs.data, cv, nav]);
 
   if (cvs.isLoading || profile.isLoading) return <PageLoader />;
-  if (cv) return <Editor key={cv.id} cv={cv} />;
+  if (cvs.isError)
+    return (
+      <>
+        <PageHeader title="CV builder" />
+        <EmptyState
+          title="Could not load your CVs"
+          text="Please check your connection and try again."
+          action={<Button onClick={() => cvs.refetch()}>Try again</Button>}
+        />
+      </>
+    );
+  if (cv) return <Editor key={cv.id} cv={cv} cvs={cvs.data ?? []} step={step} setStep={setStep} />;
 
   const hasProfile =
     !!profile.data && (profile.data.experience.length > 0 || profile.data.summary.length > 0);

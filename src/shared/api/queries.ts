@@ -55,6 +55,9 @@ export function useUpdateCv() {
       api<Cv>(`/cvs/${id}`, { method: 'PUT', json: cv }),
     onSuccess: (cv) => {
       qc.setQueryData(qk.cv(cv.id), cv);
+      // Update the cached list synchronously too, so re-opening this CV right away (e.g. switching
+      // back to it in the builder) can never show its pre-save content while the refetch is in flight.
+      qc.setQueryData<Cv[]>(qk.cvs, (old) => old?.map((x) => (x.id === cv.id ? cv : x)));
       qc.invalidateQueries({ queryKey: qk.cvs });
     },
   });
