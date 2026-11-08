@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -77,6 +78,16 @@ export function ApplicationForm({
   });
   const status = watch('status');
   const e = formState.errors;
+
+  // The CV <select> is filled asynchronously, so a default cvId (e.g. handed over from Job
+  // Match) cannot be applied until its <option> exists. Apply it once the list has loaded.
+  const appliedCv = useRef(false);
+  useEffect(() => {
+    const want = defaults?.cvId;
+    if (appliedCv.current || !want || !cvs.data) return;
+    appliedCv.current = true;
+    if (cvs.data.some((c) => c.id === want)) setValue('cvId', want);
+  }, [cvs.data, defaults?.cvId, setValue]);
 
   return (
     <form noValidate onSubmit={handleSubmit((v) => onSubmit(clean(v)))} className="flex flex-col gap-5">
