@@ -182,10 +182,59 @@ describe('unsaved-changes protection', () => {
     const dlg = screen.getByRole('dialog', { name: 'Unsaved changes' });
     expect(dlg).toBeInTheDocument();
     expect(within(dlg).getByRole('button', { name: 'Keep editing' })).toBeInTheDocument();
-    expect(within(dlg).getByRole('button', { name: 'Discard changes and switch' })).toBeInTheDocument();
-    expect(within(dlg).getByRole('button', { name: 'Save and switch' })).toBeInTheDocument();
+    expect(within(dlg).getByRole('button', { name: 'Discard & switch' })).toBeInTheDocument();
+    expect(within(dlg).getByRole('button', { name: 'Save & switch' })).toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1');
     expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('names the current and target CVs and uses the refined button set', () => {
+    renderAt('/app/cv-builder/t1');
+    makeDirty();
+    choose('o1');
+    const dlg = screen.getByRole('dialog', { name: 'Unsaved changes' });
+    expect(dlg).toHaveTextContent('“Hays v1”');
+    expect(dlg).toHaveTextContent('“Original CV”');
+    expect(within(dlg).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      '', // the X icon close button has no text, only an accessible name
+      'Keep editing',
+      'Discard & switch',
+      'Save & switch',
+    ]);
+    expect(within(dlg).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(within(dlg).queryByText('Close')).toBeNull(); // not the old text button
+  });
+
+  it('X and Escape behave like Keep editing; clicking outside does nothing', () => {
+    renderAt('/app/cv-builder/o1');
+    makeDirty();
+    choose('t1');
+    // Backdrop click is ignored: still open, nothing saved, nothing switched.
+    fireEvent.click(document.querySelector('[role=dialog]')!.previousElementSibling!);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1');
+    // Escape
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(fullName()).toBe('Edited Name');
+    // X
+    choose('t1');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(select().value).toBe('o1');
+    expect(fullName()).toBe('Edited Name');
+    expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('copes with very long CV names without losing the actions', () => {
+    const long = 'A'.repeat(180);
+    mocks.cvs = { ...mocks.cvs, data: [ORIG, { ...HAYS, name: long }, SNOW] };
+    renderAt('/app/cv-builder/o1');
+    makeDirty();
+    choose('t1');
+    const dlg = screen.getByRole('dialog');
+    expect(dlg).toHaveTextContent(long);
+    expect(within(dlg).getByRole('button', { name: 'Save & switch' })).toBeInTheDocument();
   });
 
   it('Keep editing closes the dialog, keeps the CV and every edit', () => {
@@ -199,22 +248,22 @@ describe('unsaved-changes protection', () => {
     expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it('Discard switches without saving anything', () => {
+  it('Discard & switch switches without saving anything', () => {
     renderAt('/app/cv-builder/o1');
     makeDirty();
     choose('t1');
-    fireEvent.click(screen.getByRole('button', { name: 'Discard changes and switch' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard & switch' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/t1');
     expect(fullName()).toBe('Hays Person');
     expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
     expect(mocks.update.mutate).not.toHaveBeenCalled();
   });
 
-  it('Save and switch saves the CURRENT CV (only its id, name and content) and then switches', async () => {
+  it('Save & switch saves the CURRENT CV (only its id, name and content) and then switches', async () => {
     renderAt('/app/cv-builder/t1'); // a tailored CV
     makeDirty();
     choose('o1');
-    fireEvent.click(screen.getByRole('button', { name: 'Save and switch' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & switch' }));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1'));
     expect(mocks.update.mutateAsync).toHaveBeenCalledTimes(1);
     const payload = mocks.update.mutateAsync.mock.calls[0][0];
@@ -231,7 +280,7 @@ describe('unsaved-changes protection', () => {
     renderAt('/app/cv-builder/o1');
     makeDirty();
     choose('t1');
-    fireEvent.click(screen.getByRole('button', { name: 'Save and switch' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & switch' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/Could not save your CV/);
     expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1');
     expect(screen.getByRole('dialog')).toBeInTheDocument();

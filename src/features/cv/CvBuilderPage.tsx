@@ -94,6 +94,7 @@ function Editor({
     setSwitchError(false);
     setPendingId(id);
   };
+  const targetCv = pendingId ? cvs.find((x) => x.id === pendingId) : undefined;
   const closeDialog = () => {
     if (update.isPending) return; // never abandon a save that is still running
     setPendingId(null);
@@ -303,22 +304,41 @@ function Editor({
         open={!!pendingId}
         onClose={closeDialog}
         title="Unsaved changes"
+        size="confirm"
+        iconClose
+        stackFooter
+        dismissOnBackdrop={false}
+        icon={
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#fbebc6] text-[#7a4f00]" aria-hidden>
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3.5 2.5 20h19L12 3.5Z" />
+              <path d="M12 10v4.5M12 17.5v.01" />
+            </svg>
+          </span>
+        }
         footer={
           <>
-            <Button variant="secondary" onClick={closeDialog} disabled={update.isPending}>
+            <Button variant="secondary" onClick={closeDialog} disabled={update.isPending} data-autofocus>
               Keep editing
             </Button>
             <Button variant="danger" onClick={discardAndSwitch} disabled={update.isPending}>
-              Discard changes and switch
+              Discard &amp; switch
             </Button>
             <Button onClick={saveAndSwitch} loading={update.isPending}>
-              Save and switch
+              Save &amp; switch
             </Button>
           </>
         }
       >
-        <p className="leading-relaxed text-soft">
-          You have unsaved changes to “{name || cv.name}”. Switching to another CV would lose them.
+        <p className="leading-relaxed break-words text-soft">
+          You have unsaved changes to <strong className="font-semibold text-ink">“{name || cv.name}”</strong>.
+          {targetCv && (
+            <>
+              {' '}
+              Switching to <strong className="font-semibold text-ink">“{targetCv.name}”</strong> will discard them
+              unless you save first.
+            </>
+          )}
         </p>
         {switchError && (
           <p role="alert" className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">
