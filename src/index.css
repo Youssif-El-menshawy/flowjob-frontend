@@ -67,6 +67,7 @@
   --color-danger-soft: var(--danger-soft);
 
   /* Status colours stay the same in both themes */
+  --color-st-saved: #c7d2dd;
   --color-st-applied: #9cc4f2;
   --color-st-review: #f5cb6e;
   --color-st-interview: #b7aaf2;

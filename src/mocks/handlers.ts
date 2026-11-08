@@ -46,7 +46,7 @@ function authed<P = Record<string, string>>(
 function nextStatus(s: ApplicationStatus): ApplicationStatus | null {
   return (
     (
-      { Applied: 'Under review', 'Under review': 'Interview', Interview: 'Offer' } as Record<
+      { Applied: 'Saved', 'Saved': 'Interview', Interview: 'Offer' } as Record<
         string,
         ApplicationStatus
       >
@@ -316,7 +316,9 @@ export const handlers = [
   http.get(
     `${B}/applications`,
     authed(({ u }) =>
-      HttpResponse.json([...u.data.applications].sort((a, b) => b.dateApplied.localeCompare(a.dateApplied))),
+      HttpResponse.json(
+        [...u.data.applications].sort((a, b) => (b.dateApplied ?? '').localeCompare(a.dateApplied ?? '')),
+      ),
     ),
   ),
   http.get<{ id: string }>(

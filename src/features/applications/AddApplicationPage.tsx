@@ -23,7 +23,12 @@ export default function AddApplicationPage() {
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_300px]">
         <Card className="animate-in">
           <ApplicationForm
-            defaults={{ company: params.get('company') ?? '', jobTitle: params.get('jobTitle') ?? '' }}
+            defaults={{
+              company: params.get('company') ?? '',
+              jobTitle: params.get('jobTitle') ?? '',
+              jobUrl: params.get('jobUrl') ?? '',
+              cvId: params.get('cvId') ?? '',
+            }}
             submitLabel="Save application"
             onCancel={() => nav(-1)}
             onSubmit={(v) =>

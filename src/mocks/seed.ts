@@ -180,7 +180,7 @@ export function demoData() {
       [
         ev('Applied', '2026-10-09', 'manual', 'Saved with Nokia v1.'),
         ev(
-          'Under review',
+          'Saved',
           '2026-10-12',
           'gmail_auto',
           '“Thanks for applying. Our team is reviewing your application.”',
@@ -190,11 +190,11 @@ export function demoData() {
     ),
     app('ING Tech', 'Junior Developer', '2026-10-06', [
       ev('Applied', '2026-10-06'),
-      ev('Under review', '2026-10-10'),
+      ev('Saved', '2026-10-10'),
     ]),
     app('Asseco', 'Frontend Developer', '2026-10-03', [
       ev('Applied', '2026-10-03'),
-      ev('Under review', '2026-10-08'),
+      ev('Saved', '2026-10-08'),
     ]),
     app(
       'Allegro',
@@ -203,7 +203,7 @@ export function demoData() {
       [
         ev('Applied', '2026-10-02', 'manual', 'Saved with Allegro v2.'),
         ev(
-          'Under review',
+          'Saved',
           '2026-10-06',
           'gmail_auto',
           '“Thank you for applying, our team is reviewing your application.”',

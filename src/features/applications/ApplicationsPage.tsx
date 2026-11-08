@@ -4,30 +4,25 @@ import { useApplications, useUpdateApplication } from '@/shared/api/queries';
 import type { Application, ApplicationStatus } from '@/shared/api/types';
 import { STATUSES } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
-import { cn, fmtDate, fmtRelative } from '@/shared/lib/utils';
+import { cn, fmtDate } from '@/shared/lib/utils';
 import { ButtonLink } from '@/shared/ui/Button';
 import { EmptyState, PageHeader, Segmented, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
 import { controlClass } from '@/shared/ui/Field';
 import { Icon } from '@/shared/ui/Icons';
 import { useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
-import { useGmail } from '@/shared/api/queries';
 
 const COLUMNS: { name: string; statuses: ApplicationStatus[]; slab: string; drop?: ApplicationStatus }[] = [
+  { name: 'Saved', statuses: ['Saved'], slab: STATUS_STYLE.Saved.slab, drop: 'Saved' },
   { name: 'Applied', statuses: ['Applied'], slab: STATUS_STYLE.Applied.slab, drop: 'Applied' },
-  {
-    name: 'Under review',
-    statuses: ['Under review'],
-    slab: STATUS_STYLE['Under review'].slab,
-    drop: 'Under review',
-  },
   { name: 'Interview', statuses: ['Interview'], slab: STATUS_STYLE.Interview.slab, drop: 'Interview' },
   { name: 'Offer', statuses: ['Offer'], slab: STATUS_STYLE.Offer.slab, drop: 'Offer' },
   { name: 'Closed', statuses: ['Rejected', 'Withdrawn'], slab: 'bg-[#e3ded3]' },
 ];
 
 function CardItem({ a, i }: { a: Application; i: number }) {
-  const lastGmail = a.history[a.history.length - 1]?.source !== 'manual';
+  const hist = a.history ?? [];
+  const lastGmail = hist.length > 0 && hist[hist.length - 1].source !== 'manual';
   return (
     <Link
       to={`/app/applications/${a.id}`}
@@ -59,7 +54,6 @@ export default function ApplicationsPage() {
   useDocumentTitle('Applications');
   const toast = useToast();
   const { data, isLoading } = useApplications();
-  const gmail = useGmail();
   const update = useUpdateApplication();
   const [params, setParams] = useSearchParams();
   const [view, setView] = useState<'Board' | 'Table'>(
@@ -101,7 +95,7 @@ export default function ApplicationsPage() {
     <>
       <PageHeader
         title="Applications"
-        subtitle={`${data?.length ?? 0} applications${gmail.data?.connected ? ` · Gmail checked ${fmtRelative(gmail.data.lastSyncAt)}` : ''}`}
+        subtitle={`${data?.length ?? 0} ${(data?.length ?? 0) === 1 ? 'application' : 'applications'}`}
         actions={<ButtonLink to="/app/applications/new">Add application</ButtonLink>}
       />
       {!data?.length ? (
@@ -198,7 +192,7 @@ export default function ApplicationsPage() {
               <table className="w-full min-w-[680px] text-left text-[15px]">
                 <thead className="text-[13px] text-soft">
                   <tr className="border-b border-line">
-                    {['Company', 'Role', 'Applied', 'Status', 'Source'].map((h) => (
+                    {['Company', 'Role', 'Applied', 'Status', 'Work'].map((h) => (
                       <th key={h} className="px-5 py-3 font-medium">
                         {h}
                       </th>
@@ -222,7 +216,7 @@ export default function ApplicationsPage() {
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-sm text-soft">
-                        {a.history.some((h) => h.source !== 'manual') ? 'Gmail' : 'Manual'}
+                        {a.workArrangement ?? '—'}
                       </td>
                     </tr>
                   ))}

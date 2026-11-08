@@ -39,8 +39,8 @@ export function CardTitle({
 }
 
 export const STATUS_STYLE: Record<ApplicationStatus, { pill: string; slab: string }> = {
+  Saved: { pill: 'bg-[#e4e9ef] text-[#3f5468]', slab: 'bg-st-saved' },
   Applied: { pill: 'bg-[#dceafb] text-[#1f4e86]', slab: 'bg-st-applied' },
-  'Under review': { pill: 'bg-[#fbebc6] text-[#7a4f00]', slab: 'bg-st-review' },
   Interview: { pill: 'bg-[#e6e1fb] text-[#4b3a9e]', slab: 'bg-st-interview' },
   Offer: { pill: 'bg-[#d6f0df] text-[#1e6b3e]', slab: 'bg-st-offer' },
   Rejected: { pill: 'bg-[#f6dcd7] text-[#7a2a20]', slab: 'bg-st-rejected' },

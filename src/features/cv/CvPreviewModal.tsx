@@ -1,47 +1,38 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchCvPdfBlob } from '@/shared/api/queries';
 import type { Cv } from '@/shared/api/types';
 import { downloadBlob } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { Modal } from '@/shared/ui/Overlay';
-import { Spinner } from '@/shared/ui/Spinner';
+import { HarvardPdfViewer } from './HarvardPdfViewer';
 
 /**
- * Previews a saved CV using the backend-rendered Harvard PDF, and downloads the
- * exact same document. Preview and Download never diverge: both come from the
- * single blob fetched here.
+ * Previews a saved CV as a clean Harvard PDF using the SAME canvas renderer as the CV
+ * Builder (HarvardPdfViewer) — no native PDF toolbar. The single fetched blob backs both
+ * the preview and the Download button, so they never diverge. Read-only; no DB writes.
  */
 export function CvPreviewModal({ cv, onClose }: { cv: Cv | null; onClose: () => void }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const blobRef = useRef<Blob | null>(null);
+  const [blob, setBlob] = useState<Blob | null>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
     if (!cv) return;
-    let active = true;
-    let objectUrl: string | null = null;
-    setState('loading');
-    setUrl(null);
-    blobRef.current = null;
-    fetchCvPdfBlob(cv.id)
-      .then((blob) => {
-        if (!active) return;
-        blobRef.current = blob;
-        objectUrl = URL.createObjectURL(blob);
-        setUrl(objectUrl);
-        setState('ready');
+    const controller = new AbortController();
+    setStatus('loading');
+    setBlob(null);
+    fetchCvPdfBlob(cv.id, controller.signal)
+      .then((b) => {
+        setBlob(b);
+        setStatus('ready');
       })
-      .catch(() => {
-        if (active) setState('error');
+      .catch((e: unknown) => {
+        if (!(e instanceof DOMException && e.name === 'AbortError')) setStatus('error');
       });
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+    return () => controller.abort(); // cancel the fetch if the modal closes / CV changes
   }, [cv]);
 
   const filename = `${(cv?.name || 'CV').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'CV'}.pdf`;
-  const download = () => blobRef.current && downloadBlob(blobRef.current, filename);
+  const download = () => blob && downloadBlob(blob, filename);
 
   return (
     <Modal
@@ -50,21 +41,17 @@ export function CvPreviewModal({ cv, onClose }: { cv: Cv | null; onClose: () => 
       title={cv?.name ?? ''}
       size="lg"
       footer={
-        <Button onClick={download} disabled={state !== 'ready'}>
+        <Button onClick={download} disabled={!blob}>
           Download PDF
         </Button>
       }
     >
-      <div className="flex h-[70vh] items-center justify-center overflow-hidden rounded-md bg-[#525659]">
-        {state === 'loading' && <Spinner className="text-white" />}
-        {state === 'error' && (
-          <p className="px-6 text-center text-sm text-white">
-            Could not generate the PDF. Please try again.
-          </p>
-        )}
-        {state === 'ready' && url && (
-          <iframe title={`${cv?.name ?? 'CV'} preview`} src={url} className="h-full w-full border-0" />
-        )}
+      <div className="h-[70vh] overflow-hidden rounded-md">
+        <HarvardPdfViewer
+          blob={blob}
+          status={status}
+          errorText="Could not generate the PDF. Please try again."
+        />
       </div>
     </Modal>
   );

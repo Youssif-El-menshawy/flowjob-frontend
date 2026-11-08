@@ -7,6 +7,7 @@ import type {
   Cv,
   GmailConnection,
   MatchResult,
+  RunMatchInput,
   Profile,
   SyncResult,
   TailorDraft,
@@ -57,11 +58,12 @@ export function useUpdateCv() {
   });
 }
 /** Fetch the backend-rendered Harvard PDF for a saved CV (same document for preview and download). */
-export const fetchCvPdfBlob = (id: string) => apiBlob(`/cvs/${id}/pdf`);
+export const fetchCvPdfBlob = (id: string, signal?: AbortSignal) =>
+  apiBlob(`/cvs/${id}/pdf`, { signal });
 
 /** Render unsaved CV content to a Harvard PDF for the live builder preview (no DB write). */
-export const fetchCvPreviewPdf = (content: unknown) =>
-  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content } });
+export const fetchCvPreviewPdf = (content: unknown, signal?: AbortSignal) =>
+  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content }, signal });
 
 export function useDeleteCv() {
   const qc = useQueryClient();
@@ -86,8 +88,7 @@ export const useMatch = (id?: string) =>
 export function useRunMatch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (b: { cvId: string; jobText: string }) =>
-      api<MatchResult>('/matches', { method: 'POST', json: b }),
+    mutationFn: (b: RunMatchInput) => api<MatchResult>('/matches', { method: 'POST', json: b }),
     onSuccess: (m) => {
       qc.setQueryData(qk.match(m.id), m);
       qc.invalidateQueries({ queryKey: qk.matches });

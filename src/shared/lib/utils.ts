@@ -14,7 +14,7 @@ export const suggestionPhrase = (s: string) =>
     ({
       Offer: 'an offer',
       Interview: 'an interview invite',
-      'Under review': 'a “we are reviewing” reply',
+      Saved: 'a saved role',
       Rejected: 'a rejection',
       Withdrawn: 'a withdrawal',
     }) as Record<string, string>

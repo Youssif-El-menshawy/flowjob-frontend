@@ -1,197 +1,162 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Document, Page, pdfjs } from 'react-pdf';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { fetchCvPreviewPdf } from '@/shared/api/queries';
 import type { CvContent } from '@/shared/api/types';
-import { useDebouncedValue } from '@/shared/lib/hooks';
+import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
-import { Spinner } from '@/shared/ui/Spinner';
-
-// Render PDF pages ourselves (as canvases) so the browser's native PDF toolbar never
-// appears. The worker is bundled locally by Vite — no CDN, no paid service.
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
+import { HarvardPdfViewer } from './HarvardPdfViewer';
+import { createPreviewEngine, type PreviewEngine, type PreviewState } from './cvPreview';
 
 const ZOOMS = [0.6, 0.8, 1, 1.25, 1.5, 2];
 const DEFAULT_ZOOM = 2; // index of 1.0 (fit-to-width)
 
+export interface CvPreviewHandle {
+  /** Regenerate only if the form content differs from the displayed PDF. */
+  updateIfStale: () => void;
+  /** Regenerate from the current content (used by the Update preview button). */
+  update: () => void;
+}
+
 /**
- * Live Harvard CV preview for the builder. Fetches the backend-rendered PDF for the
- * current (unsaved) content and paints its pages onto canvases — a clean A4 document
- * with no PDF-viewer chrome. Read-only; same renderer as the saved preview and download.
- *
- * Debounced (~700ms), race-safe (stale responses are dropped), and never writes to MongoDB.
+ * Event-driven Harvard CV preview. The PDF is generated on mount and then ONLY when
+ * explicitly requested (Update preview button, or Next/Back and Save when stale) — never
+ * on keystrokes. Renders via the shared HarvardPdfViewer (PDF.js canvases, no viewer chrome).
+ * Read-only; same renderer as the saved preview and download. Never writes to MongoDB.
  */
-export function CvLivePreview({ content }: { content: CvContent }) {
-  const json = JSON.stringify(content);
-  const debounced = useDebouncedValue(json, 700);
-
-  const [blob, setBlob] = useState<Blob | null>(null);
-  const [numPages, setNumPages] = useState(0);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [refreshing, setRefreshing] = useState(false);
-  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
-  const [fullscreen, setFullscreen] = useState(false);
-  const [baseWidth, setBaseWidth] = useState(560);
-
-  const reqId = useRef(0);
-  const frameRef = useRef<HTMLDivElement>(null);
-
-  // Fetch a fresh PDF whenever the (debounced) content changes; only the latest wins.
-  useEffect(() => {
-    const myId = ++reqId.current;
-    setRefreshing(true);
-    setStatus((s) => (s === 'ready' ? 'ready' : 'loading'));
-    let cancelled = false;
-    fetchCvPreviewPdf(JSON.parse(debounced))
-      .then((next) => {
-        if (cancelled || myId !== reqId.current) return; // a newer request already won
-        setBlob(next);
-      })
-      .catch(() => {
-        if (!cancelled && myId === reqId.current) setStatus('error');
-      })
-      .finally(() => {
-        if (!cancelled && myId === reqId.current) setRefreshing(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [debounced]);
-
-  // Track the panel width so pages render fit-to-width and never clip (responsive).
-  useLayoutEffect(() => {
-    const el = frameRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width;
-      if (w) setBaseWidth(w);
+export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>(
+  function CvLivePreview({ content }, ref) {
+    const [engineState, setEngineState] = useState<PreviewState>({
+      status: 'idle',
+      blob: null,
+      renderedFingerprint: null,
+      error: false,
     });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [fullscreen]);
+    const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+    const [fullscreen, setFullscreen] = useState(false);
 
-  useEffect(() => {
-    if (!fullscreen) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setFullscreen(false);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [fullscreen]);
+    const contentRef = useRef(content);
+    contentRef.current = content; // always the latest form content for imperative calls
 
-  const scale = ZOOMS[zoom];
-  const pageWidth = Math.max(220, Math.round((baseWidth - 32) * scale));
+    // One engine per mounted CV (the parent remounts via key={cv.id} for a different CV).
+    const engineRef = useRef<PreviewEngine | null>(null);
+    if (!engineRef.current) {
+      engineRef.current = createPreviewEngine(
+        (c, signal) => fetchCvPreviewPdf(c, signal),
+        setEngineState,
+      );
+    }
+    const engine = engineRef.current;
 
-  // react-pdf needs a stable `file` reference, or it reloads the document every render.
-  const file = useMemo(() => blob, [blob]);
+    // Initial preview, generated exactly once; abort/cleanup on unmount.
+    useEffect(() => {
+      engine.request(contentRef.current);
+      return () => engine.dispose();
+    }, [engine]);
 
-  const viewer = (
-    <div ref={frameRef} className="relative h-full w-full overflow-auto overscroll-contain bg-[#e9ebef]">
-      <div className="flex min-h-full flex-col items-center gap-4 p-4">
-        {file && (
-          <Document
-            file={file}
-            loading={null}
-            error={null}
-            onLoadSuccess={({ numPages: n }) => {
-              setNumPages(n);
-              setStatus('ready');
-            }}
-            onLoadError={() => setStatus('error')}
+    useImperativeHandle(
+      ref,
+      () => ({
+        updateIfStale: () => void engine.requestIfStale(contentRef.current),
+        update: () => void engine.request(contentRef.current),
+      }),
+      [engine],
+    );
+
+    useEffect(() => {
+      if (!fullscreen) return;
+      const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setFullscreen(false);
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [fullscreen]);
+
+    const scale = ZOOMS[zoom];
+    const { status, blob, error } = engineState;
+    const loading = status === 'loading';
+    // Derived from current form content vs the displayed PDF — recomputed every render, so
+    // the button reacts to typing instantly without any network request.
+    const stale = engine.isStale(content);
+
+    // No status dot/text — just the Update preview button. Enabled only when the form content
+    // differs from the displayed PDF (stale), or the last attempt failed.
+    const actionLabel = loading ? 'Updating…' : error ? 'Retry' : 'Update preview';
+    const actionDisabled = loading || (!stale && !error);
+    const runUpdate = () => engine.request(contentRef.current, { force: error });
+
+    const zoomControls = (
+      <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label="Zoom out"
+          disabled={zoom === 0}
+          onClick={() => setZoom((z) => Math.max(0, z - 1))}
+        >
+          −
+        </Button>
+        <span className="w-10 text-center text-xs tabular-nums text-soft">
+          {Math.round(scale * 100)}%
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label="Zoom in"
+          disabled={zoom === ZOOMS.length - 1}
+          onClick={() => setZoom((z) => Math.min(ZOOMS.length - 1, z + 1))}
+        >
+          +
+        </Button>
+      </div>
+    );
+
+    const header = (
+      <div className="mb-2.5 flex flex-wrap items-center justify-end gap-1">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={runUpdate}
+          disabled={actionDisabled}
+          aria-label={error ? 'Retry preview generation' : 'Update preview'}
+        >
+          {actionLabel}
+        </Button>
+        <div className={cn(fullscreen && 'rounded-md bg-white/10 px-1')}>{zoomControls}</div>
+        {fullscreen ? (
+          <button
+            onClick={() => setFullscreen(false)}
+            className="rounded-md px-3 py-1.5 text-sm text-white hover:bg-white/10"
           >
-            {Array.from({ length: numPages }, (_, i) => (
-              <div key={i} className="mb-4 shadow-[0_6px_24px_rgb(0_0_0/0.18)] last:mb-0">
-                <Page
-                  pageNumber={i + 1}
-                  width={pageWidth}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  loading={null}
-                />
-              </div>
-            ))}
-          </Document>
+            Close
+          </button>
+        ) : (
+          <Button size="sm" variant="ghost" onClick={() => setFullscreen(true)}>
+            Full screen
+          </Button>
         )}
       </div>
+    );
 
-      {status === 'loading' && (
-        <div className="absolute inset-0 grid place-items-center">
-          <Spinner />
+    // One persistent tree: fullscreen is a CSS state change, so the viewer is never
+    // remounted (no PDF.js re-parse) when toggling fullscreen or switching form steps.
+    return (
+      <div className={cn(fullscreen && 'fixed inset-0 z-50 flex flex-col bg-black/80 p-4 sm:p-8')}>
+        <div className={cn(fullscreen && 'mx-auto flex w-full max-w-4xl flex-col overflow-hidden')}>
+          {header}
         </div>
-      )}
-      {status === 'error' && (
-        <div className="absolute inset-0 grid place-items-center">
-          <p className="px-6 text-center text-sm text-soft">
-            Could not render the preview. It will retry when you next edit a field.
-          </p>
-        </div>
-      )}
-      {refreshing && status === 'ready' && (
-        <span className="absolute top-2 right-2 rounded-full bg-black/60 px-2.5 py-1 text-xs text-white">
-          Updating…
-        </span>
-      )}
-    </div>
-  );
-
-  const zoomControls = (
-    <div className="flex items-center gap-1">
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="Zoom out"
-        disabled={zoom === 0}
-        onClick={() => setZoom((z) => Math.max(0, z - 1))}
-      >
-        −
-      </Button>
-      <span className="w-10 text-center text-xs tabular-nums text-soft">{Math.round(scale * 100)}%</span>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="Zoom in"
-        disabled={zoom === ZOOMS.length - 1}
-        onClick={() => setZoom((z) => Math.min(ZOOMS.length - 1, z + 1))}
-      >
-        +
-      </Button>
-    </div>
-  );
-
-  return (
-    <>
-      <div>
-        <div className="mb-2.5 flex items-center justify-between gap-2">
-          <p className="text-sm font-medium text-soft">Live preview · Harvard template</p>
-          <div className="flex items-center gap-1">
-            {zoomControls}
-            <Button size="sm" variant="ghost" onClick={() => setFullscreen(true)}>
-              Full screen
-            </Button>
-          </div>
-        </div>
-        <div className="h-[clamp(420px,70vh,900px)] overflow-hidden rounded-md ring-1 ring-line">
-          {!fullscreen && viewer}
+        <div
+          className={cn(
+            'overflow-hidden rounded-md',
+            fullscreen
+              ? 'mx-auto w-full max-w-4xl flex-1'
+              : 'h-[clamp(420px,70vh,900px)] ring-1 ring-line',
+          )}
+        >
+          <HarvardPdfViewer
+            blob={blob}
+            status={status}
+            scale={scale}
+            errorText={'Could not generate the preview. Use “Retry” above.'}
+          />
         </div>
       </div>
-
-      {fullscreen && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/70 p-4 sm:p-8" role="dialog" aria-modal="true">
-          <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-2 pb-3 text-white">
-            <p className="text-sm font-medium">Live preview · Harvard template</p>
-            <div className="flex items-center gap-2">
-              <div className="rounded-md bg-white/10 px-1">{zoomControls}</div>
-              <button
-                onClick={() => setFullscreen(false)}
-                className="rounded-md px-3 py-1.5 text-sm hover:bg-white/10"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-          <div className="mx-auto w-full max-w-4xl flex-1 overflow-hidden rounded-md">{viewer}</div>
-        </div>
-      )}
-    </>
-  );
-}
+    );
+  },
+);

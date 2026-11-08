@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useApplications, useCvs, useGmail, useMatches, useReviewSuggestion } from '@/shared/api/queries';
+import { useApplications, useCvs, useGmail, useMatches, useProfile, useReviewSuggestion } from '@/shared/api/queries';
+import { isProfileComplete } from '@/shared/lib/profile';
 import type { Application } from '@/shared/api/types';
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
@@ -19,7 +20,7 @@ import { Icon } from '@/shared/ui/Icons';
 import { useToast } from '@/shared/ui/Overlay';
 import { Skeleton } from '@/shared/ui/Spinner';
 
-const STAIRS = ['Applied', 'Under review', 'Interview', 'Offer'] as const;
+const STAIRS = ['Saved', 'Applied', 'Interview', 'Offer'] as const;
 
 function Staircase({ apps }: { apps: Application[] }) {
   const count = (s: string) => apps.filter((a) => a.status === s).length;
@@ -117,8 +118,30 @@ function ReviewCard({ apps }: { apps: Application[] }) {
   );
 }
 
-function Onboarding({ hasCv, hasMatch, hasApp }: { hasCv: boolean; hasMatch: boolean; hasApp: boolean }) {
+function Onboarding({
+  profileComplete,
+  hasCv,
+  hasMatch,
+  hasApp,
+}: {
+  profileComplete: boolean;
+  hasCv: boolean;
+  hasMatch: boolean;
+  hasApp: boolean;
+}) {
   const steps = [
+    // Shown only while the profile is incomplete; disappears once it meets the criteria.
+    ...(profileComplete
+      ? []
+      : [
+          {
+            done: false,
+            t: 'Complete your profile',
+            d: 'Add your experience, education, and skills to make creating CVs faster.',
+            to: '/app/profile',
+            cta: 'Complete profile',
+          },
+        ]),
     {
       done: hasCv,
       t: 'Create your CV',
@@ -146,7 +169,11 @@ function Onboarding({ hasCv, hasMatch, hasApp }: { hasCv: boolean; hasMatch: boo
   return (
     <Card className="animate-in">
       <CardTitle
-        action={<span className="text-sm text-soft">{steps.filter((s) => s.done).length} of 3 done</span>}
+        action={
+          <span className="text-sm text-soft">
+            {steps.filter((s) => s.done).length} of {steps.length} done
+          </span>
+        }
       >
         Let’s get you set up
       </CardTitle>
@@ -190,6 +217,8 @@ export default function DashboardPage() {
   const apps = useApplications();
   const cvs = useCvs();
   const matches = useMatches();
+  const profile = useProfile();
+  const profileComplete = isProfileComplete(profile.data);
   const gmail = useGmail();
   const last = matches.data?.[0];
   const score = useCountUp(last?.score ?? 0);
@@ -197,19 +226,23 @@ export default function DashboardPage() {
   const loading = apps.isLoading || cvs.isLoading || matches.isLoading;
   const list = apps.data ?? [];
   const isNew = !loading && (list.length === 0 || !cvs.data?.length);
-  const moved = list.filter(
-    (a) => a.history.length > 1 && Date.now() - new Date(a.updatedAt).getTime() < 7 * 864e5,
-  ).length;
-  const waiting = list.filter((a) => a.suggestion).length;
+
+  // Stats come only from real, always-present fields (status). Gmail/history/suggestion are
+  // deferred features the real API does not return, so the dashboard never reads them here.
+  const active = list.filter((a) => a.status !== 'Rejected' && a.status !== 'Withdrawn').length;
+  const interviews = list.filter((a) => a.status === 'Interview').length;
+  const offers = list.filter((a) => a.status === 'Offer').length;
 
   const sub = isNew
     ? 'Three small steps and FlowJob starts working for you.'
-    : [
-        moved
-          ? `${moved} application${moved > 1 ? 's' : ''} moved forward this week.`
-          : 'Here is where things stand.',
-        waiting ? `${waiting} need${waiting > 1 ? '' : 's'} a quick look from you.` : '',
-      ].join(' ');
+    : list.length
+      ? [
+          `${active} application${active === 1 ? '' : 's'} in progress`,
+          offers ? `${offers} offer${offers > 1 ? 's' : ''}` : interviews ? `${interviews} at interview` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') + '.'
+      : 'Here is where things stand.';
 
   return (
     <>
@@ -237,6 +270,7 @@ export default function DashboardPage() {
         <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
           <div className="flex flex-col gap-5">
             <Onboarding
+              profileComplete={profileComplete}
               hasCv={!!cvs.data?.length}
               hasMatch={!!matches.data?.length}
               hasApp={list.length > 0}

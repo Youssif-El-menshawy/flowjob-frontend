@@ -49,7 +49,12 @@ export default function ApplicationDetailPage() {
       />
     );
   const cv = cvs.data?.find((c) => c.id === a.cvId);
-  const history = [...a.history].reverse();
+  // The real backend does not store a per-event timeline (Gmail/history is a deferred
+  // feature); show the current status as a single entry. Demo (MSW) data has full history.
+  const history =
+    a.history && a.history.length
+      ? [...a.history].reverse()
+      : [{ id: 'current', status: a.status, at: a.updatedAt, source: 'manual' as const }];
 
   const setStatus = (status: ApplicationStatus) => {
     setStatusOpen(false);
@@ -66,7 +71,7 @@ export default function ApplicationDetailPage() {
             {a.company} <StatusPill key={a.status} status={a.status} className="animate-pop text-sm" />
           </span>
         }
-        subtitle={`${a.jobTitle} · applied ${fmtDate(a.dateApplied, true)}`}
+        subtitle={`${a.jobTitle}${a.dateApplied ? ` · applied ${fmtDate(a.dateApplied, true)}` : ''}`}
         actions={
           <>
             <Button variant="secondary" onClick={() => setEditing(true)}>
@@ -121,7 +126,11 @@ export default function ApplicationDetailPage() {
               {[
                 ['Company', a.company],
                 ['Job title', a.jobTitle],
-                ['Date applied', fmtDate(a.dateApplied, true)],
+                ['Date applied', a.dateApplied ? fmtDate(a.dateApplied, true) : '—'],
+                ['Location', a.location || '—'],
+                ['Work arrangement', a.workArrangement || '—'],
+                ['Employment type', a.employmentType || '—'],
+                ['Follow-up', a.followUpDate ? fmtDate(a.followUpDate, true) : '—'],
                 [
                   'Job post',
                   a.jobUrl ? (
@@ -224,25 +233,22 @@ export default function ApplicationDetailPage() {
           defaults={{
             company: a.company,
             jobTitle: a.jobTitle,
-            dateApplied: a.dateApplied,
+            dateApplied: a.dateApplied ?? '',
             status: a.status,
             jobUrl: a.jobUrl ?? '',
+            location: a.location ?? '',
+            workArrangement: a.workArrangement,
+            employmentType: a.employmentType ?? '',
             notes: a.notes ?? '',
             cvId: a.cvId ?? '',
+            followUpDate: a.followUpDate ?? '',
           }}
           submitLabel="Save changes"
           onCancel={() => setEditing(false)}
           onSubmit={(v) =>
+            // v is already cleaned by ApplicationForm; PATCH only the fields it carries.
             update
-              .mutateAsync({
-                id: a.id,
-                company: v.company,
-                jobTitle: v.jobTitle,
-                dateApplied: v.dateApplied,
-                jobUrl: v.jobUrl,
-                notes: v.notes,
-                cvId: v.cvId,
-              })
+              .mutateAsync({ id: a.id, ...v })
               .then(() => {
                 setEditing(false);
                 toast({ text: 'Details saved.' });

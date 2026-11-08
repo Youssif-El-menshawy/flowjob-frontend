@@ -1,27 +1,22 @@
 import { Suspense, useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/features/auth/AuthProvider';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useApplications } from '@/shared/api/queries';
-import { cn, initials } from '@/shared/lib/utils';
-import { useTheme } from '@/shared/lib/theme';
+import { cn } from '@/shared/lib/utils';
 import { Logo } from '@/shared/ui/Display';
 import { Icon } from '@/shared/ui/Icons';
 import { PageLoader } from '@/shared/ui/Spinner';
+import { AccountMenu } from './AccountMenu';
 
+// Only the core product features — Profile and Settings live in the account menu below.
 const NAV = [
   { to: '/app', label: 'Dashboard', icon: Icon.dashboard, end: true },
-  { to: '/app/profile', label: 'Profile', icon: Icon.profile },
   { to: '/app/cv-builder', label: 'CV Builder', icon: Icon.builder },
   { to: '/app/cvs', label: 'My CVs', icon: Icon.cvs },
   { to: '/app/match', label: 'Job Match', icon: Icon.match },
   { to: '/app/applications', label: 'Applications', icon: Icon.apps, badge: true },
-  { to: '/app/settings', label: 'Settings', icon: Icon.settings },
 ];
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { user, logout } = useAuth();
-  const { theme, toggle } = useTheme();
-  const nav = useNavigate();
   const { data: apps } = useApplications();
   const pending = apps?.filter((a) => a.suggestion).length ?? 0;
 
@@ -60,32 +55,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </nav>
       <div className="flex-1" />
-      <button
-        onClick={toggle}
-        className="flex min-h-10 items-center gap-3 rounded-full px-3 text-sm font-medium text-soft hover:bg-surface/60 hover:text-ink"
-      >
-        {theme === 'dark' ? <Icon.sun /> : <Icon.moon />}
-        {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-      </button>
-      <div className="mt-2 flex items-center gap-3 border-t border-line px-2.5 pt-4 pb-2">
-        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[#b9d0b8] text-sm font-semibold text-[#1c2b22]">
-          {initials(user?.name)}
-        </div>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{user?.name}</p>
-          <p className="truncate text-xs text-soft">{user?.email}</p>
-        </div>
-      </div>
-      <button
-        onClick={async () => {
-          await logout();
-          nav('/', { replace: true });
-        }}
-        className="flex min-h-10 items-center gap-3 rounded-full px-3 text-sm font-medium text-soft hover:bg-surface/60 hover:text-ink"
-      >
-        <Icon.logout />
-        Log out
-      </button>
+      <AccountMenu onNavigate={onNavigate} />
     </div>
   );
 }

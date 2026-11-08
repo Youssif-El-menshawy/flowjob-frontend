@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { fetchCvPdfBlob, useCreateCv, useCvs, useProfile, useUpdateCv } from '@/shared/api/queries';
 import type { Cv, CvContent, Education, Experience, Project } from '@/shared/api/types';
@@ -10,7 +10,7 @@ import { Input, Textarea } from '@/shared/ui/Field';
 import { useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { blank, ItemEditor, SkillsEditor, type Kind } from '@/features/profile/profileParts';
-import { CvLivePreview } from './CvLivePreview';
+import { CvLivePreview, type CvPreviewHandle } from './CvLivePreview';
 
 const STEPS = [
   { id: 'personal', label: 'Personal' },
@@ -28,6 +28,13 @@ function Editor({ cv }: { cv: Cv }) {
   const [name, setName] = useState(cv.name);
   const [step, setStep] = useState(0);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const previewRef = useRef<CvPreviewHandle>(null);
+  // Navigation refreshes the Harvard preview only when the content is actually stale,
+  // so rapid Next/Back (or jumping steps) without edits makes zero PDF requests.
+  const goToStep = (i: number) => {
+    setStep(i);
+    previewRef.current?.updateIfStale();
+  };
   const [editing, setEditing] = useState<{
     kind: Kind;
     item: Experience | Education | Project;
@@ -44,7 +51,11 @@ function Editor({ cv }: { cv: Cv }) {
     update.mutate(
       { id: cv.id, name, content: c },
       {
-        onSuccess: () => toast({ text: 'CV saved.' }),
+        onSuccess: () => {
+          toast({ text: 'CV saved.' });
+          // Refresh the preview only if it no longer matches what was saved (deduped).
+          previewRef.current?.updateIfStale();
+        },
         onError: () => toast({ text: 'Could not save your CV.', tone: 'error' }),
       },
     );
@@ -123,7 +134,7 @@ function Editor({ cv }: { cv: Cv }) {
         {STEPS.map((s, i) => (
           <li key={s.id} className="min-w-[110px] flex-1">
             <button
-              onClick={() => setStep(i)}
+              onClick={() => goToStep(i)}
               aria-current={i === step ? 'step' : undefined}
               className={cn(
                 'w-full rounded-full px-4 py-2.5 text-left text-sm font-medium transition-colors',
@@ -208,11 +219,11 @@ function Editor({ cv }: { cv: Cv }) {
           )}
           <Note>Changes here only affect this CV, not your profile.</Note>
           <div className="flex justify-between gap-3">
-            <Button variant="secondary" disabled={step === 0} onClick={() => setStep(step - 1)}>
+            <Button variant="secondary" disabled={step === 0} onClick={() => goToStep(step - 1)}>
               Back
             </Button>
             {step < STEPS.length - 1 ? (
-              <Button onClick={() => setStep(step + 1)}>Next: {STEPS[step + 1].label}</Button>
+              <Button onClick={() => goToStep(step + 1)}>Next: {STEPS[step + 1].label}</Button>
             ) : (
               <Button onClick={saveCv} loading={update.isPending} disabled={!dirty}>
                 Save CV
@@ -221,7 +232,7 @@ function Editor({ cv }: { cv: Cv }) {
           </div>
         </Card>
         <div className="xl:sticky xl:top-8">
-          <CvLivePreview content={c} />
+          <CvLivePreview ref={previewRef} content={c} />
         </div>
       </div>
       {editing && (

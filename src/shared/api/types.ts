@@ -65,6 +65,7 @@ export interface Cv {
   jobTitle?: string;
   company?: string;
   matchId?: ID;
+  sourceCvId?: ID;
   createdAt: string;
   updatedAt: string;
   content: CvContent;
@@ -79,6 +80,18 @@ export interface MatchGap {
   tip: string;
 }
 
+export type RequirementImportance = 'required' | 'preferred';
+export interface RequirementMatch {
+  requirement: string;
+  importance: RequirementImportance;
+  status?: string;
+  evidence: string;
+}
+export interface SuggestedWording {
+  section: string;
+  suggestion: string;
+}
+
 export interface MatchResult {
   id: ID;
   cvId: ID;
@@ -87,33 +100,77 @@ export interface MatchResult {
   company: string;
   jobText: string;
   score: number;
-  verdict: 'Strong fit' | 'Good fit' | 'Partial fit' | 'Low fit';
+  verdict: string;
   summary: string;
   strengths: MatchStrength[];
   gaps: MatchGap[];
   createdAt: string;
+  // Structured AI analysis (real backend). Optional so demo/mock data stays valid.
+  scoreAvailable?: boolean;
+  scoreExplanation?: string;
+  overallAssessment?: string;
+  matched?: RequirementMatch[];
+  partiallyMatched?: RequirementMatch[];
+  missing?: RequirementMatch[];
+  areasToImprove?: string[];
+  recommendations?: string[];
+  suggestedWording?: SuggestedWording[];
+  questions?: string[];
+  model?: string;
+  analysisVersion?: string;
+  jobUrl?: string;
+  tokens?: { input: number; output: number };
+  estimatedCostUsd?: number;
+}
+
+export interface RunMatchInput {
+  cvId: ID;
+  jobTitle: string;
+  jobDescription: string;
+  company?: string;
+  jobUrl?: string;
 }
 
 export interface TailorSuggestion {
   id: ID;
-  section: 'summary' | 'experience' | 'skills';
+  section: 'summary' | 'experience' | 'skills' | 'project';
   experienceId?: ID;
   bulletIndex?: number;
+  projectId?: ID;
   original: string;
   suggested: string;
+  explanation?: string;
+  jobRequirement?: string;
+  reviewRequired?: boolean;
 }
 
 export interface TailorDraft {
   id: ID;
-  matchId: ID;
+  matchId?: ID;
   sourceCvId: ID;
   jobTitle: string;
   company: string;
   suggestions: TailorSuggestion[];
+  missingQualifications?: string[];
+  questions?: string[];
+  tokens?: { input: number; output: number };
+  estimatedCostUsd?: number;
 }
 
-export const STATUSES = ['Applied', 'Under review', 'Interview', 'Offer', 'Rejected', 'Withdrawn'] as const;
+export const STATUSES = ['Saved', 'Applied', 'Interview', 'Offer', 'Rejected', 'Withdrawn'] as const;
 export type ApplicationStatus = (typeof STATUSES)[number];
+
+export const WORK_ARRANGEMENTS = ['Remote', 'Hybrid', 'On-site'] as const;
+export type WorkArrangement = (typeof WORK_ARRANGEMENTS)[number];
+
+export const EMPLOYMENT_TYPES = [
+  'Full-time',
+  'Part-time',
+  'Contract',
+  'Internship',
+  'Temporary',
+] as const;
+export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
 
 export interface StatusEvent {
   id: ID;
@@ -135,18 +192,37 @@ export interface Application {
   id: ID;
   company: string;
   jobTitle: string;
-  dateApplied: string;
   status: ApplicationStatus;
   jobUrl?: string;
+  location?: string;
+  workArrangement?: WorkArrangement;
+  employmentType?: string;
+  dateApplied?: string;
   notes?: string;
   cvId?: ID;
+  followUpDate?: string;
+  createdAt?: string;
+  updatedAt: string;
+  // Deferred Gmail/timeline features. The real API returns an empty history and null
+  // suggestion (the feature is not implemented yet); the demo (MSW) data populates them.
   history: StatusEvent[];
   suggestion: GmailSuggestion | null;
-  updatedAt: string;
 }
 
-export type ApplicationInput = Pick<Application, 'company' | 'jobTitle' | 'dateApplied' | 'status'> &
-  Partial<Pick<Application, 'jobUrl' | 'notes' | 'cvId'>>;
+export type ApplicationInput = Pick<Application, 'company' | 'jobTitle' | 'status'> &
+  Partial<
+    Pick<
+      Application,
+      | 'jobUrl'
+      | 'location'
+      | 'workArrangement'
+      | 'employmentType'
+      | 'dateApplied'
+      | 'notes'
+      | 'cvId'
+      | 'followUpDate'
+    >
+  >;
 
 export interface GmailConnection {
   connected: boolean;

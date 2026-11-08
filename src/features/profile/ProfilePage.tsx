@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useProfile, useSaveProfile } from '@/shared/api/queries';
 import type { Education, Experience, Profile, Project } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
+import { profileStrength } from '@/shared/lib/profile';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, Note, PageHeader, ProgressBar, Tabs } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
@@ -11,18 +12,6 @@ import { blank, ItemEditor, SkillsEditor, type Kind } from './profileParts';
 
 const TABS = ['Personal details', 'Summary', 'Experience', 'Education', 'Projects', 'Skills'] as const;
 type Tab = (typeof TABS)[number];
-
-export function profileStrength(p: Profile) {
-  const checks = [
-    { label: 'Personal details', done: !!(p.fullName && p.email && p.location) },
-    { label: 'Summary', done: p.summary.trim().length > 30 },
-    { label: 'Experience', done: p.experience.length > 0 },
-    { label: 'Education', done: p.education.length > 0 },
-    { label: 'Projects', done: p.projects.length > 0 },
-    { label: 'Skills', done: p.skills.length >= 4 },
-  ];
-  return { checks, pct: Math.round((checks.filter((c) => c.done).length / checks.length) * 100) };
-}
 
 export default function ProfilePage() {
   useDocumentTitle('Profile');

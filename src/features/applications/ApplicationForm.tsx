@@ -3,7 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useCvs } from '@/shared/api/queries';
 import type { ApplicationInput } from '@/shared/api/types';
-import { STATUSES } from '@/shared/api/types';
+import { EMPLOYMENT_TYPES, STATUSES, WORK_ARRANGEMENTS } from '@/shared/api/types';
 import { cn, todayISO } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { STATUS_STYLE } from '@/shared/ui/Display';
@@ -12,15 +12,37 @@ import { Input, Select, Textarea } from '@/shared/ui/Field';
 export const applicationSchema = z.object({
   company: z.string().trim().min(1, 'Company is required.'),
   jobTitle: z.string().trim().min(1, 'Job title is required.'),
-  dateApplied: z
-    .string()
-    .min(1, 'Date is required.')
-    .refine((d) => d <= todayISO(), 'The date cannot be in the future.'),
   status: z.enum(STATUSES),
   jobUrl: z.string().trim().optional(),
+  location: z.string().trim().optional(),
+  workArrangement: z.string().optional(),
+  employmentType: z.string().optional(),
+  dateApplied: z
+    .string()
+    .optional()
+    .refine((d) => !d || d <= todayISO(), 'The date cannot be in the future.'),
+  followUpDate: z.string().optional(),
   cvId: z.string().optional(),
   notes: z.string().max(1000, 'Keep notes under 1000 characters.').optional(),
 });
+
+type FormValues = z.input<typeof applicationSchema>;
+
+// Enum/date fields must never be sent as '' (the backend would reject it), so an empty
+// choice means "unset" and is dropped. Text fields and cvId keep '' on purpose, so the
+// user can clear a note or unlink a CV. Required fields always stay.
+const STRIP_WHEN_EMPTY = new Set(['workArrangement', 'employmentType', 'dateApplied', 'followUpDate']);
+
+function clean(v: FormValues): ApplicationInput {
+  const out: Record<string, unknown> = { company: v.company, jobTitle: v.jobTitle, status: v.status };
+  for (const k of ['jobUrl', 'location', 'workArrangement', 'employmentType', 'dateApplied', 'followUpDate', 'cvId', 'notes'] as const) {
+    const val = v[k];
+    if (val === undefined) continue;
+    if (val === '' && STRIP_WHEN_EMPTY.has(k)) continue;
+    out[k] = val;
+  }
+  return out as ApplicationInput;
+}
 
 export function ApplicationForm({
   defaults,
@@ -36,14 +58,18 @@ export function ApplicationForm({
   showStatus?: boolean;
 }) {
   const cvs = useCvs();
-  const { register, handleSubmit, watch, setValue, formState } = useForm<ApplicationInput>({
+  const { register, handleSubmit, watch, setValue, formState } = useForm<FormValues>({
     resolver: zodResolver(applicationSchema),
     defaultValues: {
       company: '',
       jobTitle: '',
-      dateApplied: todayISO(),
       status: 'Applied',
       jobUrl: '',
+      location: '',
+      workArrangement: '',
+      employmentType: '',
+      dateApplied: todayISO(),
+      followUpDate: '',
       notes: '',
       cvId: '',
       ...defaults,
@@ -53,7 +79,7 @@ export function ApplicationForm({
   const e = formState.errors;
 
   return (
-    <form noValidate onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
+    <form noValidate onSubmit={handleSubmit((v) => onSubmit(clean(v)))} className="flex flex-col gap-5">
       <div className="grid gap-4 sm:grid-cols-2">
         <Input label="Company" placeholder="Allegro" error={e.company?.message} {...register('company')} />
         <Input
@@ -65,11 +91,30 @@ export function ApplicationForm({
         <Input
           label="Date applied"
           type="date"
+          optional
           max={todayISO()}
           error={e.dateApplied?.message}
           {...register('dateApplied')}
         />
         <Input label="Job post link" optional placeholder="company.com/careers/..." {...register('jobUrl')} />
+        <Input label="Location" optional placeholder="Warsaw / Remote" {...register('location')} />
+        <Select label="Work arrangement" optional {...register('workArrangement')}>
+          <option value="">Not set</option>
+          {WORK_ARRANGEMENTS.map((w) => (
+            <option key={w} value={w}>
+              {w}
+            </option>
+          ))}
+        </Select>
+        <Select label="Employment type" optional {...register('employmentType')}>
+          <option value="">Not set</option>
+          {EMPLOYMENT_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </Select>
+        <Input label="Follow-up date" type="date" optional {...register('followUpDate')} />
       </div>
       {showStatus && (
         <fieldset>
