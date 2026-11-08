@@ -350,9 +350,19 @@ function QuickCard({
 }
 
 /** Shared by the top and bottom action sections — plain links, so no request is ever made here. */
-function Actions({ matchId, appQuery, newMatch }: { matchId: string; appQuery: string; newMatch?: boolean }) {
+function Actions({
+  matchId,
+  appQuery,
+  newMatch,
+  className,
+}: {
+  matchId: string;
+  appQuery: string;
+  newMatch?: boolean;
+  className?: string;
+}) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className={cn('flex flex-wrap items-center gap-3', className)}>
       <ButtonLink to={`/app/match/${matchId}/tailor`}>Tailor my CV for this job</ButtonLink>
       <ButtonLink to={`/app/applications/new?${appQuery}`} variant="secondary">
         Add to Applications
@@ -391,12 +401,15 @@ function Report({ m }: { m: MatchResult }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <header className="min-w-0">
-        <p className="text-sm font-medium text-soft">Job match report</p>
-        <h1 className="mt-1 text-[28px] leading-tight font-semibold break-words sm:text-[32px]">{m.jobTitle}</h1>
-        <p className="mt-1 text-base break-words text-soft">
-          {[m.company, m.cvName ? `CV used: ${m.cvName}` : ''].filter(Boolean).join(' · ')}
-        </p>
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-soft">Job match report</p>
+          <h1 className="mt-1 text-[28px] leading-tight font-semibold break-words sm:text-[32px]">{m.jobTitle}</h1>
+          <p className="mt-1 text-base break-words text-soft">
+            {[m.company, m.cvName ? `CV used: ${m.cvName}` : ''].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+        <Actions matchId={m.id} appQuery={appQuery} className="lg:max-w-[520px] lg:shrink-0 lg:justify-end lg:pt-6" />
       </header>
 
       <Panel headingId="overview-h" className="p-5 sm:p-6">
@@ -455,8 +468,6 @@ function Report({ m }: { m: MatchResult }) {
           note="“Not shown” means the CV doesn’t demonstrate it — not that you lack the skill."
         />
       </div>
-
-      <Actions matchId={m.id} appQuery={appQuery} />
 
       <RequirementTabs groups={groups} />
 

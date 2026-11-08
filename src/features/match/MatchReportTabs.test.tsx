@@ -267,6 +267,16 @@ describe('actions', () => {
     expect(q.compareDocumentPosition(screen.getAllByRole('link', { name: 'Start a new match' })[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('puts the primary actions in the header next to the title, with no separate top action section', () => {
+    renderReport();
+    const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
+    expect(within(header).getByRole('link', { name: 'Tailor my CV for this job' })).toBeInTheDocument();
+    expect(within(header).getByRole('link', { name: 'Add to Applications' })).toBeInTheDocument();
+    expect(within(header).queryByRole('link', { name: 'Start a new match' })).toBeNull();
+    // Exactly one more pair: the bottom Next steps.
+    expect(screen.getAllByRole('link', { name: 'Tailor my CV for this job' })).toHaveLength(2);
+  });
+
   it('keeps recommendations and questions visible below the tabs', () => {
     renderReport();
     expect(screen.getByText('Lead with backend.')).toBeVisible();
