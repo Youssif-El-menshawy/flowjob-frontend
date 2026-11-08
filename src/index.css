@@ -1,0 +1,236 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens. Names match the Figma "Theme Light" / "Theme Dark" variable sets. */
+:root {
+  --bg: #f2f5ef;
+  --side: #e3ece0;
+  --surface: #ffffff;
+  --field: #f7faf5;
+  --ink: #1c2b22;
+  --soft: #56665b;
+  --line: #d5dfd1;
+  --primary: #2e5b44;
+  --on-primary: #ffffff;
+  --accent: #f4a462;
+  --accent-ink: #b4561b;
+  --accent-soft: #fde8d6;
+  --tint: #dce8d8;
+  --success-bg: #ddf2e4;
+  --success-ink: #1e6b3e;
+  --danger: #9e2f22;
+  --danger-soft: #fbece9;
+  --shadow: 28 43 34;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #16201b;
+  --side: #111a15;
+  --surface: #1e2a24;
+  --field: #18231d;
+  --ink: #e8efe6;
+  --soft: #a3b5a8;
+  --line: #2e3d34;
+  --primary: #8fc4a2;
+  --on-primary: #12201a;
+  --accent: #f6b07a;
+  --accent-ink: #f6b07a;
+  --accent-soft: #3a2c20;
+  --tint: #23332a;
+  --success-bg: #1f3a2b;
+  --success-ink: #9fe0b8;
+  --danger: #ff9b8e;
+  --danger-soft: #3a2220;
+  --shadow: 0 0 0;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-side: var(--side);
+  --color-surface: var(--surface);
+  --color-field: var(--field);
+  --color-ink: var(--ink);
+  --color-soft: var(--soft);
+  --color-line: var(--line);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-tint: var(--tint);
+  --color-success-bg: var(--success-bg);
+  --color-success-ink: var(--success-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  /* Status colours stay the same in both themes */
+  --color-st-saved: #c7d2dd;
+  --color-st-applied: #9cc4f2;
+  --color-st-review: #f5cb6e;
+  --color-st-interview: #b7aaf2;
+  --color-st-offer: #8fd6a8;
+  --color-st-rejected: #f2a196;
+  --color-st-withdrawn: #cfcbc0;
+
+  --font-display: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-bg text-ink font-sans;
+    margin: 0;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+    letter-spacing: -0.025em;
+  }
+  h1 {
+    letter-spacing: -0.035em;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+/* Motion */
+@keyframes fj-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fj-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes fj-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes fj-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 9px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@keyframes fj-shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+@keyframes fj-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@utility animate-draw {
+  stroke-dasharray: 1;
+  animation: fj-draw 1.8s 0.2s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@keyframes fj-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@utility animate-in {
+  animation: fj-up 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@utility animate-grow {
+  transform-origin: bottom;
+  animation: fj-grow 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@utility animate-fill {
+  transform-origin: left;
+  animation: fj-fill 1s 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@utility animate-pulse-dot {
+  animation: fj-pulse 2.2s ease-out infinite;
+}
+@utility animate-pop {
+  animation: fj-pop 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@utility skeleton {
+  background: linear-gradient(90deg, var(--side) 0%, var(--field) 50%, var(--side) 100%);
+  background-size: 800px 100%;
+  animation: fj-shimmer 1.2s linear infinite;
+  border-radius: 8px;
+}
+@utility lift {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgb(var(--shadow) / 0.09);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0;
+    box-shadow: none !important;
+  }
+}
