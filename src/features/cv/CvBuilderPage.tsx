@@ -13,6 +13,7 @@ import { blank, ItemEditor, SkillsEditor, type Kind } from '@/features/profile/p
 import { CvLivePreview, type CvPreviewHandle } from './CvLivePreview';
 import { CvSelector } from './CvSelector';
 import { ContactLinksInputs, useContactLinks } from '@/features/profile/ContactLinksFields';
+import { PhoneInputs, usePhoneField } from '@/features/profile/PhoneFields';
 
 const STEPS = [
   { id: 'personal', label: 'Personal' },
@@ -73,18 +74,20 @@ function Editor({
   );
   const set = <K extends keyof CvContent>(k: K, v: CvContent[K]) => setC((x) => ({ ...x, [k]: v }));
   const contact = useContactLinks(c.links, (l) => set('links', l));
+  const phoneField = usePhoneField(c.phone, (v) => set('phone', v));
   const cur = STEPS[step].id;
 
   // Validates/normalises the contact links first. On a bad link, jump to the Personal step (where the
   // inline error is) instead of saving; nothing is sent.
   const prepareContent = (): CvContent | null => {
     const links = contact.validate();
-    if (!links) {
+    const phone = phoneField.validate();
+    if (!links || phone === null) {
       setStep(0);
-      toast({ text: 'Please fix the highlighted link first.', tone: 'error' });
+      toast({ text: 'Please fix the highlighted field first.', tone: 'error' });
       return null;
     }
-    return { ...c, links };
+    return { ...c, links, phone };
   };
 
   const saveCv = () => {
@@ -260,12 +263,7 @@ function Editor({
                   onChange={(e) => set('fullName', e.target.value)}
                 />
                 <Input label="Email" value={c.email} onChange={(e) => set('email', e.target.value)} />
-                <Input
-                  label="Phone"
-                  optional
-                  value={c.phone}
-                  onChange={(e) => set('phone', e.target.value)}
-                />
+                <PhoneInputs state={phoneField} className="sm:col-span-2" />
                 <Input label="City" value={c.location} onChange={(e) => set('location', e.target.value)} />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">

@@ -403,3 +403,60 @@ describe('contact links (LinkedIn / GitHub)', () => {
     expect((screen.getByLabelText(/LinkedIn URL/) as HTMLInputElement).value).toBe('linkedin.com/in/sam');
   });
 });
+
+describe('phone number', () => {
+  const saveBtn = () => screen.getAllByRole('button', { name: 'Save CV' })[0];
+  const withPhone = (phone: string) => {
+    mocks.cvs = { ...mocks.cvs, data: [{ ...ORIG, content: { ...ORIG.content, phone } }, HAYS, SNOW] };
+  };
+  const country = () => screen.getByRole('button', { name: /^Phone country:/ });
+
+  it('shows a country dropdown and a separate number input instead of one phone field', () => {
+    renderAt('/app/cv-builder/o1');
+    expect(country()).toBeInTheDocument();
+    expect(screen.getByLabelText('Phone number')).toBeInTheDocument();
+  });
+
+  it('saves a valid number as E.164', () => {
+    renderAt('/app/cv-builder/o1');
+    fireEvent.click(country());
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search countries' }), { target: { value: 'france' } });
+    fireEvent.click(screen.getByRole('option', { name: /France/ }));
+    fireEvent.change(screen.getByLabelText('Phone number'), { target: { value: '06 12 34 56 78' } });
+    fireEvent.click(saveBtn());
+    expect(mocks.update.mutate.mock.calls[0][0].content.phone).toBe('+33612345678');
+  });
+
+  it('blocks saving an invalid number and sends nothing', () => {
+    renderAt('/app/cv-builder/o1');
+    fireEvent.change(screen.getByLabelText('Phone number'), { target: { value: '12' } });
+    fireEvent.click(saveBtn());
+    expect(mocks.update.mutate).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/valid .* phone number/i);
+  });
+
+  it('keeps an existing legacy number untouched when saving other edits', () => {
+    withPhone('555-0100');
+    renderAt('/app/cv-builder/o1');
+    expect((screen.getByLabelText('Phone number') as HTMLInputElement).value).toBe('555-0100');
+    fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Renamed' } });
+    fireEvent.click(saveBtn());
+    expect(mocks.update.mutate.mock.calls[0][0].content.phone).toBe('555-0100');
+  });
+
+  it('opening a CV with an existing number is not an unsaved change', () => {
+    withPhone('+33 6 12 34 56 78');
+    renderAt('/app/cv-builder/o1');
+    choose('t1');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('an invalid number blocks Save & switch (nothing saved, nothing switched)', () => {
+    renderAt('/app/cv-builder/o1');
+    fireEvent.change(screen.getByLabelText('Phone number'), { target: { value: '12' } });
+    choose('t1');
+    fireEvent.click(screen.getByRole('button', { name: 'Save & switch' }));
+    expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1');
+  });
+});

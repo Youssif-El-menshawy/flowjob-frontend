@@ -9,6 +9,7 @@ import { Input, Textarea } from '@/shared/ui/Field';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { ContactLinksFields, type ContactLinksHandle } from './ContactLinksFields';
+import { PhoneFieldWithHandle, type PhoneFieldHandle } from './PhoneFields';
 import { blank, ItemEditor, SkillsEditor, type Kind } from './profileParts';
 
 const TABS = ['Personal details', 'Summary', 'Experience', 'Education', 'Projects', 'Skills'] as const;
@@ -21,6 +22,7 @@ export default function ProfilePage() {
   const save = useSaveProfile();
   const [p, setP] = useState<Profile | null>(null);
   const linksRef = useRef<ContactLinksHandle>(null);
+  const phoneRef = useRef<PhoneFieldHandle>(null);
   const [tab, setTab] = useState<Tab>('Experience');
   const [editing, setEditing] = useState<{
     kind: Kind;
@@ -41,11 +43,13 @@ export default function ProfilePage() {
   // Validate/normalise LinkedIn + GitHub before any profile save; a bad link blocks the save.
   const doSave = (next = p) => {
     const links = linksRef.current?.validate();
-    if (links === null) {
-      toast({ text: 'Please fix the highlighted link first.', tone: 'error' });
+    const phone = phoneRef.current?.validate();
+    if (links === null || phone === null) {
+      toast({ text: 'Please fix the highlighted field first.', tone: 'error' });
       return;
     }
     if (links) next = { ...next, links };
+    if (phone !== undefined) next = { ...next, phone };
     save.mutate(next, {
       onSuccess: () => toast({ text: 'Profile saved.' }),
       onError: () => toast({ text: 'Could not save. Please try again.', tone: 'error' }),
@@ -148,7 +152,7 @@ export default function ProfilePage() {
                 value={p.email}
                 onChange={(e) => set('email', e.target.value)}
               />
-              <Input label="Phone" optional value={p.phone} onChange={(e) => set('phone', e.target.value)} />
+              <PhoneFieldWithHandle ref={phoneRef} value={p.phone} onChange={(v) => set('phone', v)} />
               <Input label="City" value={p.location} onChange={(e) => set('location', e.target.value)} />
               <ContactLinksFields ref={linksRef} links={p.links} onChange={(l) => set('links', l)} />
               <Input
