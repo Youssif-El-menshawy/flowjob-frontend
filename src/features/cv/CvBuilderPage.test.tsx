@@ -336,3 +336,70 @@ describe('existing builder controls', () => {
     expect(Object.keys(mocks.update.mutate.mock.calls[0][0]).sort()).toEqual(['content', 'id', 'name']);
   });
 });
+
+describe('contact links (LinkedIn / GitHub)', () => {
+  const saveBtn = () => screen.getAllByRole('button', { name: 'Save CV' })[0];
+  const withLinks = (links: string[]) => {
+    mocks.cvs = { ...mocks.cvs, data: [{ ...ORIG, content: { ...ORIG.content, links } }, HAYS, SNOW] };
+  };
+
+  it('shows LinkedIn and GitHub inputs on the Personal step, not a comma-separated field', () => {
+    renderAt('/app/cv-builder/o1');
+    expect(screen.getByLabelText(/LinkedIn URL/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/GitHub URL/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Links/)).toBeNull();
+  });
+
+  it('saves normalised https links, and sends only id, name and content', () => {
+    renderAt('/app/cv-builder/o1');
+    fireEvent.change(screen.getByLabelText(/LinkedIn URL/), { target: { value: 'linkedin.com/in/sam' } });
+    fireEvent.change(screen.getByLabelText(/GitHub URL/), { target: { value: 'github.com/sam' } });
+    fireEvent.click(saveBtn());
+    const payload = mocks.update.mutate.mock.calls[0][0];
+    expect(payload.content.links).toEqual(['https://linkedin.com/in/sam', 'https://github.com/sam']);
+    expect(Object.keys(payload).sort()).toEqual(['content', 'id', 'name']);
+  });
+
+  it('blocks saving an invalid link, shows the error, and sends nothing', () => {
+    renderAt('/app/cv-builder/o1');
+    fireEvent.change(screen.getByLabelText(/GitHub URL/), { target: { value: 'javascript:alert(1)' } });
+    fireEvent.click(saveBtn());
+    expect(mocks.update.mutate).not.toHaveBeenCalled();
+    expect(screen.getByText(/starts with https/i)).toBeInTheDocument();
+  });
+
+  it('an invalid link blocks Save & switch too (no save, no switch, edits kept)', () => {
+    renderAt('/app/cv-builder/o1');
+    fireEvent.change(screen.getByLabelText(/GitHub URL/), { target: { value: 'not a url' } });
+    choose('t1');
+    fireEvent.click(screen.getByRole('button', { name: 'Save & switch' }));
+    expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1');
+    expect((screen.getByLabelText(/GitHub URL/) as HTMLInputElement).value).toBe('not a url');
+  });
+
+  it('keeps legacy links untouched when saving other edits', () => {
+    const legacy = ['https://janedoe.dev', 'github.com/sam', 'linkedin.com/in/sam'];
+    withLinks(legacy);
+    renderAt('/app/cv-builder/o1');
+    expect((screen.getByLabelText(/LinkedIn URL/) as HTMLInputElement).value).toBe('linkedin.com/in/sam');
+    fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Renamed' } });
+    fireEvent.click(saveBtn());
+    expect(mocks.update.mutate.mock.calls[0][0].content.links).toEqual(legacy);
+  });
+
+  it('opening a CV with existing links is not an unsaved change', () => {
+    withLinks(['github.com/sam']);
+    renderAt('/app/cv-builder/o1');
+    choose('t1');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('typed link text survives moving between steps', () => {
+    renderAt('/app/cv-builder/o1');
+    fireEvent.change(screen.getByLabelText(/LinkedIn URL/), { target: { value: 'linkedin.com/in/sam' } });
+    fireEvent.click(screen.getByRole('button', { name: /2\. Summary/ }));
+    fireEvent.click(screen.getByRole('button', { name: /1\. Personal|✓ Personal/ }));
+    expect((screen.getByLabelText(/LinkedIn URL/) as HTMLInputElement).value).toBe('linkedin.com/in/sam');
+  });
+});

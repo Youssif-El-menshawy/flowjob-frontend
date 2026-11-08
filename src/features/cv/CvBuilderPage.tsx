@@ -12,6 +12,7 @@ import { PageLoader } from '@/shared/ui/Spinner';
 import { blank, ItemEditor, SkillsEditor, type Kind } from '@/features/profile/profileParts';
 import { CvLivePreview, type CvPreviewHandle } from './CvLivePreview';
 import { CvSelector } from './CvSelector';
+import { ContactLinksInputs, useContactLinks } from '@/features/profile/ContactLinksFields';
 
 const STEPS = [
   { id: 'personal', label: 'Personal' },
@@ -71,11 +72,26 @@ function Editor({
     [c, cv, name],
   );
   const set = <K extends keyof CvContent>(k: K, v: CvContent[K]) => setC((x) => ({ ...x, [k]: v }));
+  const contact = useContactLinks(c.links, (l) => set('links', l));
   const cur = STEPS[step].id;
 
-  const saveCv = () =>
+  // Validates/normalises the contact links first. On a bad link, jump to the Personal step (where the
+  // inline error is) instead of saving; nothing is sent.
+  const prepareContent = (): CvContent | null => {
+    const links = contact.validate();
+    if (!links) {
+      setStep(0);
+      toast({ text: 'Please fix the highlighted link first.', tone: 'error' });
+      return null;
+    }
+    return { ...c, links };
+  };
+
+  const saveCv = () => {
+    const content = prepareContent();
+    if (!content) return;
     update.mutate(
-      { id: cv.id, name, content: c },
+      { id: cv.id, name, content },
       {
         onSuccess: () => {
           toast({ text: 'CV saved.' });
@@ -85,6 +101,7 @@ function Editor({
         onError: () => toast({ text: 'Could not save your CV.', tone: 'error' }),
       },
     );
+  };
 
   const goToCv = (id: string) => nav(`/app/cv-builder/${id}`);
 
@@ -110,9 +127,14 @@ function Editor({
     const id = pendingId;
     if (!id || update.isPending) return;
     setSwitchError(false);
+    const content = prepareContent();
+    if (!content) {
+      setPendingId(null); // close the dialog so the link error is visible; nothing was saved or switched
+      return;
+    }
     try {
       // Always this CV's own id; the target's data is never involved until after the save succeeds.
-      await update.mutateAsync({ id: cv.id, name, content: c });
+      await update.mutateAsync({ id: cv.id, name, content });
     } catch {
       setSwitchError(true); // stay on this CV with every edit intact
       return;
@@ -126,7 +148,11 @@ function Editor({
   const downloadPdf = async () => {
     setPdfBusy(true);
     try {
-      if (dirty) await update.mutateAsync({ id: cv.id, name, content: c });
+      if (dirty) {
+        const content = prepareContent();
+        if (!content) return;
+        await update.mutateAsync({ id: cv.id, name, content });
+      }
       const blob = await fetchCvPdfBlob(cv.id);
       downloadBlob(blob, `${name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'CV'}.pdf`);
     } catch {
@@ -242,20 +268,9 @@ function Editor({
                 />
                 <Input label="City" value={c.location} onChange={(e) => set('location', e.target.value)} />
               </div>
-              <Input
-                label="Links"
-                optional
-                value={c.links.join(', ')}
-                onChange={(e) =>
-                  set(
-                    'links',
-                    e.target.value
-                      .split(',')
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  )
-                }
-              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ContactLinksInputs state={contact} />
+              </div>
             </>
           )}
           {cur === 'summary' && (
