@@ -74,7 +74,8 @@ export function useDeleteCv() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api<void>(`/cvs/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      qc.setQueryData<Cv[]>(qk.cvs, (old) => old?.filter((cv) => cv.id !== id));
       qc.invalidateQueries({ queryKey: qk.cvs });
       qc.invalidateQueries({ queryKey: qk.apps });
     },

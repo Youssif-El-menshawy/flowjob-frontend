@@ -1,141 +1,166 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
-import { useCvs, useDeleteCv } from '@/shared/api/queries';
-import type { Cv } from '@/shared/api/types';
+import { useCvs } from '@/shared/api/queries';
 import { useDocumentTitle } from '@/shared/lib/hooks';
-import { fmtDate } from '@/shared/lib/utils';
+import { cn, fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
-import { Card, EmptyState, Note, PageHeader } from '@/shared/ui/Display';
-import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
+import { Card, EmptyState, PageHeader } from '@/shared/ui/Display';
+import { Input, Select } from '@/shared/ui/Field';
 import { PageLoader } from '@/shared/ui/Spinner';
-import { CvSheet } from './CvSheet';
-import { CvPreviewModal } from './CvPreviewModal';
+import { CvActionDialog, type CvAction } from './CvLibraryActions';
+import { sortCvs, type CvSort } from './cvOptions';
+import { SavedCvPreview } from './SavedCvPreview';
+
+const DESKTOP = '(min-width: 1024px)';
+const desktopSnapshot = () => window.matchMedia?.(DESKTOP).matches ?? true;
+function subscribeDesktop(onChange: () => void) {
+  const media = window.matchMedia?.(DESKTOP);
+  media?.addEventListener('change', onChange);
+  return () => media?.removeEventListener('change', onChange);
+}
 
 export default function MyCvsPage() {
   useDocumentTitle('My CVs');
-  const toast = useToast();
-  const { data, isLoading } = useCvs();
-  const del = useDeleteCv();
-  const [viewing, setViewing] = useState<Cv | null>(null);
-  const [removing, setRemoving] = useState<Cv | null>(null);
-  if (isLoading) return <PageLoader />;
-  const original = data?.find((c) => c.kind === 'original');
-  const tailored = (data ?? [])
-    .filter((c) => c.kind === 'tailored')
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const cvs = useCvs();
+  const desktop = useSyncExternalStore(subscribeDesktop, desktopSnapshot);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<CvSort>('updated');
+  const [preferredId, setPreferredId] = useState<string | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [action, setAction] = useState<{ cvId: string; type: CvAction } | null>(null);
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
+  const closeAction = useCallback(() => setAction(null), []);
 
+  const visible = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return sortCvs(
+      (cvs.data ?? []).filter((cv) =>
+        [cv.name, cv.company, cv.jobTitle].some((value) => value?.toLowerCase().includes(query)),
+      ),
+      sort,
+    );
+  }, [cvs.data, search, sort]);
+  // Sorting never changes the fallback preference. A hidden CV cannot drive the preview.
+  const selected = visible.find((cv) => cv.id === preferredId) ?? (sort === 'updated' ? visible[0] : sortCvs(visible)[0]);
+  const actionCv = cvs.data?.find((cv) => cv.id === action?.cvId);
+  const hasOriginal = cvs.data?.some((cv) => cv.kind === 'original');
+  const tailoredCount = cvs.data?.filter((cv) => cv.kind === 'tailored').length ?? 0;
+
+  if (cvs.isLoading) return <PageLoader />;
   return (
     <>
       <PageHeader
         title="My CVs"
-        subtitle="One original, plus a tailored version for each job you care about."
-        actions={original && <ButtonLink to="/app/match">Tailor for a new job</ButtonLink>}
+        subtitle="Find, preview, and manage your saved CVs."
+        actions={!!cvs.data?.length && <ButtonLink to="/app/match">Tailor for a new job</ButtonLink>}
       />
-      {!original ? (
+      {cvs.isError && !cvs.data ? (
         <EmptyState
-          title="No CV yet"
-          text="Create your original CV first. Tailored versions for each job will show up here."
-          action={<ButtonLink to="/app/cv-builder">Create my CV</ButtonLink>}
+          title="Could not load your CVs"
+          text="Check your connection and try again."
+          action={<Button onClick={() => void cvs.refetch()}>Retry library</Button>}
+        />
+      ) : !cvs.data?.length ? (
+        <EmptyState
+          title="No saved CVs yet"
+          text="Create your original CV to get started. Your tailored versions will appear here as you save them."
+          action={<ButtonLink to="/app/cv-builder">Create CV</ButtonLink>}
         />
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-[340px_1fr]">
-          <Card className="flex flex-col gap-5 animate-in">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-[17px] font-semibold">Original CV</h2>
-              <span className="text-sm text-soft">Updated {fmtDate(original.updatedAt)}</span>
+        <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          <Card className="min-w-0 !p-4 sm:!p-5">
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-lg font-semibold">CV Library</h2>
+              <p className="text-xs text-soft">{tailoredCount} tailored {tailoredCount === 1 ? 'CV' : 'CVs'}</p>
             </div>
-            <button
-              onClick={() => setViewing(original)}
-              className="group relative mx-auto h-[300px] w-[230px] overflow-hidden rounded-md text-left"
-              aria-label="Preview original CV"
-            >
-              <div className="pointer-events-none w-[600px] origin-top-left scale-[0.383] transition-transform duration-300 group-hover:-translate-y-2">
-                <CvSheet cv={original.content} />
+            <div className="mb-4 grid gap-3 sm:max-lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,auto)]">
+              <Input
+                label="Search CVs"
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Name, company, title"
+              />
+              <Select label="Sort by" value={sort} onChange={(event) => setSort(event.target.value as CvSort)}>
+                <option value="updated">Recently updated</option>
+                <option value="created">Recently created</option>
+                <option value="name">Name A–Z</option>
+              </Select>
+            </div>
+            {visible.length ? (
+              <ul aria-label="Saved CVs" className="space-y-1.5 lg:max-h-[65vh] lg:overflow-y-auto lg:pr-1">
+                {visible.map((cv) => {
+                  const active = cv.id === selected?.id;
+                  const detail = [cv.jobTitle, cv.company].filter(Boolean).join(' · ');
+                  return (
+                    <li key={cv.id}>
+                      <button
+                        type="button"
+                        aria-current={active ? 'true' : undefined}
+                        onClick={() => {
+                          setPreferredId(cv.id);
+                          if (!desktop) setMobileOpen(true);
+                        }}
+                        className={cn(
+                          'flex w-full min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
+                          active ? 'border-primary/50 bg-tint' : 'border-transparent hover:bg-bg',
+                        )}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold" title={cv.name}>{cv.name}</span>
+                          {detail && <span className="block truncate text-xs text-soft" title={detail}>{detail}</span>}
+                          <span className="mt-0.5 block text-xs text-soft">
+                            {cv.kind === 'original' ? 'Original' : 'Tailored'}
+                            {' · Updated '}{fmtDate(cv.updatedAt, true)}
+                          </span>
+                        </span>
+                        {active && <span aria-hidden className="shrink-0 text-sm font-semibold text-primary">✓</span>}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="space-y-2 py-5 text-center" role="status">
+                <p className="text-sm text-soft">No CVs match your search.</p>
+                <Button size="sm" variant="secondary" onClick={() => setSearch('')}>Clear search</Button>
               </div>
-            </button>
-            <p className="text-sm leading-relaxed text-soft">
-              Tailoring never changes this one. It is always your starting point.
-            </p>
-            <div className="flex gap-2.5">
-              <ButtonLink to="/app/cv-builder" variant="secondary">
-                Edit
-              </ButtonLink>
-              <Button variant="secondary" onClick={() => setViewing(original)}>
-                Preview
-              </Button>
-            </div>
+            )}
+            {!search.trim() && (!hasOriginal || tailoredCount === 0) && (
+              <p className="mt-4 text-sm text-soft">
+                {hasOriginal ? (
+                  <>Create your first tailored version from <Link to="/app/match" className="text-primary underline">Job Match</Link>.</>
+                ) : (
+                  <Link to="/app/cv-builder" className="text-primary underline">Create an original CV</Link>
+                )}
+              </p>
+            )}
           </Card>
 
-          <Card className="animate-in" style={{ animationDelay: '.08s' }}>
-            <h2 className="mb-4 text-[17px] font-semibold">Tailored versions</h2>
-            {tailored.length === 0 ? (
-              <p className="py-8 text-center leading-relaxed text-soft">
-                No tailored versions yet.{' '}
-                <Link to="/app/match" className="font-medium text-primary hover:underline">
-                  Check a job match
-                </Link>{' '}
-                and tailor your CV for it.
-              </p>
-            ) : (
-              <ul className="-mx-2">
-                {tailored.map((c) => (
-                  <li
-                    key={c.id}
-                    className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl px-2 py-3 hover:bg-bg"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{c.name}</p>
-                      <p className="text-sm text-soft">
-                        {c.jobTitle} · {c.company} · saved {fmtDate(c.createdAt)}
-                      </p>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => setViewing(c)}>
-                        Open
-                      </Button>
-                      <ButtonLink size="sm" variant="ghost" to={`/app/cv-builder/${c.id}`}>
-                        Edit
-                      </ButtonLink>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-danger"
-                        onClick={() => setRemoving(c)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <Note tone="accent" className="mt-4">
-              Tip: link the CV you used when you add an application. Before an interview you will know exactly
-              what they read.
-            </Note>
-          </Card>
+          {selected && (desktop || mobileOpen) && (
+            <SavedCvPreview
+              key={selected.id}
+              cv={selected}
+              mobile={!desktop}
+              mobileOpen={!actionCv}
+              onBack={closeMobile}
+              onAction={(type) => setAction({ cvId: selected.id, type })}
+            />
+          )}
         </div>
       )}
-
-      <CvPreviewModal cv={viewing} onClose={() => setViewing(null)} />
-      <ConfirmDialog
-        open={!!removing}
-        onClose={() => setRemoving(null)}
-        title={`Delete ${removing?.name}?`}
-        text="This tailored version will be removed. Your original CV stays as it is."
-        confirmLabel="Delete"
-        danger
-        loading={del.isPending}
-        onConfirm={() =>
-          removing &&
-          del.mutate(removing.id, {
-            onSuccess: () => {
-              toast({ text: `${removing.name} deleted.` });
-              setRemoving(null);
-            },
-          })
-        }
-      />
+      {action && actionCv && (
+        <CvActionDialog
+          key={`${action.type}:${actionCv.id}`}
+          action={action.type}
+          cv={actionCv}
+          onClose={closeAction}
+          onDeleted={() => {
+            setPreferredId(null);
+            setSearch('');
+          }}
+        />
+      )}
     </>
   );
 }

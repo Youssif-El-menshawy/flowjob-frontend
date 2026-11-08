@@ -10,10 +10,17 @@ export function cvOptionLabel(cv: Cv): string {
   return `${name} — Tailored${hint ? ` · ${hint}` : ''}`;
 }
 
-/** Original CV(s) first, then everything else by most recently updated. Does not mutate the input. */
-export function sortCvs(cvs: readonly Cv[]): Cv[] {
-  const time = (c: Cv) => new Date(c.updatedAt || c.createdAt || 0).getTime() || 0;
-  return [...cvs].sort(
-    (a, b) => Number(b.kind === 'original') - Number(a.kind === 'original') || time(b) - time(a),
-  );
+export type CvSort = 'updated' | 'created' | 'name';
+
+/** Pin originals, then sort each group without mutating the cached list. */
+export function sortCvs(cvs: readonly Cv[], sort: CvSort = 'updated'): Cv[] {
+  const time = (value: string) => Date.parse(value) || 0;
+  const name = (a: Cv, b: Cv) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  return [...cvs].sort((a, b) => {
+    const pinned = Number(b.kind === 'original') - Number(a.kind === 'original');
+    if (pinned) return pinned;
+    if (sort === 'name') return name(a, b);
+    if (sort === 'created') return time(b.createdAt) - time(a.createdAt);
+    return time(b.updatedAt || b.createdAt) - time(a.updatedAt || a.createdAt);
+  });
 }

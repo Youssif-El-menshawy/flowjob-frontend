@@ -28,12 +28,14 @@ export function HarvardPdfViewer({
   scale = 1,
   errorText = 'Could not generate the preview. Please try again.',
   className,
+  onDocumentError,
 }: {
   blob: Blob | null;
   status: HarvardPdfStatus;
   scale?: number;
   errorText?: string;
   className?: string;
+  onDocumentError?: () => void;
 }) {
   const [numPages, setNumPages] = useState(0);
   const [baseWidth, setBaseWidth] = useState(560);
@@ -57,14 +59,19 @@ export function HarvardPdfViewer({
   return (
     <div
       ref={frameRef}
+      role="region"
+      aria-label="CV PDF document"
+      tabIndex={blob ? 0 : undefined}
       className={cn('relative h-full w-full overflow-auto overscroll-contain bg-[#e9ebef]', className)}
     >
-      <div className="flex min-h-full flex-col items-center gap-4 p-4">
+      <div className="flex min-h-full w-max min-w-full flex-col items-center gap-4 p-4">
         {blob && (
           <Document
             file={blob}
             loading={null}
             error={null}
+            onLoadError={onDocumentError}
+            onSourceError={onDocumentError}
             onLoadSuccess={({ numPages: n }) => setNumPages(n)}
           >
             {Array.from({ length: numPages }, (_, i) => (
@@ -72,6 +79,7 @@ export function HarvardPdfViewer({
                 <Page
                   pageNumber={i + 1}
                   width={pageWidth}
+                  onRenderError={onDocumentError}
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                   loading={null}
@@ -87,7 +95,7 @@ export function HarvardPdfViewer({
       {!blob && (
         <div className="absolute inset-0 grid place-items-center">
           {status === 'error' ? (
-            <p className="px-6 text-center text-sm text-soft">{errorText}</p>
+            <p role="alert" className="px-6 text-center text-sm text-soft">{errorText}</p>
           ) : (
             <Spinner />
           )}
