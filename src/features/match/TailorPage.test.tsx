@@ -157,7 +157,8 @@ describe('TailorPage direct draft route (/app/tailor/:draftId)', () => {
     expect(mocks.tailorMutate).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { level: 1, name: /Tailor your CV for Acme/ })).toBeInTheDocument();
     expect(screen.getByText(/Gaps this job asks for/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Back to Job Match/i })).toHaveAttribute('href', '/app/match');
+    // "Back to Job Match" comes from the focused layout's top bar, not repeated in the page header.
+    expect(screen.queryByRole('link', { name: /Back to Job Match/i })).toBeNull();
   });
 
   it('survives a refresh: a fresh mount re-reads the same draft by id and makes no AI request', () => {

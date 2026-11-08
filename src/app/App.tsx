@@ -65,16 +65,18 @@ export function App() {
             </GuestOnly>
           }
         />
-        {/* Focused, full-width match report: its own layout (no sidebar), same auth guard. */}
+        {/* Focused AI workflows (match report + CV tailoring): their own layout with NO sidebar,
+            sibling of AppLayout, same auth guard. Back navigation lives in the layout/page. */}
         <Route
-          path="/app/match/:matchId"
           element={
             <RequireAuth>
               <ReportLayout />
             </RequireAuth>
           }
         >
-          <Route index element={<MatchReport />} />
+          <Route path="/app/match/:matchId" element={<MatchReport />} />
+          <Route path="/app/match/:matchId/tailor" element={<Tailor />} />
+          <Route path="/app/tailor/:draftId" element={<Tailor />} />
         </Route>
         <Route
           path="/app"
@@ -90,8 +92,6 @@ export function App() {
           <Route path="cv-builder/:cvId" element={<CvBuilder />} />
           <Route path="cvs" element={<MyCvs />} />
           <Route path="match" element={<JobMatch />} />
-          <Route path="match/:matchId/tailor" element={<Tailor />} />
-          <Route path="tailor/:draftId" element={<Tailor />} />
           <Route path="applications" element={<Applications />} />
           <Route path="applications/new" element={<AddApplication />} />
           <Route path="applications/:id" element={<ApplicationDetail />} />

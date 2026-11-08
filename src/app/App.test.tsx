@@ -62,11 +62,20 @@ afterEach(() => {
 });
 
 describe('Job Match route structure', () => {
-  it('serves direct-tailoring drafts at /app/tailor/:draftId in the normal layout', async () => {
-    renderApp(['/app/tailor/d1']);
+  it.each(['/app/tailor/d1', '/app/match/m1/tailor'])('renders %s in the focused layout with no sidebar', async (path) => {
+    renderApp([path]);
     expect(await screen.findByText('TAILOR PAGE')).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
-    expect(within(screen.getByRole('navigation', { name: 'Main' })).getByText('Job Match')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Account menu/i })).toBeNull();
+    expect(document.getElementById('app-sidebar')).toBeNull();
+    expect(screen.getByRole('link', { name: /Back to Job Match/i })).toHaveAttribute('href', '/app/match');
+  });
+
+  it.each(['/app/tailor/d1', '/app/match/m1/tailor'])('keeps %s behind authentication', async (path) => {
+    mocks.status = 'anonymous';
+    renderApp([path]);
+    expect(await screen.findByText('LOGIN PAGE')).toBeInTheDocument();
+    expect(screen.queryByText('TAILOR PAGE')).toBeNull();
   });
 
   it('keeps the shared form offering both actions on /app/match', async () => {
@@ -141,9 +150,9 @@ describe('Job Match route structure', () => {
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument(); // sidebar is back
   });
 
-  it('keeps /app/match/:id/tailor in the normal layout (not captured by the report route)', async () => {
+  it('"/app/match/:id/tailor" is not captured by the report route (shows tailoring, not the report)', async () => {
     renderApp(['/app/match/m1/tailor']);
     expect(await screen.findByText('TAILOR PAGE')).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Backend Engineer' })).toBeNull();
   });
 });

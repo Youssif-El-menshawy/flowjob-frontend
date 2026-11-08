@@ -5,7 +5,7 @@ import { Icon } from '@/shared/ui/Icons';
 import { PageLoader } from '@/shared/ui/Spinner';
 
 /**
- * Lightweight layout for focused, full-width reports (e.g. a saved Job Match analysis).
+ * Lightweight layout for focused, full-width AI workflows (a saved Job Match report and CV tailoring).
  * Deliberately has NO application sidebar: it is a sibling of AppLayout in the route tree,
  * not a CSS-hidden variant of it. Authentication is enforced by the route that mounts it.
  */
@@ -21,7 +21,7 @@ export function ReportLayout() {
         href="#report"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2"
       >
-        Skip to report
+        Skip to content
       </a>
       <header className="sticky top-0 z-30 border-b border-line bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1240px] items-center justify-between gap-4 px-5 py-2.5 sm:px-8">

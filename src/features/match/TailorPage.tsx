@@ -133,7 +133,8 @@ function DraftTailor({ draftId }: { draftId: string }) {
   const back = { to: '/app/match', label: 'Back to Job Match' };
   if (q.isError) return <TailorError error={q.error} back={back} missing={q.error instanceof ApiError && q.error.status === 404} />;
   if (!q.data) return <><PageHeader back={back} title="Tailor your CV" /><TailorLoading /></>;
-  return <TailorReview key={q.data.id} draft={q.data} back={back} />;
+  // The focused layout's top bar already offers "Back to Job Match", so don't repeat it here.
+  return <TailorReview key={q.data.id} draft={q.data} back={back} hideHeaderBack />;
 }
 
 export default function TailorPage() {
@@ -144,7 +145,7 @@ export default function TailorPage() {
 }
 
 /** The single review UI for both entry paths. Never assumes a match exists. */
-function TailorReview({ draft, back }: { draft: TailorDraft; back: Back }) {
+function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; back: Back; hideHeaderBack?: boolean }) {
   const nav = useNavigate();
   const toast = useToast();
   const cvs = useCvs();
@@ -196,7 +197,7 @@ function TailorReview({ draft, back }: { draft: TailorDraft; back: Back }) {
   return (
     <>
       <PageHeader
-        back={back}
+        back={hideHeaderBack ? undefined : back}
         title={`Tailor your CV for ${draft.company || draft.jobTitle}`}
         subtitle={`${draft.jobTitle} · based on ${source?.name ?? 'your CV'}`}
       />
