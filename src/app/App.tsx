@@ -91,6 +91,7 @@ export function App() {
           <Route path="cvs" element={<MyCvs />} />
           <Route path="match" element={<JobMatch />} />
           <Route path="match/:matchId/tailor" element={<Tailor />} />
+          <Route path="tailor/:draftId" element={<Tailor />} />
           <Route path="applications" element={<Applications />} />
           <Route path="applications/new" element={<AddApplication />} />
           <Route path="applications/:id" element={<ApplicationDetail />} />

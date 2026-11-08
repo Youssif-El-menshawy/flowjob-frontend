@@ -131,6 +131,13 @@ export interface RunMatchInput {
   jobUrl?: string;
 }
 
+export interface TailorDirectInput {
+  cvId: ID;
+  jobTitle: string;
+  jobDescription: string;
+  company?: string;
+}
+
 export interface TailorSuggestion {
   id: ID;
   section: 'summary' | 'experience' | 'skills' | 'project';

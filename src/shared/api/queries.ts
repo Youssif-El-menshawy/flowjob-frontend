@@ -10,6 +10,7 @@ import type {
   RunMatchInput,
   Profile,
   SyncResult,
+  TailorDirectInput,
   TailorDraft,
   User,
 } from './types';
@@ -20,6 +21,7 @@ export const qk = {
   cv: (id: string) => ['cvs', id] as const,
   matches: ['matches'] as const,
   match: (id: string) => ['matches', id] as const,
+  tailorDraft: (id: string) => ['tailor', id] as const,
   apps: ['applications'] as const,
   app: (id: string) => ['applications', id] as const,
   gmail: ['gmail'] as const,
@@ -98,6 +100,28 @@ export function useRunMatch() {
 export const useTailor = () =>
   useMutation({
     mutationFn: (matchId: string) => api<TailorDraft>('/tailor', { method: 'POST', json: { matchId } }),
+  });
+
+/**
+ * Direct tailoring: a CV + job details, no match record. Same endpoint and quota as the
+ * match-linked path; the backend reuses an identical cached draft without a new AI call.
+ * (`jobUrl` is not part of the tailoring contract, so it is intentionally not sent.)
+ */
+export function useTailorDirect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: TailorDirectInput) => api<TailorDraft>('/tailor', { method: 'POST', json: b }),
+    // Seed the draft query so the review route doesn't need a second request.
+    onSuccess: (d) => qc.setQueryData(qk.tailorDraft(d.id), d),
+  });
+}
+/** Reads a saved draft (GET only — never starts AI work); makes /app/tailor/:draftId refresh-safe. */
+export const useTailorDraft = (id?: string) =>
+  useQuery({
+    queryKey: qk.tailorDraft(id ?? ''),
+    queryFn: () => api<TailorDraft>(`/tailor/${id}`),
+    enabled: !!id,
+    retry: false,
   });
 
 // Applications

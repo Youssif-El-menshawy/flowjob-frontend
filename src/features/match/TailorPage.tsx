@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { fetchCvPreviewPdf, useCreateCv, useCvs, useMatch, useTailor } from '@/shared/api/queries';
+import { ApiError } from '@/shared/api/client';
+import { fetchCvPreviewPdf, useCreateCv, useCvs, useTailor, useTailorDraft } from '@/shared/api/queries';
 import type { CvContent, TailorDraft, TailorSuggestion } from '@/shared/api/types';
 import { useDebouncedValue, useDocumentTitle } from '@/shared/lib/hooks';
 import { cn } from '@/shared/lib/utils';
@@ -67,59 +68,111 @@ function TailorPreview({ content }: { content: CvContent }) {
   );
 }
 
+interface Back {
+  to: string;
+  label: string;
+}
+
+function TailorLoading() {
+  return (
+    <div className="grid gap-6 lg:grid-cols-2" aria-live="polite">
+      <Card className="flex flex-col gap-4">
+        <p className="font-medium">Writing truthful, focused suggestions for this job…</p>
+        <Skeleton className="h-20" />
+        <Skeleton className="h-20" />
+        <Skeleton className="h-20" />
+      </Card>
+      <Skeleton className="h-[480px] rounded-md" />
+    </div>
+  );
+}
+
+function TailorError({ error, back, missing }: { error: unknown; back: Back; missing?: boolean }) {
+  // Backend messages (quota, provider unavailable…) are already user-safe; anything else is generic.
+  const text = missing
+    ? 'This draft was not found. It may have expired or been removed — start again from the job form.'
+    : error instanceof ApiError
+      ? error.message
+      : 'Please check your connection and try again.';
+  return (
+    <EmptyState
+      title={missing ? 'Draft not found' : 'Could not tailor this CV'}
+      text={text}
+      action={<ButtonLink to={back.to}>{back.label}</ButtonLink>}
+    />
+  );
+}
+
+/**
+ * Entry path A: /app/match/:matchId/tailor. Creates (or reuses the cached) draft for an existing
+ * match — the match is never re-analysed.
+ */
+function MatchTailor({ matchId }: { matchId: string }) {
+  const tailor = useTailor();
+  const [draft, setDraft] = useState<TailorDraft | null>(null);
+  const started = useRef(false);
+  const back = { to: `/app/match/${matchId}`, label: 'Back to match' };
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    tailor.mutate(matchId, { onSuccess: setDraft });
+  }, [matchId, tailor]);
+
+  if (tailor.isError) return <TailorError error={tailor.error} back={back} />;
+  if (!draft) return <><PageHeader back={{ ...back, label: 'Back to match result' }} title="Tailor your CV" /><TailorLoading /></>;
+  return <TailorReview key={draft.id} draft={draft} back={{ ...back, label: 'Back to match result' }} />;
+}
+
+/**
+ * Entry path B: /app/tailor/:draftId — a direct-tailoring draft (no match). GET only, so
+ * opening or refreshing never starts new AI work.
+ */
+function DraftTailor({ draftId }: { draftId: string }) {
+  const q = useTailorDraft(draftId);
+  const back = { to: '/app/match', label: 'Back to Job Match' };
+  if (q.isError) return <TailorError error={q.error} back={back} missing={q.error instanceof ApiError && q.error.status === 404} />;
+  if (!q.data) return <><PageHeader back={back} title="Tailor your CV" /><TailorLoading /></>;
+  return <TailorReview key={q.data.id} draft={q.data} back={back} />;
+}
+
 export default function TailorPage() {
   useDocumentTitle('Tailor CV');
-  const { matchId } = useParams();
+  const { matchId, draftId } = useParams();
+  if (matchId) return <MatchTailor matchId={matchId} />;
+  return <DraftTailor draftId={draftId ?? ''} />;
+}
+
+/** The single review UI for both entry paths. Never assumes a match exists. */
+function TailorReview({ draft, back }: { draft: TailorDraft; back: Back }) {
   const nav = useNavigate();
   const toast = useToast();
-  const match = useMatch(matchId);
   const cvs = useCvs();
-  const tailor = useTailor();
   const create = useCreateCv();
-  const [draft, setDraft] = useState<TailorDraft | null>(null);
-  const [kept, setKept] = useState<Record<string, boolean>>({});
+  // Grounded suggestions are kept by default; review-required ones start unchecked.
+  const [kept, setKept] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(draft.suggestions.map((s) => [s.id, !s.reviewRequired])),
+  );
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [agree, setAgree] = useState(false);
   const [name, setName] = useState('');
   const [view, setView] = useState<'Tailored' | 'Original'>('Tailored');
-  const started = useRef(false);
 
+  const source = cvs.data?.find((c) => c.id === draft.sourceCvId);
   useEffect(() => {
-    if (!matchId || started.current) return;
-    started.current = true;
-    tailor.mutate(matchId, {
-      onSuccess: (d) => {
-        setDraft(d);
-        // Grounded suggestions are kept by default; review-required ones start unchecked.
-        setKept(Object.fromEntries(d.suggestions.map((s) => [s.id, !s.reviewRequired])));
-      },
-    });
-  }, [matchId, tailor]);
-
-  const source = cvs.data?.find((c) => c.id === draft?.sourceCvId);
-  useEffect(() => {
-    if (!draft || !cvs.data || name) return;
+    if (!cvs.data || name) return;
     const n = cvs.data.filter((c) => c.company === draft.company).length + 1;
     setName(`${draft.company || draft.jobTitle} v${n}`);
   }, [draft, cvs.data, name]);
 
   const result = useMemo(
-    () => (source && draft ? apply(source.content, draft.suggestions, kept, edits) : null),
+    () => (source ? apply(source.content, draft.suggestions, kept, edits) : null),
     [source, draft, kept, edits],
   );
-  const keptCount = draft ? Object.values(kept).filter(Boolean).length : 0;
-
-  if (tailor.isError)
-    return (
-      <EmptyState
-        title="Could not tailor this CV"
-        text="Please go back to your match result and try again."
-        action={<ButtonLink to={`/app/match/${matchId}`}>Back to match</ButtonLink>}
-      />
-    );
+  const keptCount = Object.values(kept).filter(Boolean).length;
 
   const save = () => {
-    if (!result || !draft) return;
+    if (!result) return;
     create.mutate(
       {
         kind: 'tailored',
@@ -143,21 +196,21 @@ export default function TailorPage() {
   return (
     <>
       <PageHeader
-        back={{ to: `/app/match/${matchId}`, label: 'Back to match result' }}
-        title={match.data ? `Tailor your CV for ${match.data.company || match.data.jobTitle}` : 'Tailor your CV'}
-        subtitle={match.data ? `${match.data.jobTitle} · based on ${source?.name ?? 'your CV'}` : undefined}
+        back={back}
+        title={`Tailor your CV for ${draft.company || draft.jobTitle}`}
+        subtitle={`${draft.jobTitle} · based on ${source?.name ?? 'your CV'}`}
       />
 
-      {!draft || !result ? (
-        <div className="grid gap-6 lg:grid-cols-2" aria-live="polite">
-          <Card className="flex flex-col gap-4">
-            <p className="font-medium">Writing truthful, focused suggestions for this job…</p>
-            <Skeleton className="h-20" />
-            <Skeleton className="h-20" />
-            <Skeleton className="h-20" />
-          </Card>
-          <Skeleton className="h-[480px] rounded-md" />
-        </div>
+      {!result ? (
+        cvs.isLoading || !cvs.data ? (
+          <TailorLoading />
+        ) : (
+          <EmptyState
+            title="Original CV not found"
+            text="The CV this draft was based on is no longer available."
+            action={<ButtonLink to="/app/cvs">Go to My CVs</ButtonLink>}
+          />
+        )
       ) : (
         <>
           <Note tone="accent" className="mb-6 flex flex-wrap justify-between gap-2 animate-in">
@@ -167,7 +220,7 @@ export default function TailorPage() {
             </span>
           </Note>
 
-          <div className="grid items-start gap-6 lg:grid-cols-[1fr_1.1fr]">
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_1.1fr]">
             <div className="flex flex-col gap-3">
               {draft.suggestions.length === 0 && (
                 <Card>
@@ -264,7 +317,7 @@ export default function TailorPage() {
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            <Button variant="ghost" onClick={() => nav(`/app/match/${matchId}`)}>
+            <Button variant="ghost" onClick={() => nav(back.to)}>
               Discard
             </Button>
             <Button disabled={!agree} loading={create.isPending} onClick={save}>

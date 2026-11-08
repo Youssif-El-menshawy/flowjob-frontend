@@ -30,6 +30,7 @@ vi.mock('@/shared/api/queries', () => ({
     return { data: match, isLoading: false, isError: false, error: null, isFetching: false, refetch: vi.fn() };
   },
   useRunMatch: () => ({ mutate: vi.fn(), isPending: false }),
+  useTailorDirect: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('@/features/auth/LoginPage', () => ({ default: () => <div>LOGIN PAGE</div> }));
 vi.mock('@/features/match/TailorPage', () => ({ default: () => <div>TAILOR PAGE</div> }));
@@ -61,9 +62,22 @@ afterEach(() => {
 });
 
 describe('Job Match route structure', () => {
+  it('serves direct-tailoring drafts at /app/tailor/:draftId in the normal layout', async () => {
+    renderApp(['/app/tailor/d1']);
+    expect(await screen.findByText('TAILOR PAGE')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Main' })).getByText('Job Match')).toBeInTheDocument();
+  });
+
+  it('keeps the shared form offering both actions on /app/match', async () => {
+    renderApp(['/app/match']);
+    expect(await screen.findByRole('button', { name: 'Check my match' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tailor my CV' })).toBeInTheDocument();
+  });
+
   it('renders the input page inside the normal layout, with the sidebar', async () => {
     renderApp(['/app/match']);
-    expect(await screen.findByRole('button', { name: /Analyse job match/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Check my match/i })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Main' });
     expect(within(nav).getByText('Job Match')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Account menu/i })).toBeInTheDocument();
@@ -96,7 +110,7 @@ describe('Job Match route structure', () => {
   it('applies the stored collapsed preference to the normal layout (input page)', async () => {
     localStorage.setItem('flowjob.sidebarCollapsed', 'true');
     renderApp(['/app/match']);
-    expect(await screen.findByRole('button', { name: /Analyse job match/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Check my match/i })).toBeInTheDocument();
     expect(document.getElementById('app-sidebar')).toHaveAttribute('data-collapsed', 'true');
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument();
   });
@@ -118,12 +132,12 @@ describe('Job Match route structure', () => {
     renderApp(['/app/match', '/app/match/m1'], 1);
     await screen.findByRole('heading', { level: 1, name: 'Backend Engineer' });
     fireEvent.click(screen.getByRole('button', { name: 'browser back' }));
-    expect(await screen.findByRole('button', { name: /Analyse job match/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Check my match/i })).toBeInTheDocument();
 
     cleanup();
     renderApp(['/app/match/m1']);
     fireEvent.click(await screen.findByRole('link', { name: /Back to Job Match/i }));
-    expect(await screen.findByRole('button', { name: /Analyse job match/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Check my match/i })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument(); // sidebar is back
   });
 

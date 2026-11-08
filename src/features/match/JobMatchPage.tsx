@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
-import { useCvs, useMatches, useRunMatch } from '@/shared/api/queries';
+import { useCvs, useMatches, useRunMatch, useTailorDirect } from '@/shared/api/queries';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { fmtDate } from '@/shared/lib/utils';
@@ -11,15 +11,23 @@ import { Input, Select, Textarea } from '@/shared/ui/Field';
 import { Icon } from '@/shared/ui/Icons';
 import { PageLoader, Spinner } from '@/shared/ui/Spinner';
 
-const STEPS = ['Reading the job post…', 'Comparing it with your CV…', 'Writing your feedback…'];
+const MATCH_STEPS = ['Reading the job post…', 'Comparing it with your CV…', 'Writing your feedback…'];
+const TAILOR_STEPS = ['Reading the job post…', 'Finding what to emphasise in your CV…', 'Drafting your suggestions…'];
 
-/** Rotating status line shown while the (explicitly requested) analysis runs. */
-function Progress() {
+/** Same minimum the backend enforces for a job description (it also caps at 12,000). */
+const MIN_JOB_CHARS = 80;
+const MAX_JOB_CHARS = 12000;
+
+type Action = 'match' | 'tailor';
+
+/** Rotating status line shown while an (explicitly requested) AI request runs. */
+function Progress({ steps: STEPS }: { steps: string[] }) {
   const [i, setI] = useState(0);
+  const last = STEPS.length - 1;
   useEffect(() => {
-    const t = setInterval(() => setI((x) => Math.min(x + 1, STEPS.length - 1)), 700);
+    const t = setInterval(() => setI((x) => Math.min(x + 1, last)), 700);
     return () => clearInterval(t);
-  }, []);
+  }, [last]);
   return (
     <div role="status" aria-live="polite" className="flex items-center gap-3 text-sm text-soft">
       <Spinner className="size-4" />
@@ -37,9 +45,9 @@ interface FormError {
 }
 
 /**
- * Step 1 of Job Match: a centered input form inside the normal app layout. The analysis is
- * only ever started by the explicit "Analyse job match" click — never while typing. On
- * success we navigate to the dedicated, full-width report at /app/match/:id.
+ * Shared job-input form for two independent AI workflows: "Check my match" (POST /matches →
+ * /app/match/:id) and "Tailor my CV" (POST /tailor with the CV + job, no match record →
+ * /app/tailor/:draftId). Nothing runs while typing — only an explicit click on one action.
  */
 export default function JobMatchPage() {
   useDocumentTitle('Job match');
@@ -47,6 +55,8 @@ export default function JobMatchPage() {
   const cvs = useCvs();
   const recent = useMatches();
   const run = useRunMatch();
+  const tailor = useTailorDirect();
+  const [action, setAction] = useState<Action | null>(null);
   const [cvId, setCvId] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [company, setCompany] = useState('');
@@ -74,11 +84,52 @@ export default function JobMatchPage() {
       </>
     );
 
-  const canSubmit = !!cvId && !!jobTitle.trim() && !!text.trim() && !run.isPending;
+  const busy = run.isPending || tailor.isPending;
+  const jobLen = text.trim().length;
+  const textOk = jobLen >= MIN_JOB_CHARS && jobLen <= MAX_JOB_CHARS;
+  const canSubmit = !!cvId && !!jobTitle.trim() && textOk && !busy;
+  const textHint =
+    jobLen > 0 && jobLen < MIN_JOB_CHARS
+      ? `Add a bit more — at least ${MIN_JOB_CHARS} characters of the job post (${jobLen} so far).`
+      : jobLen > MAX_JOB_CHARS
+        ? `The job post is too long — please keep it under ${MAX_JOB_CHARS.toLocaleString()} characters.`
+        : undefined;
+
+  const onError = (e: unknown, descriptionIs422: boolean) => {
+    if (e instanceof ApiError) {
+      const fieldMsg = e.fieldErrors?.jobDescription;
+      setError({ message: fieldMsg ?? e.message, field: !!fieldMsg || (descriptionIs422 && e.status === 422) });
+    } else {
+      setError({ message: 'Something went wrong. Please check your connection and try again.', field: false });
+    }
+  };
+
+  const tailorSubmit = () => {
+    if (!canSubmit) return;
+    setError(null);
+    setAction('tailor');
+    tailor.mutate(
+      {
+        cvId,
+        jobTitle: jobTitle.trim(),
+        jobDescription: text.trim(),
+        company: company.trim() || undefined,
+      },
+      {
+        onSuccess: (d) => {
+          pendingJob.clear();
+          nav(`/app/tailor/${d.id}`);
+        },
+        // Tailoring 422s can be about the CV itself (e.g. empty), so show them as an alert.
+        onError: (e) => onError(e, false),
+      },
+    );
+  };
 
   const submit = () => {
     if (!canSubmit) return; // also guards against duplicate submissions while pending
     setError(null);
+    setAction('match');
     run.mutate(
       {
         cvId,
@@ -93,14 +144,7 @@ export default function JobMatchPage() {
           // A normal (push) navigation, so the browser Back button returns to this form.
           nav(`/app/match/${m.id}`);
         },
-        onError: (e) => {
-          if (e instanceof ApiError) {
-            const fieldMsg = e.fieldErrors?.jobDescription;
-            setError({ message: fieldMsg ?? e.message, field: !!fieldMsg || e.status === 422 });
-          } else {
-            setError({ message: 'Something went wrong. Please try again.', field: false });
-          }
-        },
+        onError: (e) => onError(e, true),
       },
     );
   };
@@ -108,13 +152,13 @@ export default function JobMatchPage() {
   return (
     <div className="mx-auto w-full max-w-[800px]">
       <PageHeader
-        title="Job match"
-        subtitle="Paste a job post and get an explainable, AI-powered read on how your CV fits."
+        title="Match or tailor your CV"
+        subtitle="Select a CV and paste a job posting to see how well you match or tailor your CV for the role."
       />
 
-      <fieldset disabled={run.isPending} className="m-0 flex min-w-0 flex-col gap-5 border-0 p-0">
+      <fieldset disabled={busy} className="m-0 flex min-w-0 flex-col gap-5 border-0 p-0">
         <legend className="sr-only">Job details</legend>
-        <Select label="CV to compare" value={cvId} onChange={(e) => setCvId(e.target.value)}>
+        <Select label="CV to use" value={cvId} onChange={(e) => setCvId(e.target.value)}>
           {cvs.data.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -143,7 +187,7 @@ export default function JobMatchPage() {
           rows={13}
           placeholder="Paste the full job post here, including the requirements."
           value={text}
-          error={error?.field ? error.message : undefined}
+          error={error?.field ? error.message : textHint}
           onChange={(e) => setText(e.target.value)}
         />
       </fieldset>
@@ -154,16 +198,39 @@ export default function JobMatchPage() {
         </p>
       )}
 
-      <div className="mt-6 flex flex-wrap items-center gap-4">
-        <Button onClick={submit} loading={run.isPending} disabled={!canSubmit && !run.isPending}>
-          {run.isPending ? 'Analysing…' : 'Analyse job match'}
-        </Button>
-        {run.isPending ? (
-          <Progress />
-        ) : (
-          <p className="text-[13px] text-soft">
-            Uses AI to compare the post with your CV. Only runs when you click Analyse.
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
+          <p className="text-[13px] leading-relaxed text-soft">
+            See how your CV fits the role, including strengths, gaps, and a match score.
           </p>
+          <Button
+            className="mt-auto w-full"
+            onClick={submit}
+            loading={run.isPending}
+            disabled={!canSubmit && !run.isPending}
+          >
+            {run.isPending ? 'Checking match…' : 'Check my match'}
+          </Button>
+        </div>
+        <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
+          <p className="text-[13px] leading-relaxed text-soft">
+            Get suggested CV improvements for this job without running a match analysis.
+          </p>
+          <Button
+            className="mt-auto w-full"
+            onClick={tailorSubmit}
+            loading={tailor.isPending}
+            disabled={!canSubmit && !tailor.isPending}
+          >
+            {tailor.isPending ? 'Tailoring…' : 'Tailor my CV'}
+          </Button>
+        </div>
+      </div>
+      <div className="mt-4 min-h-5">
+        {busy ? (
+          <Progress key={action} steps={tailor.isPending ? TAILOR_STEPS : MATCH_STEPS} />
+        ) : (
+          <p className="text-[13px] text-soft">Uses AI. Only runs when you click one of the buttons above.</p>
         )}
       </div>
 
