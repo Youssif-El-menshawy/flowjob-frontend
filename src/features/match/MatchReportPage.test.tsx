@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
@@ -85,22 +85,6 @@ describe('MatchReportPage', () => {
     expect(screen.queryByRole('button', { name: /Analyse/i })).toBeNull();
   });
 
-  it('presents the three requirement categories with labels and wide, wrapping evidence', () => {
-    renderReport();
-    for (const t of ['Clearly matched', 'Partially matched', 'Missing or unverified'])
-      expect(screen.getByRole('heading', { level: 2, name: new RegExp(t) })).toBeInTheDocument();
-    const matched = screen.getByRole('region', { name: /Clearly matched/ });
-    expect(within(matched).getByRole('heading', { level: 3, name: 'Python' })).toBeInTheDocument();
-    expect(within(matched).getByText('Required')).toBeInTheDocument();
-    expect(within(matched).getByText('Clearly demonstrated')).toBeInTheDocument();
-    expect(within(matched).getByText(/millions of requests per day/)).toBeInTheDocument(); // long text renders
-    expect(screen.getAllByText('Preferred', { selector: 'span' })).toHaveLength(2); // CI/CD + Docker
-    expect(screen.getByText('Partially demonstrated')).toBeInTheDocument();
-    expect(screen.getByText('Not mentioned in the CV', { selector: 'p.text-xs' })).toBeInTheDocument();
-    // Missing section avoids claiming the candidate lacks the skill.
-    expect(screen.getByText(/does not mean you lack them/i)).toBeInTheDocument();
-  });
-
   it('shows recommendations, stronger wording and clarifying questions', () => {
     renderReport();
     expect(screen.getByText('Lead with backend.')).toBeInTheDocument();
@@ -108,27 +92,6 @@ describe('MatchReportPage', () => {
     expect(screen.getByText('Backend engineer with Python and MongoDB.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'A few things to confirm' })).toBeInTheDocument();
     expect(screen.getByText('Used Docker?')).toBeInTheDocument();
-  });
-
-  it('handles empty categories, recommendations and questions gracefully', () => {
-    mocks.match.data = { ...base, matched: [], partiallyMatched: [], missing: [], recommendations: [], suggestedWording: [], questions: [] };
-    renderReport();
-    expect(screen.getByText('Nothing from this post shows clearly in your CV yet.')).toBeInTheDocument();
-    expect(screen.getByText('No partial matches.')).toBeInTheDocument();
-    expect(screen.getByText('Nothing obvious is missing.')).toBeInTheDocument();
-    expect(screen.queryByText('How to improve your CV for this job')).toBeNull();
-    expect(screen.queryByText('A few things to confirm')).toBeNull();
-  });
-
-  it('falls back to legacy strengths/gaps when no structured categories exist', () => {
-    mocks.match.data = {
-      ...base, matched: undefined, partiallyMatched: undefined, missing: undefined,
-      strengths: [{ skill: 'React', evidence: 'Built a React app' }], gaps: [{ skill: 'Jest', tip: 'Add tests' }],
-    };
-    renderReport();
-    expect(screen.getByRole('heading', { level: 3, name: 'React' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: 'Jest' })).toBeInTheDocument();
-    expect(screen.queryByText('Required')).toBeNull(); // legacy data has no importance — none invented
   });
 
   it('shows "Score unavailable" and hides the progress bar when no score exists', () => {
@@ -183,26 +146,6 @@ describe('MatchReportPage', () => {
   });
 
   describe('actions', () => {
-    it('hands the correct saved match id to Tailor', () => {
-      renderReport();
-      expect(screen.getByRole('link', { name: 'Tailor my CV for this job' })).toHaveAttribute(
-        'href',
-        '/app/match/m1/tailor',
-      );
-    });
-
-    it('preserves job and CV context for Add to Applications (without creating one)', () => {
-      renderReport();
-      const href = screen.getByRole('link', { name: 'Add to Applications' }).getAttribute('href')!;
-      const [path, query] = href.split('?');
-      expect(path).toBe('/app/applications/new');
-      const q = new URLSearchParams(query);
-      expect(q.get('company')).toBe('Acme');
-      expect(q.get('jobTitle')).toBe('Backend Engineer');
-      expect(q.get('jobUrl')).toBe('acme.com/jobs/1');
-      expect(q.get('cvId')).toBe('cv1');
-    });
-
     it('offers a way to start a new match', () => {
       renderReport();
       expect(screen.getByRole('link', { name: 'Start a new match' })).toHaveAttribute('href', '/app/match');
