@@ -41,12 +41,12 @@ export function countries(): CountryOption[] {
 export const countryByCode = (code: string): CountryOption | undefined => countries().find((c) => c.code === code);
 
 /** Search by name, ISO code or dialing code ("uk", "kingdom", "+44", "44"). */
-export function filterCountries(query: string): CountryOption[] {
+export function filterCountries(query: string, includeDial = true): CountryOption[] {
   const q = query.trim().toLowerCase().replace(/^\+/, '');
   if (!q) return countries();
   const digits = /^\d+$/.test(q);
   return countries().filter((c) =>
-    digits ? c.dial.startsWith(q) : c.name.toLowerCase().includes(q) || c.code.toLowerCase() === q,
+    digits ? includeDial && c.dial.startsWith(q) : c.name.toLowerCase().includes(q) || c.code.toLowerCase() === q,
   );
 }
 

@@ -460,3 +460,49 @@ describe('phone number', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1');
   });
 });
+
+describe('CV location', () => {
+  it('keeps a legacy location unchanged when saving unrelated edits to the original CV', () => {
+    const original = { ...ORIG, content: { ...ORIG.content, location: 'Wroclaw/Poland' } };
+    mocks.cvs = { ...mocks.cvs, data: [original, HAYS, SNOW] };
+    renderAt('/app/cv-builder/o1');
+    expect(screen.getByLabelText(/^City/)).toHaveValue('Wroclaw');
+    expect(screen.getByRole('button', { name: 'Location country: Poland' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save CV' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save CV' }));
+    expect(mocks.update.mutate.mock.calls[0][0]).toMatchObject({
+      id: 'o1',
+      content: { location: 'Wroclaw/Poland' },
+    });
+  });
+
+  it('previews and saves the tailored CV location, then loads the original CV location on switch', async () => {
+    const original = { ...ORIG, content: { ...ORIG.content, location: 'Berlin, Germany' } };
+    mocks.cvs = { ...mocks.cvs, data: [original, HAYS, SNOW] };
+    renderAt('/app/cv-builder/t1');
+    mocks.previewResolvers[0](new Blob(['%PDF']));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Update preview' })).toBeDisabled());
+
+    fireEvent.change(screen.getByLabelText(/^City/), { target: { value: 'Wrocław' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Location country: not selected' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search countries' }), { target: { value: 'Poland' } });
+    fireEvent.click(screen.getByRole('option', { name: 'Poland' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update preview' }));
+    expect(lastPreview().location).toBe('Wrocław, Poland');
+
+    choose('o1');
+    expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save & switch' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1'));
+
+    expect(mocks.update.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.update.mutateAsync.mock.calls[0][0]).toMatchObject({
+      id: 't1',
+      content: { location: 'Wrocław, Poland' },
+    });
+    expect(screen.getByLabelText(/^City/)).toHaveValue('Berlin');
+    expect(screen.getByRole('button', { name: 'Location country: Germany' })).toBeInTheDocument();
+    expect(lastPreview().location).toBe('Berlin, Germany');
+  });
+});

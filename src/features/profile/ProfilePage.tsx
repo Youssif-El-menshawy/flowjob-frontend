@@ -9,6 +9,7 @@ import { Input, Textarea } from '@/shared/ui/Field';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { ContactLinksFields, type ContactLinksHandle } from './ContactLinksFields';
+import { LocationFields } from './LocationFields';
 import { PhoneFieldWithHandle, type PhoneFieldHandle } from './PhoneFields';
 import { blank, ItemEditor, SkillsEditor, type Kind } from './profileParts';
 
@@ -152,8 +153,8 @@ export default function ProfilePage() {
                 value={p.email}
                 onChange={(e) => set('email', e.target.value)}
               />
-              <PhoneFieldWithHandle ref={phoneRef} value={p.phone} onChange={(v) => set('phone', v)} />
-              <Input label="City" value={p.location} onChange={(e) => set('location', e.target.value)} />
+              <PhoneFieldWithHandle ref={phoneRef} value={p.phone} onChange={(v) => set('phone', v)} className="sm:col-span-2" />
+              <LocationFields value={p.location} onChange={(v) => set('location', v)} />
               <ContactLinksFields ref={linksRef} links={p.links} onChange={(l) => set('links', l)} />
               <Input
                 className="sm:col-span-2"

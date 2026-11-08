@@ -13,6 +13,7 @@ import { blank, ItemEditor, SkillsEditor, type Kind } from '@/features/profile/p
 import { CvLivePreview, type CvPreviewHandle } from './CvLivePreview';
 import { CvSelector } from './CvSelector';
 import { ContactLinksInputs, useContactLinks } from '@/features/profile/ContactLinksFields';
+import { LocationFields } from '@/features/profile/LocationFields';
 import { PhoneInputs, usePhoneField } from '@/features/profile/PhoneFields';
 
 const STEPS = [
@@ -264,7 +265,7 @@ function Editor({
                 />
                 <Input label="Email" value={c.email} onChange={(e) => set('email', e.target.value)} />
                 <PhoneInputs state={phoneField} className="sm:col-span-2" />
-                <Input label="City" value={c.location} onChange={(e) => set('location', e.target.value)} />
+                <LocationFields value={c.location} onChange={(v) => set('location', v)} />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <ContactLinksInputs state={contact} />

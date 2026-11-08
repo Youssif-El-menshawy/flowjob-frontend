@@ -3,8 +3,10 @@ import { countryByCode, filterCountries, type CountryCode } from '@/shared/lib/p
 import { cn } from '@/shared/lib/utils';
 import { controlClass } from './Field';
 
+const NO_COUNTRY = { code: '', name: 'No country', dial: '', flag: '' } as const;
+
 /**
- * Searchable country picker (flag, name, dialing code) following the ARIA combobox/listbox pattern.
+ * Searchable country picker (flag, name, optional dialing code) following the ARIA combobox/listbox pattern.
  * No dependency: the button shows the current country; its popover has a search box and a listbox.
  * Keyboard: ↑/↓ move, Enter selects, Esc closes and returns focus to the button.
  */
@@ -14,12 +16,16 @@ export function CountrySelect({
   label,
   disabled,
   invalid,
+  showDialCode = true,
+  onClear,
 }: {
   value: CountryCode | '';
   onChange: (c: CountryCode) => void;
   label: string;
   disabled?: boolean;
   invalid?: boolean;
+  showDialCode?: boolean;
+  onClear?: () => void;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -28,7 +34,8 @@ export function CountrySelect({
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLUListElement>(null);
-  const results = useMemo(() => filterCountries(query), [query]);
+  const matches = useMemo(() => filterCountries(query, showDialCode), [query, showDialCode]);
+  const results = onClear && !query.trim() ? [NO_COUNTRY, ...matches] : matches;
   const current = value ? countryByCode(value) : undefined;
   const optId = (i: number) => `${id}-opt-${i}`;
 
@@ -42,28 +49,29 @@ export function CountrySelect({
   }, [open]);
 
   useEffect(() => {
-    if (open) list.current?.querySelector<HTMLElement>('[aria-selected="true"], [data-active="true"]')?.scrollIntoView?.({ block: 'nearest' });
+    if (open) list.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView?.({ block: 'nearest' });
   }, [open, active]);
 
   const openMenu = () => {
     setQuery('');
     const i = value ? filterCountries('').findIndex((c) => c.code === value) : 0;
-    setActive(Math.max(0, i));
+    setActive(value ? Math.max(0, i) + (onClear ? 1 : 0) : 0);
     setOpen(true);
   };
   const close = (refocus = true) => {
     setOpen(false);
     if (refocus) button.current?.focus();
   };
-  const choose = (c: CountryCode) => {
-    onChange(c);
+  const choose = (c: CountryCode | '') => {
+    if (c) onChange(c);
+    else onClear?.();
     close();
   };
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActive((a) => Math.min(results.length - 1, a + 1));
+      setActive((a) => Math.min(Math.max(0, results.length - 1), a + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActive((a) => Math.max(0, a - 1));
@@ -87,14 +95,14 @@ export function CountrySelect({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={current ? `${label}: ${current.name} +${current.dial}` : `${label}: not selected`}
+        aria-label={current ? `${label}: ${current.name}${showDialCode ? ` +${current.dial}` : ''}` : `${label}: not selected`}
         onClick={() => (open ? close(false) : openMenu())}
         className={cn(controlClass(invalid), 'flex min-h-12 w-full items-center justify-between gap-2 text-left')}
       >
         {current ? (
           <span className="flex min-w-0 items-center gap-2">
             <span aria-hidden className="text-lg leading-none">{current.flag}</span>
-            <span className="tabular-nums">+{current.dial}</span>
+            <span className={showDialCode ? "tabular-nums" : "truncate"}>{showDialCode ? `+${current.dial}` : current.name}</span>
           </span>
         ) : (
           <span className="text-soft/70">Country</span>
@@ -102,7 +110,10 @@ export function CountrySelect({
         <span aria-hidden className="text-xs text-soft">▾</span>
       </button>
       {open && (
-        <div className="absolute left-0 z-30 mt-1 w-[min(340px,86vw)] overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+        <div className={cn(
+          'absolute left-0 z-30 mt-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xl',
+          showDialCode ? 'w-[min(340px,86vw)]' : 'w-full',
+        )}>
           <input
             autoFocus
             role="combobox"
@@ -112,7 +123,7 @@ export function CountrySelect({
             aria-activedescendant={results[active] ? optId(active) : undefined}
             aria-autocomplete="list"
             value={query}
-            placeholder="Search country or code"
+            placeholder={showDialCode ? "Search country or code" : "Search country"}
             onChange={(e) => {
               setQuery(e.target.value);
               setActive(0);
@@ -138,9 +149,9 @@ export function CountrySelect({
                   c.code === value && 'font-semibold',
                 )}
               >
-                <span aria-hidden className="text-lg leading-none">{c.flag}</span>
+                {c.flag && <span aria-hidden className="text-lg leading-none">{c.flag}</span>}
                 <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                <span className="shrink-0 tabular-nums text-soft">+{c.dial}</span>
+                {showDialCode && c.dial && <span className="shrink-0 tabular-nums text-soft">+{c.dial}</span>}
                 {c.code === value && <span aria-hidden>✓</span>}
               </li>
             ))}
