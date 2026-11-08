@@ -55,6 +55,7 @@ function renderApp(entries: string[], index?: number) {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   mocks.status = 'authenticated';
   mocks.matchIds = [];
 });
@@ -78,6 +79,26 @@ describe('Job Match route structure', () => {
     // Lightweight report chrome instead.
     expect(screen.getByRole('link', { name: /Back to Job Match/i })).toHaveAttribute('href', '/app/match');
     expect(screen.getByRole('link', { name: 'FlowJob home' })).toBeInTheDocument();
+  });
+
+  it('keeps the report sidebar-free (and toggle-free) whatever the sidebar preference is', async () => {
+    for (const pref of ['true', 'false']) {
+      localStorage.setItem('flowjob.sidebarCollapsed', pref);
+      renderApp(['/app/match/m1']);
+      expect(await screen.findByRole('heading', { level: 1, name: 'Backend Engineer' })).toBeInTheDocument();
+      expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /(Collapse|Expand) sidebar/i })).toBeNull();
+      expect(document.getElementById('app-sidebar')).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('applies the stored collapsed preference to the normal layout (input page)', async () => {
+    localStorage.setItem('flowjob.sidebarCollapsed', 'true');
+    renderApp(['/app/match']);
+    expect(await screen.findByRole('button', { name: /Analyse job match/i })).toBeInTheDocument();
+    expect(document.getElementById('app-sidebar')).toHaveAttribute('data-collapsed', 'true');
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument();
   });
 
   it('supports deep links / refresh: the report loads straight from its URL id', async () => {

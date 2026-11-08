@@ -12,7 +12,14 @@ import { useToast } from '@/shared/ui/Overlay';
  * Appearance (dark mode) and Log out. Closes on outside click / Escape, supports arrow-key
  * navigation, and uses menu ARIA roles. No external dependency.
  */
-export function AccountMenu({ onNavigate }: { onNavigate?: () => void }) {
+export function AccountMenu({
+  onNavigate,
+  collapsed = false,
+}: {
+  onNavigate?: () => void;
+  /** Icon-only sidebar: show just the avatar; the popover keeps full width so it never clips. */
+  collapsed?: boolean;
+}) {
   const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const nav = useNavigate();
@@ -89,7 +96,10 @@ export function AccountMenu({ onNavigate }: { onNavigate?: () => void }) {
           role="menu"
           aria-label="Account"
           onKeyDown={onMenuKeyDown}
-          className="absolute bottom-full left-0 z-20 mb-2 w-full rounded-2xl border border-line bg-surface p-1.5 shadow-xl"
+          className={cn(
+            'absolute bottom-full left-0 z-20 mb-2 rounded-2xl border border-line bg-surface p-1.5 shadow-xl',
+            collapsed ? 'w-60' : 'w-full',
+          )}
         >
           <button
             role="menuitem"
@@ -152,25 +162,33 @@ export function AccountMenu({ onNavigate }: { onNavigate?: () => void }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
-        className="flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left transition-colors hover:bg-surface/60"
+        title={collapsed ? [user?.name, user?.email].filter(Boolean).join(' · ') || 'Account menu' : undefined}
+        className={cn(
+          'flex w-full items-center rounded-2xl py-2 text-left transition-colors hover:bg-surface/60',
+          collapsed ? 'justify-center px-0' : 'gap-3 px-2.5',
+        )}
       >
         <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[#b9d0b8] text-sm font-semibold text-[#1c2b22]">
           {initials(user?.name)}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{user?.name}</p>
-          <p className="truncate text-xs text-soft">{user?.email}</p>
-        </div>
-        <svg
-          viewBox="0 0 24 24"
-          className={cn('size-4 shrink-0 text-soft transition-transform', open && 'rotate-180')}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          aria-hidden
-        >
-          <path d="m18 15-6-6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        {!collapsed && (
+          <>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">{user?.name}</p>
+              <p className="truncate text-xs text-soft">{user?.email}</p>
+            </div>
+            <svg
+              viewBox="0 0 24 24"
+              className={cn('size-4 shrink-0 text-soft transition-transform', open && 'rotate-180')}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden
+            >
+              <path d="m18 15-6-6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </>
+        )}
       </button>
     </div>
   );
