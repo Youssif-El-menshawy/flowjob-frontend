@@ -85,13 +85,14 @@ describe('MatchReportPage', () => {
     expect(screen.queryByRole('button', { name: /Analyse/i })).toBeNull();
   });
 
-  it('shows recommendations, stronger wording and clarifying questions', () => {
+  it('keeps recommendations and stronger wording while hiding saved clarifying questions', () => {
     renderReport();
     expect(screen.getByText('Lead with backend.')).toBeInTheDocument();
     expect(screen.getByText('Quantify one project.')).toBeInTheDocument();
     expect(screen.getByText('Backend engineer with Python and MongoDB.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'A few things to confirm' })).toBeInTheDocument();
-    expect(screen.getByText('Used Docker?')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'A few things to confirm' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Answer these honestly/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Used Docker?')).not.toBeInTheDocument();
   });
 
   it('shows "Score unavailable" and hides the progress bar when no score exists', () => {

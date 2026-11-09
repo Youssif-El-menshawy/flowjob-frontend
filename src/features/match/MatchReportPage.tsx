@@ -494,24 +494,6 @@ function Report({ m }: { m: MatchResult }) {
           )}
         </Panel>
       )}
-
-      {!!m.questions?.length && (
-        <Panel headingId="questions-h" title="A few things to confirm">
-          <p className="-mt-2 mb-3 text-sm text-soft">
-            Answer these honestly — only add something to your CV if it is true.
-          </p>
-          <ul className="flex flex-col gap-2.5">
-            {m.questions.map((q, i) => (
-              <li key={i} className="flex gap-3 text-[15px] leading-relaxed">
-                <span aria-hidden className="text-soft">
-                  ?
-                </span>
-                <span className="min-w-0 break-words">{q}</span>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
     </div>
   );
 }

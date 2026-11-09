@@ -270,9 +270,10 @@ describe('actions', () => {
     expect(tailor.compareDocumentPosition(screen.getByRole('tablist')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps recommendations and questions visible below the tabs', () => {
+  it('keeps recommendations visible below the tabs', () => {
     renderReport();
-    expect(screen.getByText('Lead with backend.')).toBeVisible();
-    expect(screen.getByText('Used Docker?')).toBeVisible();
+    const recommendation = screen.getByText('Lead with backend.');
+    expect(recommendation).toBeVisible();
+    expect(screen.getByRole('tablist').compareDocumentPosition(recommendation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
