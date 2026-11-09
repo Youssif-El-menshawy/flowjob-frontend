@@ -1,6 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApplicationStatus } from '@/shared/api/types';
+import { flowJobLogos } from '@/shared/lib/branding';
+import { useTheme } from '@/shared/lib/theme';
 import { cn } from '@/shared/lib/utils';
 
 export function Card({
@@ -140,12 +142,15 @@ export function PageHeader({
 }
 
 export function LogoMark({ className }: { className?: string }) {
+  const { theme } = useTheme();
   return (
-    <svg viewBox="0 0 30 30" className={cn('size-[30px]', className)} aria-hidden>
-      <rect x="2" y="16" width="8" height="12" rx="2" className="fill-primary" />
-      <rect x="11" y="10" width="8" height="18" rx="2" fill="#6F9A7C" />
-      <rect x="20" y="3" width="8" height="25" rx="2" className="fill-accent" />
-    </svg>
+    <img
+      src={flowJobLogos[theme]}
+      alt=""
+      width={32}
+      height={32}
+      className={cn('size-8 shrink-0 object-contain', className)}
+    />
   );
 }
 

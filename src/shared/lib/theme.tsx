@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { flowJobLogos } from './branding';
 
 type Theme = 'light' | 'dark';
 const KEY = 'flowjob.theme';
@@ -18,6 +19,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(initial);
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.setAttribute('href', flowJobLogos[theme]);
     try {
       localStorage.setItem(KEY, theme);
     } catch {
