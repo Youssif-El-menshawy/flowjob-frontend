@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { fetchCvPdfBlob, useCreateCv, useCvs, useProfile, useUpdateCv } from '@/shared/api/queries';
 import type { Cv, CvContent, Education, Experience, Project } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { cn, downloadBlob, fmtRelative } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
-import { Card, EmptyState, Note, PageHeader } from '@/shared/ui/Display';
+import { Card, EmptyState, PageHeader } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
 import { Modal, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
@@ -17,14 +17,16 @@ import { LanguagesEditor } from '@/features/profile/LanguagesEditor';
 import { LocationFields } from '@/features/profile/LocationFields';
 import { PhoneInputs, usePhoneField } from '@/features/profile/PhoneFields';
 
-const STEPS = [
-  { id: 'personal', label: 'Personal' },
-  { id: 'summary', label: 'Summary' },
-  { id: 'experience', label: 'Experience' },
-  { id: 'education', label: 'Education' },
-  { id: 'projects', label: 'Projects' },
-  { id: 'skills', label: 'Skills' },
-] as const;
+const SECTION_LABELS = {
+  personal: 'Personal',
+  summary: 'Summary',
+  experience: 'Experience',
+  education: 'Education',
+  projects: 'Projects',
+  skills: 'Skills',
+} as const;
+type Section = keyof typeof SECTION_LABELS;
+const SECTIONS = Object.keys(SECTION_LABELS) as Section[];
 
 /** Subtitle text from real metadata only. */
 function versionLabel(cv: Cv) {
@@ -41,13 +43,13 @@ function versionLabel(cv: Cv) {
 function Editor({
   cv,
   cvs,
-  step,
-  setStep,
+  section,
+  setSection,
 }: {
   cv: Cv;
   cvs: Cv[];
-  step: number;
-  setStep: (i: number) => void;
+  section: Section;
+  setSection: (section: Section) => void;
 }) {
   const toast = useToast();
   const nav = useNavigate();
@@ -59,10 +61,13 @@ function Editor({
   const [switchError, setSwitchError] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const previewRef = useRef<CvPreviewHandle>(null);
-  // Navigation refreshes the Harvard preview only when the content is actually stale,
-  // so rapid Next/Back (or jumping steps) without edits makes zero PDF requests.
-  const goToStep = (i: number) => {
-    setStep(i);
+  const tabsId = useId();
+  const tabId = (value: Section) => `${tabsId}-${value}`;
+  const panelId = `${tabsId}-panel`;
+  // Refresh on section changes only when the PDF no longer matches the form.
+  const goToSection = (value: Section) => {
+    if (value === section) return;
+    setSection(value);
     previewRef.current?.updateIfStale();
   };
   const [editing, setEditing] = useState<{
@@ -77,15 +82,14 @@ function Editor({
   const set = <K extends keyof CvContent>(k: K, v: CvContent[K]) => setC((x) => ({ ...x, [k]: v }));
   const contact = useContactLinks(c.links, (l) => set('links', l));
   const phoneField = usePhoneField(c.phone, (v) => set('phone', v));
-  const cur = STEPS[step].id;
 
-  // Validates/normalises the contact links first. On a bad link, jump to the Personal step (where the
+  // Validates/normalises the contact links first. On a bad link, jump to the Personal section (where the
   // inline error is) instead of saving; nothing is sent.
   const prepareContent = (): CvContent | null => {
     const links = contact.validate();
     const phone = phoneField.validate();
     if (!links || phone === null) {
-      setStep(0);
+      setSection('personal');
       toast({ text: 'Please fix the highlighted field first.', tone: 'error' });
       return null;
     }
@@ -223,88 +227,92 @@ function Editor({
           </>
         }
       />
-      <ol className="mb-6 flex gap-1.5 overflow-x-auto pb-1" aria-label="Steps">
-        {STEPS.map((s, i) => (
-          <li key={s.id} className="min-w-[110px] flex-1">
+      <div role="tablist" aria-label="CV sections" className="mb-6 flex gap-1.5 overflow-x-auto pb-1">
+        {SECTIONS.map((value, index) => {
+          const active = value === section;
+          return (
             <button
-              onClick={() => goToStep(i)}
-              aria-current={i === step ? 'step' : undefined}
+              key={value}
+              id={tabId(value)}
+              type="button"
+              role="tab"
+              aria-controls={panelId}
+              aria-selected={active}
+              tabIndex={active ? 0 : -1}
+              onClick={() => goToSection(value)}
+              onKeyDown={(event) => {
+                let next: number;
+                switch (event.key) {
+                  case 'ArrowRight': next = (index + 1) % SECTIONS.length; break;
+                  case 'ArrowLeft': next = (index - 1 + SECTIONS.length) % SECTIONS.length; break;
+                  case 'Home': next = 0; break;
+                  case 'End': next = SECTIONS.length - 1; break;
+                  default: return;
+                }
+                event.preventDefault();
+                goToSection(SECTIONS[next]);
+                document.getElementById(tabId(SECTIONS[next]))?.focus();
+              }}
               className={cn(
-                'w-full rounded-full px-4 py-2.5 text-left text-sm font-medium transition-colors',
-                i === step
-                  ? 'bg-accent text-[#1c2b22]'
-                  : i < step
-                    ? 'bg-primary text-on-primary'
-                    : 'bg-side text-soft hover:text-ink',
+                'min-w-[110px] flex-1 rounded-full px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
+                active ? 'bg-accent text-[#1c2b22]' : 'bg-side text-soft hover:text-ink',
               )}
             >
-              {i < step ? '✓ ' : `${i + 1}. `}
-              {s.label}
+              {SECTION_LABELS[value]}
             </button>
-          </li>
-        ))}
-      </ol>
+          );
+        })}
+      </div>
 
       <div className="grid items-start gap-6 xl:grid-cols-2">
         <div className="min-w-0">
-        <CvSelector cvs={cvs} value={cv.id} onSelect={requestSwitch} disabled={update.isPending || !!pendingId} />
-        <Card key={cur} className="flex flex-col gap-5 animate-in">
-          <h2 className="text-xl font-semibold">{STEPS[step].label}</h2>
-          {cur === 'personal' && (
-            <>
-              <Input
-                label="CV name"
-                hint="Only you see this."
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Input
-                  label="Full name"
-                  value={c.fullName}
-                  onChange={(e) => set('fullName', e.target.value)}
+          <CvSelector cvs={cvs} value={cv.id} onSelect={requestSwitch} disabled={update.isPending || !!pendingId} />
+          <div id={panelId} role="tabpanel" aria-labelledby={tabId(section)}>
+            <Card key={section} className="flex flex-col gap-5 animate-in">
+              <h2 className="text-xl font-semibold">{SECTION_LABELS[section]}</h2>
+              {section === 'personal' && (
+                <>
+                  <Input
+                    label="CV name"
+                    hint="Only you see this."
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Input
+                      label="Full name"
+                      value={c.fullName}
+                      onChange={(e) => set('fullName', e.target.value)}
+                    />
+                    <Input label="Email" value={c.email} onChange={(e) => set('email', e.target.value)} />
+                    <PhoneInputs state={phoneField} className="sm:col-span-2" />
+                    <LocationFields value={c.location} onChange={(v) => set('location', v)} />
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <ContactLinksInputs state={contact} />
+                  </div>
+                </>
+              )}
+              {section === 'summary' && (
+                <Textarea
+                  label="Summary"
+                  rows={5}
+                  hint="Two or three sentences. Say what you do and what you want next."
+                  value={c.summary}
+                  onChange={(e) => set('summary', e.target.value)}
                 />
-                <Input label="Email" value={c.email} onChange={(e) => set('email', e.target.value)} />
-                <PhoneInputs state={phoneField} className="sm:col-span-2" />
-                <LocationFields value={c.location} onChange={(v) => set('location', v)} />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ContactLinksInputs state={contact} />
-              </div>
-            </>
-          )}
-          {cur === 'summary' && (
-            <Textarea
-              label="Summary"
-              rows={5}
-              hint="Two or three sentences. Say what you do and what you want next."
-              value={c.summary}
-              onChange={(e) => set('summary', e.target.value)}
-            />
-          )}
-          {cur === 'experience' && items('experience')}
-          {cur === 'education' && items('education')}
-          {cur === 'projects' && items('projects')}
-          {cur === 'skills' && (
-            <>
-              <SkillsEditor skills={c.skills} onChange={(s) => set('skills', s)} />
-              <LanguagesEditor value={c.languages} onChange={(v) => set('languages', v)} />
-            </>
-          )}
-          <Note>Changes here only affect this CV, not your profile.</Note>
-          <div className="flex justify-between gap-3">
-            <Button variant="secondary" disabled={step === 0} onClick={() => goToStep(step - 1)}>
-              Back
-            </Button>
-            {step < STEPS.length - 1 ? (
-              <Button onClick={() => goToStep(step + 1)}>Next: {STEPS[step + 1].label}</Button>
-            ) : (
-              <Button onClick={saveCv} loading={update.isPending} disabled={!dirty}>
-                Save CV
-              </Button>
-            )}
+              )}
+              {section === 'experience' && items('experience')}
+              {section === 'education' && items('education')}
+              {section === 'projects' && items('projects')}
+              {section === 'skills' && (
+                <>
+                  <SkillsEditor skills={c.skills} onChange={(s) => set('skills', s)} />
+                  <LanguagesEditor value={c.languages} onChange={(v) => set('languages', v)} />
+                </>
+              )}
+            </Card>
           </div>
-        </Card>
         </div>
         <div className="min-w-0 xl:sticky xl:top-8">
           <CvLivePreview ref={previewRef} content={c} />
@@ -385,8 +393,8 @@ export default function CvBuilderPage() {
   const cvs = useCvs();
   const profile = useProfile();
   const create = useCreateCv();
-  // Lifted so the current step survives switching to another CV.
-  const [step, setStep] = useState(0);
+  // Keep the selected section when switching to another saved CV.
+  const [section, setSection] = useState<Section>('personal');
   const cv = cvId ? cvs.data?.find((x) => x.id === cvId) : cvs.data?.find((x) => x.kind === 'original');
 
   useEffect(() => {
@@ -405,7 +413,7 @@ export default function CvBuilderPage() {
         />
       </>
     );
-  if (cv) return <Editor key={cv.id} cv={cv} cvs={cvs.data ?? []} step={step} setStep={setStep} />;
+  if (cv) return <Editor key={cv.id} cv={cv} cvs={cvs.data ?? []} section={section} setSection={setSection} />;
 
   const hasProfile =
     !!profile.data && (profile.data.experience.length > 0 || profile.data.summary.length > 0);

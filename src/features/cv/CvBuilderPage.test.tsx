@@ -129,16 +129,86 @@ describe('CV selector', () => {
   });
 });
 
-describe('switching a clean CV', () => {
-  it('switches without a prompt, loads that CV, shows its preview and keeps the step', () => {
+describe('CV section tabs', () => {
+  it('shows plain, always-available tabs and highlights only the selected section', () => {
     renderAt('/app/cv-builder/o1');
-    fireEvent.click(screen.getByRole('button', { name: /2\. Summary/ }));
+    const labels = ['Personal', 'Summary', 'Experience', 'Education', 'Projects', 'Skills'];
+    const tablist = screen.getByRole('tablist', { name: 'CV sections' });
+    const tabs = within(tablist).getAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(labels);
+    expect(screen.getByRole('tabpanel', { name: 'Personal' })).toBeInTheDocument();
+
+    for (const [index, tab] of tabs.entries()) {
+      expect(tab).toBeEnabled();
+      fireEvent.click(tab);
+      const panel = screen.getByRole('tabpanel', { name: labels[index] });
+      expect(panel.id).toBe(tab.getAttribute('aria-controls'));
+      expect(within(panel).getByRole('heading', { name: labels[index] })).toBeInTheDocument();
+      expect(screen.queryByText(/Changes here only affect this CV/)).not.toBeInTheDocument();
+      expect(within(tablist).getByRole('tab', { selected: true })).toBe(tab);
+      expect(tabs.filter((item) => item.classList.contains('bg-accent'))).toEqual([tab]);
+    }
+    expect(screen.queryByRole('button', { name: /^(Back|Next:)/ })).not.toBeInTheDocument();
+  });
+
+  it('supports arrow keys, Home and End with focus following selection', () => {
+    renderAt('/app/cv-builder/o1');
+    const personal = screen.getByRole('tab', { name: 'Personal' });
+    const summary = screen.getByRole('tab', { name: 'Summary' });
+    const skills = screen.getByRole('tab', { name: 'Skills' });
+    personal.focus();
+    fireEvent.keyDown(personal, { key: 'ArrowRight' });
+    expect(summary).toHaveFocus();
+    expect(summary).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(summary, { key: 'End' });
+    expect(skills).toHaveFocus();
+    fireEvent.keyDown(skills, { key: 'ArrowRight' });
+    expect(personal).toHaveFocus();
+    fireEvent.keyDown(personal, { key: 'ArrowLeft' });
+    expect(skills).toHaveFocus();
+    fireEvent.keyDown(skills, { key: 'Home' });
+    expect(personal).toHaveFocus();
+    expect(personal).toHaveAttribute('tabindex', '0');
+    expect(skills).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('refreshes a stale preview on tab changes and saves with empty optional sections', async () => {
+    renderAt('/app/cv-builder/o1');
+    mocks.previewResolvers[0](new Blob(['%PDF']));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Update preview' })).toBeDisabled());
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }));
+    expect(mocks.previewCalls).toHaveLength(1);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Summary' }), { target: { value: 'Updated summary' } });
+    expect(mocks.previewCalls).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Projects' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Experience' }));
+    expect(mocks.previewCalls).toHaveLength(2);
+    expect(lastPreview()).toMatchObject({ summary: 'Updated summary', experience: [], projects: [] });
+    expect(screen.getByText(/unsaved changes/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save CV' }));
+    expect(mocks.update.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'o1',
+        content: expect.objectContaining({ summary: 'Updated summary', experience: [], projects: [] }),
+      }),
+      expect.anything(),
+    );
+  });
+});
+
+describe('switching a clean CV', () => {
+  it('switches without a prompt, loads that CV, shows its preview and keeps the selected section', () => {
+    renderAt('/app/cv-builder/o1');
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }));
     expect(screen.getByRole('heading', { name: 'Summary' })).toBeInTheDocument();
     choose('t1');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/t1');
-    expect(screen.getByRole('heading', { name: 'Summary' })).toBeInTheDocument(); // step preserved
-    expect((screen.getByLabelText('Summary') as HTMLTextAreaElement).value).toBe('Hays summary');
+    expect(screen.getByRole('heading', { name: 'Summary' })).toBeInTheDocument(); // section preserved
+    expect((screen.getByRole('textbox', { name: 'Summary' }) as HTMLTextAreaElement).value).toBe('Hays summary');
     // The preview is generated from the SELECTED CV's content only.
     expect(lastPreview().fullName).toBe('Hays Person');
     expect(mocks.previewCalls.every((c) => (c as CvContent).fullName !== 'Orig Person' || true)).toBe(true);
@@ -343,7 +413,7 @@ describe('contact links (LinkedIn / GitHub)', () => {
     mocks.cvs = { ...mocks.cvs, data: [{ ...ORIG, content: { ...ORIG.content, links } }, HAYS, SNOW] };
   };
 
-  it('shows LinkedIn and GitHub inputs on the Personal step, not a comma-separated field', () => {
+  it('shows LinkedIn and GitHub inputs on the Personal tab, not a comma-separated field', () => {
     renderAt('/app/cv-builder/o1');
     expect(screen.getByLabelText(/LinkedIn URL/)).toBeInTheDocument();
     expect(screen.getByLabelText(/GitHub URL/)).toBeInTheDocument();
@@ -360,10 +430,12 @@ describe('contact links (LinkedIn / GitHub)', () => {
     expect(Object.keys(payload).sort()).toEqual(['content', 'id', 'name']);
   });
 
-  it('blocks saving an invalid link, shows the error, and sends nothing', () => {
+  it('returns to Personal when Save finds an invalid link on another tab', () => {
     renderAt('/app/cv-builder/o1');
     fireEvent.change(screen.getByLabelText(/GitHub URL/), { target: { value: 'javascript:alert(1)' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Skills' }));
     fireEvent.click(saveBtn());
+    expect(screen.getByRole('tab', { name: 'Personal', selected: true })).toBeInTheDocument();
     expect(mocks.update.mutate).not.toHaveBeenCalled();
     expect(screen.getByText(/starts with https/i)).toBeInTheDocument();
   });
@@ -395,11 +467,11 @@ describe('contact links (LinkedIn / GitHub)', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('typed link text survives moving between steps', () => {
+  it('typed link text survives moving between tabs', () => {
     renderAt('/app/cv-builder/o1');
     fireEvent.change(screen.getByLabelText(/LinkedIn URL/), { target: { value: 'linkedin.com/in/sam' } });
-    fireEvent.click(screen.getByRole('button', { name: /2\. Summary/ }));
-    fireEvent.click(screen.getByRole('button', { name: /1\. Personal|✓ Personal/ }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Personal' }));
     expect((screen.getByLabelText(/LinkedIn URL/) as HTMLInputElement).value).toBe('linkedin.com/in/sam');
   });
 });
