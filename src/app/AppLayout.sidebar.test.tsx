@@ -29,6 +29,7 @@ const DESTINATIONS: [string, string][] = [
   ['Dashboard', '/app'],
   ['CV Builder', '/app/cv-builder'],
   ['My CVs', '/app/cvs'],
+  ['Jobs', '/app/jobs'],
   ['Job Match', '/app/match'],
   ['Applications', '/app/applications'],
 ];
@@ -103,11 +104,11 @@ describe('collapsible sidebar — toggle', () => {
 });
 
 describe('collapsible sidebar — navigation', () => {
-  it.each([false, true])('keeps all five destinations reachable (collapsed=%s)', (collapsed) => {
+  it.each([false, true])('keeps all six destinations reachable (collapsed=%s)', (collapsed) => {
     if (collapsed) localStorage.setItem(SIDEBAR_KEY, 'true');
     renderLayout();
     const links = within(mainNav()).getAllByRole('link');
-    expect(links).toHaveLength(5);
+    expect(links).toHaveLength(DESTINATIONS.length);
     for (const [label, href] of DESTINATIONS) {
       // The accessible name is the same in both states (sr-only label when collapsed).
       expect(within(mainNav()).getByRole('link', { name: label })).toHaveAttribute('href', href);

@@ -6,6 +6,9 @@ import type {
   ApplicationInput,
   Cv,
   GmailConnection,
+  JobDetail,
+  JobsPage,
+  JobsQuery,
   MatchResult,
   RunMatchInput,
   Profile,
@@ -25,6 +28,7 @@ export const qk = {
   apps: ['applications'] as const,
   app: (id: string) => ['applications', id] as const,
   gmail: ['gmail'] as const,
+  jobs: (q: JobsQuery) => ['jobs', q] as const,
 };
 
 // Profile
@@ -203,3 +207,20 @@ export const useChangePassword = () =>
 export const useDeleteAccount = () =>
   useMutation({ mutationFn: () => api<void>('/me', { method: 'DELETE' }) });
 export const exportData = () => api<unknown>('/me/export');
+
+// Jobs (open roles in Poland). While the server refreshes its cache, poll every 3 s.
+function jobsPath(q: JobsQuery) {
+  const p = new URLSearchParams({ level: q.level, page: String(q.page), pageSize: String(q.pageSize ?? 20) });
+  if (q.city) p.set('city', q.city);
+  if (q.company) p.set('company', q.company);
+  if (q.q?.trim()) p.set('q', q.q.trim());
+  return `/jobs?${p}`;
+}
+export const useJobs = (q: JobsQuery) =>
+  useQuery({
+    queryKey: qk.jobs(q),
+    queryFn: () => api<JobsPage>(jobsPath(q)),
+    placeholderData: (previous) => previous,
+    refetchInterval: (query) => (query.state.data?.refreshing ? 3000 : false),
+  });
+export const fetchJob = (id: string) => api<JobDetail>(`/jobs/${id}`);

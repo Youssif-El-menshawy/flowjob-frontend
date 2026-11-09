@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import type { PrefilledJob } from '@/features/jobs/JobsPage';
 import { ApiError } from '@/shared/api/client';
 import { useCvs, useMatches, useRunMatch, useTailorDirect } from '@/shared/api/queries';
 import { useDocumentTitle } from '@/shared/lib/hooks';
@@ -58,10 +59,12 @@ export default function JobMatchPage() {
   const tailor = useTailorDirect();
   const [action, setAction] = useState<Action | null>(null);
   const [cvId, setCvId] = useState('');
-  const [jobTitle, setJobTitle] = useState('');
-  const [company, setCompany] = useState('');
-  const [jobUrl, setJobUrl] = useState('');
-  const [text, setText] = useState(() => pendingJob.get());
+  // "Match my CV" on the Jobs page opens this form with the job already filled in.
+  const fromJobs = (useLocation().state as { job?: PrefilledJob } | null)?.job;
+  const [jobTitle, setJobTitle] = useState(fromJobs?.title ?? '');
+  const [company, setCompany] = useState(fromJobs?.company ?? '');
+  const [jobUrl, setJobUrl] = useState(fromJobs?.url ?? '');
+  const [text, setText] = useState(() => fromJobs?.description || pendingJob.get());
   const [error, setError] = useState<FormError | null>(null);
 
   useEffect(() => {

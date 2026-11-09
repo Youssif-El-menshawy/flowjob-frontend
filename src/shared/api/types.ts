@@ -250,3 +250,49 @@ export interface ApiErrorBody {
   message: string;
   fieldErrors?: Record<string, string>;
 }
+
+// Job listings (open jobs in Poland from tracked companies)
+export type JobLevel = 'internship' | 'entry' | 'other';
+export type JobLevelFilter = 'entry' | 'internship' | 'all';
+
+export interface JobListing {
+  id: string;
+  title: string;
+  company: string;
+  city: string;
+  location: string;
+  level: JobLevel;
+  url: string | null;
+  postedAt: string | null;
+  source: string;
+}
+
+export interface JobDetail extends JobListing {
+  description: string | null;
+}
+
+export interface JobFacet {
+  name: string;
+  count: number;
+}
+
+export interface JobsQuery {
+  level: JobLevelFilter;
+  city?: string;
+  company?: string;
+  q?: string;
+  page: number;
+  pageSize?: number;
+}
+
+export interface JobsPage {
+  items: JobListing[];
+  total: number;
+  page: number;
+  pageSize: number;
+  levels: Partial<Record<JobLevel, number>>;
+  cities: JobFacet[];
+  companies: JobFacet[];
+  refreshing: boolean;
+  refreshedAt: string | null;
+}

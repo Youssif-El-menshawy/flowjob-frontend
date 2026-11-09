@@ -54,6 +54,23 @@ function nextStatus(s: ApplicationStatus): ApplicationStatus | null {
   );
 }
 
+const DEMO_JOB_TEXT =
+  'We are looking for a student or recent graduate to join our team. You will learn on real projects with a mentor. ' +
+  'Requirements: basic Python or JavaScript, good English, curiosity. Student status is a plus.';
+const DEMO_JOBS = [
+  { id: 'j1', title: 'Software Engineering Intern', company: 'Demo Robotics', city: 'Wrocław', level: 'internship' },
+  { id: 'j2', title: 'Junior Frontend Developer', company: 'Demo Software House', city: 'Kraków', level: 'entry' },
+  { id: 'j3', title: 'Graduate Data Analyst', company: 'Demo Bank', city: 'Warsaw', level: 'entry' },
+  { id: 'j4', title: 'Senior Backend Engineer', company: 'Demo Software House', city: 'Kraków', level: 'other' },
+].map((j) => ({
+  ...j,
+  location: `${j.city}, Poland`,
+  url: 'https://example.com/careers',
+  postedAt: '2026-11-01T09:00:00Z',
+  source: 'Demo data',
+  description: DEMO_JOB_TEXT,
+}));
+
 export const handlers = [
   // ---------- Auth ----------
   http.post(`${B}/auth/register`, async ({ request }) => {
@@ -499,6 +516,47 @@ export const handlers = [
       }
       u.data.gmail.lastSyncAt = now();
       return HttpResponse.json({ checked: 12, autoUpdated: 0, newSuggestions, connection: u.data.gmail });
+    }),
+  ),
+  // Jobs in Poland (demo data; the real backend reads public job-board APIs).
+  http.get(
+    `${B}/jobs`,
+    authed(({ request }) => {
+      const url = new URL(request.url);
+      const level = url.searchParams.get('level') ?? 'entry';
+      const city = url.searchParams.get('city');
+      const company = url.searchParams.get('company');
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const page = Number(url.searchParams.get('page') ?? 1);
+      const size = Number(url.searchParams.get('pageSize') ?? 20);
+      const levels = level === 'all' ? ['internship', 'entry', 'other'] : level === 'internship' ? ['internship'] : ['internship', 'entry'];
+      const base = DEMO_JOBS.filter(
+        (j) => !q || `${j.title} ${j.company}`.toLowerCase().includes(q),
+      );
+      const inLevel = base.filter((j) => levels.includes(j.level));
+      const matches = inLevel.filter((j) => (!city || j.city === city) && (!company || j.company === company));
+      const count = (list: typeof DEMO_JOBS, key: 'city' | 'company') =>
+        Object.entries(
+          list.reduce<Record<string, number>>((acc, j) => ({ ...acc, [j[key]]: (acc[j[key]] ?? 0) + 1 }), {}),
+        ).map(([name, n]) => ({ name, count: n }));
+      return HttpResponse.json({
+        items: matches.slice((page - 1) * size, page * size).map((j) => ({ ...j, description: undefined })),
+        total: matches.length,
+        page,
+        pageSize: size,
+        levels: base.reduce<Record<string, number>>((acc, j) => ({ ...acc, [j.level]: (acc[j.level] ?? 0) + 1 }), {}),
+        cities: count(inLevel.filter((j) => !company || j.company === company), 'city'),
+        companies: count(inLevel.filter((j) => !city || j.city === city), 'company'),
+        refreshing: false,
+        refreshedAt: now(),
+      });
+    }),
+  ),
+  http.get(
+    `${B}/jobs/:id`,
+    authed<{ id: string }>(({ params }) => {
+      const job = DEMO_JOBS.find((j) => j.id === params.id);
+      return job ? HttpResponse.json(job) : err(404, 'Job not found');
     }),
   ),
 ];

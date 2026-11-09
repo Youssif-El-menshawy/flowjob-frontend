@@ -48,6 +48,12 @@ export const Icon = {
       <path d="m20 20-4-4M8 11l2 2 4-4" />
     </I>
   ),
+  jobs: () => (
+    <I>
+      <rect x="3" y="7" width="18" height="13" rx="2" />
+      <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18" />
+    </I>
+  ),
   apps: () => (
     <I>
       <rect x="3" y="4" width="5" height="16" rx="1" />
