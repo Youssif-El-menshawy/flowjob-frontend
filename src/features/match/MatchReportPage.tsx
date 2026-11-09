@@ -1,7 +1,7 @@
 import { useId, useState, type ReactNode } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
-import { useMatch } from '@/shared/api/queries';
+import { useMatch, useTailor } from '@/shared/api/queries';
 import type { MatchResult } from '@/shared/api/types';
 import { defaultTab, groupRequirements, pickTop, type Groups, type Req, type TabKey } from './matchReport';
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
@@ -349,7 +349,6 @@ function QuickCard({
   );
 }
 
-/** Header actions — plain links, so no request is ever made here. */
 function Actions({
   matchId,
   appQuery,
@@ -359,12 +358,24 @@ function Actions({
   appQuery: string;
   className?: string;
 }) {
+  const nav = useNavigate();
+  const tailor = useTailor();
   return (
     <div className={cn('flex flex-wrap items-center gap-3', className)}>
-      <ButtonLink to={`/app/match/${matchId}/tailor`}>Tailor my CV for this job</ButtonLink>
+      <Button
+        loading={tailor.isPending}
+        onClick={() => tailor.mutate(matchId, { onSuccess: (draft) => nav(`/app/tailor/${draft.id}`) })}
+      >
+        Tailor my CV for this job
+      </Button>
       <ButtonLink to={`/app/applications/new?${appQuery}`} variant="secondary">
         Add to Applications
       </ButtonLink>
+      {tailor.isError && (
+        <p role="alert" className="basis-full text-sm text-danger">
+          {tailor.error instanceof ApiError ? tailor.error.message : 'Could not tailor your CV. Please try again.'}
+        </p>
+      )}
     </div>
   );
 }

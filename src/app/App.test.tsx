@@ -30,6 +30,7 @@ vi.mock('@/shared/api/queries', () => ({
     return { data: match, isLoading: false, isError: false, error: null, isFetching: false, refetch: vi.fn() };
   },
   useRunMatch: () => ({ mutate: vi.fn(), isPending: false }),
+  useTailor: () => ({ mutate: vi.fn(), isPending: false }),
   useTailorDirect: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('@/features/auth/LoginPage', () => ({ default: () => <div>LOGIN PAGE</div> }));

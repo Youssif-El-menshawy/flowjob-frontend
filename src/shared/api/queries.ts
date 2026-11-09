@@ -40,11 +40,17 @@ export function useSaveProfile() {
 // CVs
 export const useCvs = () => useQuery({ queryKey: qk.cvs, queryFn: () => api<Cv[]>('/cvs') });
 export const useCv = (id?: string) =>
-  useQuery({ queryKey: qk.cv(id ?? ''), queryFn: () => api<Cv>(`/cvs/${id}`), enabled: !!id });
+  useQuery({
+    queryKey: qk.cv(id ?? ''),
+    queryFn: ({ signal }) => api<Cv>(`/cvs/${id}`, { signal }),
+    enabled: !!id,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+  });
 export function useCreateCv() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (cv: Partial<Cv>) => api<Cv>('/cvs', { method: 'POST', json: cv }),
+    mutationFn: (cv: Partial<Cv> & { tailorDraftId?: string }) => api<Cv>('/cvs', { method: 'POST', json: cv }),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.cvs }),
   });
 }
@@ -67,8 +73,8 @@ export const fetchCvPdfBlob = (id: string, signal?: AbortSignal) =>
   apiBlob(`/cvs/${id}/pdf`, { signal });
 
 /** Render unsaved CV content to a Harvard PDF for the live builder preview (no DB write). */
-export const fetchCvPreviewPdf = (content: unknown, signal?: AbortSignal) =>
-  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content }, signal });
+export const fetchCvPreviewPdf = (content: unknown, signal?: AbortSignal, tailorDraftId?: string) =>
+  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content, tailorDraftId }, signal });
 
 export function useDeleteCv() {
   const qc = useQueryClient();
@@ -101,10 +107,13 @@ export function useRunMatch() {
     },
   });
 }
-export const useTailor = () =>
-  useMutation({
+export function useTailor() {
+  const qc = useQueryClient();
+  return useMutation({
     mutationFn: (matchId: string) => api<TailorDraft>('/tailor', { method: 'POST', json: { matchId } }),
+    onSuccess: (draft) => qc.setQueryData(qk.tailorDraft(draft.id), draft),
   });
+}
 
 /**
  * Direct tailoring: a CV + job details, no match record. Same endpoint and quota as the

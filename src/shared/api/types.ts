@@ -69,6 +69,7 @@ export interface Cv {
   createdAt: string;
   updatedAt: string;
   content: CvContent;
+  contentRevision?: string;
 }
 
 export interface MatchStrength {
@@ -155,6 +156,7 @@ export interface TailorDraft {
   id: ID;
   matchId?: ID;
   sourceCvId: ID;
+  sourceCvRevision?: string | null;
   jobTitle: string;
   company: string;
   suggestions: TailorSuggestion[];

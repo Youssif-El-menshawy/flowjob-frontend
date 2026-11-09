@@ -197,13 +197,20 @@ export const handlers = [
     `${B}/cvs/:id`,
     authed<{ id: string }>(({ params, u }) => {
       const cv = u.data.cvs.find((c) => c.id === params.id);
-      return cv ? HttpResponse.json(cv) : err(404, 'CV not found.');
+      return cv ? HttpResponse.json({ ...cv, contentRevision: cv.updatedAt }) : err(404, 'CV not found.');
     }),
   ),
   http.post(
     `${B}/cvs`,
     authed(async ({ request, u }) => {
-      const body = (await request.json()) as Partial<Cv>;
+      const body = (await request.json()) as Partial<Cv> & { tailorDraftId?: string };
+      if (body.tailorDraftId) {
+        const draft = u.data.drafts.find((d) => d.id === body.tailorDraftId);
+        if (!draft) return err(404, 'Draft not found.');
+        const source = u.data.cvs.find((c) => c.id === draft.sourceCvId);
+        if (!source || source.updatedAt !== draft.sourceCvRevision) return err(409, 'The source CV changed.');
+        if (body.kind !== 'tailored' || body.sourceCvId !== source.id) return err(422, 'Choose the source CV of the draft.');
+      }
       if (body.kind !== 'tailored' && u.data.cvs.some((c) => c.kind === 'original'))
         return err(409, 'You already have an original CV.');
       const cv: Cv = {
@@ -213,6 +220,7 @@ export const handlers = [
         jobTitle: body.jobTitle,
         company: body.company,
         matchId: body.matchId,
+        sourceCvId: body.sourceCvId,
         createdAt: now(),
         updatedAt: now(),
         content: body.content ?? toContent(u.data.profile),
@@ -303,7 +311,7 @@ export const handlers = [
       let m: MatchResult | undefined = body.matchId ? u.data.matches.find((x) => x.id === body.matchId) : undefined;
       if (body.matchId && !m) return err(404, 'Match not found.');
       const cv = m
-        ? (u.data.cvs.find((c) => c.id === m!.cvId) ?? u.data.cvs.find((c) => c.kind === 'original'))
+        ? u.data.cvs.find((c) => c.id === m!.cvId)
         : u.data.cvs.find((c) => c.id === body.cvId);
       if (!cv) return err(m ? 409 : 404, m ? 'Create your CV first.' : 'Original CV not found.');
       if (!m) {
@@ -312,15 +320,18 @@ export const handlers = [
         if (!body.jobTitle || job.length < 80) return err(422, 'Job description is too short or too long.');
         m = { ...analyseMatch(cv.content, job), id: '', cvId: cv.id, cvName: cv.name, createdAt: now() } as MatchResult;
       }
-      await delay(import.meta.env.MODE === 'test' ? 0 : 1200);
       const draft = {
         id: uid(),
         matchId: body.matchId,
         sourceCvId: cv.id,
+        sourceCvRevision: cv.updatedAt,
         jobTitle: body.matchId ? m!.jobTitle : (body.jobTitle ?? ''),
         company: body.matchId ? m!.company : (body.company ?? ''),
-        suggestions: tailorSuggestions(cv.content, m!).map((s) => ({ ...s, id: uid() })),
+        suggestions: tailorSuggestions(cv.content, m!)
+          .filter((s) => s.original.trim())
+          .map((s) => ({ ...s, id: uid(), reviewRequired: s.section !== 'skills' })),
       };
+      await delay(import.meta.env.MODE === 'test' ? 0 : 1200);
       u.data.drafts.push(draft);
       return HttpResponse.json(draft, { status: 201 });
     }),
