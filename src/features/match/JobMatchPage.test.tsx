@@ -165,11 +165,14 @@ describe('JobMatchPage (input step)', () => {
     expect(screen.queryByLabelText('Job title')).toBeNull();
   });
 
-  it('shows the combined heading and both action descriptions', () => {
+  it('shows the heading and both actions without explanatory copy', () => {
     renderPage();
     expect(screen.getByRole('heading', { name: 'Match or tailor your CV' })).toBeInTheDocument();
-    expect(screen.getByText(/See how your CV fits the role/)).toBeInTheDocument();
-    expect(screen.getByText(/without running a match analysis/)).toBeInTheDocument();
+    expect(analyse()).toBeInTheDocument();
+    expect(tailorBtn()).toBeInTheDocument();
+    expect(screen.queryByText(/See how your CV fits the role/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/without running a match analysis/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Only runs when you click one of the buttons above/)).not.toBeInTheDocument();
   });
 });
 

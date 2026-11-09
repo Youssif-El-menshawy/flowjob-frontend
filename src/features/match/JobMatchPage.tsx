@@ -198,41 +198,29 @@ export default function JobMatchPage() {
         </p>
       )}
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
-          <p className="text-[13px] leading-relaxed text-soft">
-            See how your CV fits the role, including strengths, gaps, and a match score.
-          </p>
-          <Button
-            className="mt-auto w-full"
-            onClick={submit}
-            loading={run.isPending}
-            disabled={!canSubmit && !run.isPending}
-          >
-            {run.isPending ? 'Checking match…' : 'Check my match'}
-          </Button>
-        </div>
-        <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
-          <p className="text-[13px] leading-relaxed text-soft">
-            Get suggested CV improvements for this job without running a match analysis.
-          </p>
-          <Button
-            className="mt-auto w-full"
-            onClick={tailorSubmit}
-            loading={tailor.isPending}
-            disabled={!canSubmit && !tailor.isPending}
-          >
-            {tailor.isPending ? 'Tailoring…' : 'Tailor my CV'}
-          </Button>
-        </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Button
+          className="w-full"
+          onClick={submit}
+          loading={run.isPending}
+          disabled={!canSubmit && !run.isPending}
+        >
+          {run.isPending ? 'Checking match…' : 'Check my match'}
+        </Button>
+        <Button
+          className="w-full"
+          onClick={tailorSubmit}
+          loading={tailor.isPending}
+          disabled={!canSubmit && !tailor.isPending}
+        >
+          {tailor.isPending ? 'Tailoring…' : 'Tailor my CV'}
+        </Button>
       </div>
-      <div className="mt-4 min-h-5">
-        {busy ? (
+      {busy && (
+        <div className="mt-4">
           <Progress key={action} steps={tailor.isPending ? TAILOR_STEPS : MATCH_STEPS} />
-        ) : (
-          <p className="text-[13px] text-soft">Uses AI. Only runs when you click one of the buttons above.</p>
-        )}
-      </div>
+        </div>
+      )}
 
       {!!recent.data?.length && (
         <section className="mt-12" aria-labelledby="recent-matches">
