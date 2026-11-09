@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { AppLayout } from './AppLayout';
+import { ReportLayout } from './ReportLayout';
 
 const Landing = lazy(() => import('@/features/landing/LandingPage'));
 const Login = lazy(() => import('@/features/auth/LoginPage'));
@@ -13,6 +14,7 @@ const Profile = lazy(() => import('@/features/profile/ProfilePage'));
 const CvBuilder = lazy(() => import('@/features/cv/CvBuilderPage'));
 const MyCvs = lazy(() => import('@/features/cv/MyCvsPage'));
 const JobMatch = lazy(() => import('@/features/match/JobMatchPage'));
+const MatchReport = lazy(() => import('@/features/match/MatchReportPage'));
 const Tailor = lazy(() => import('@/features/match/TailorPage'));
 const Applications = lazy(() => import('@/features/applications/ApplicationsPage'));
 const AddApplication = lazy(() => import('@/features/applications/AddApplicationPage'));
@@ -63,6 +65,19 @@ export function App() {
             </GuestOnly>
           }
         />
+        {/* Focused AI workflows (match report + CV tailoring): their own layout with NO sidebar,
+            sibling of AppLayout, same auth guard. Back navigation lives in the layout/page. */}
+        <Route
+          element={
+            <RequireAuth>
+              <ReportLayout />
+            </RequireAuth>
+          }
+        >
+          <Route path="/app/match/:matchId" element={<MatchReport />} />
+          <Route path="/app/match/:matchId/tailor" element={<Tailor />} />
+          <Route path="/app/tailor/:draftId" element={<Tailor />} />
+        </Route>
         <Route
           path="/app"
           element={
@@ -77,8 +92,6 @@ export function App() {
           <Route path="cv-builder/:cvId" element={<CvBuilder />} />
           <Route path="cvs" element={<MyCvs />} />
           <Route path="match" element={<JobMatch />} />
-          <Route path="match/:matchId" element={<JobMatch />} />
-          <Route path="match/:matchId/tailor" element={<Tailor />} />
           <Route path="applications" element={<Applications />} />
           <Route path="applications/new" element={<AddApplication />} />
           <Route path="applications/:id" element={<ApplicationDetail />} />

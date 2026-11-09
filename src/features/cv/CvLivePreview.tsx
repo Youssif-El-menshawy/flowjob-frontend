@@ -87,18 +87,20 @@ export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>
           size="sm"
           variant="ghost"
           aria-label="Zoom out"
+          className="px-2.5"
           disabled={zoom === 0}
           onClick={() => setZoom((z) => Math.max(0, z - 1))}
         >
           −
         </Button>
-        <span className="w-10 text-center text-xs tabular-nums text-soft">
+        <span className="w-9 text-center text-xs tabular-nums text-soft">
           {Math.round(scale * 100)}%
         </span>
         <Button
           size="sm"
           variant="ghost"
           aria-label="Zoom in"
+          className="px-2.5"
           disabled={zoom === ZOOMS.length - 1}
           onClick={() => setZoom((z) => Math.min(ZOOMS.length - 1, z + 1))}
         >
@@ -108,10 +110,13 @@ export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>
     );
 
     const header = (
-      <div className="mb-2.5 flex flex-wrap items-center justify-end gap-1">
+      <div className="mb-2.5 flex min-h-10 flex-wrap items-center justify-between gap-x-2 gap-y-1 xl:flex-nowrap" data-testid="preview-toolbar">
+        <p className={cn('shrink-0 text-sm font-medium', fullscreen ? 'text-white/80' : 'text-soft')}>CV preview</p>
+        <div className="flex flex-wrap items-center justify-end gap-0.5 xl:flex-nowrap">
         <Button
           size="sm"
           variant="secondary"
+          className="px-3"
           onClick={runUpdate}
           disabled={actionDisabled}
           aria-label={error ? 'Retry preview generation' : 'Update preview'}
@@ -127,10 +132,11 @@ export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>
             Close
           </button>
         ) : (
-          <Button size="sm" variant="ghost" onClick={() => setFullscreen(true)}>
+          <Button size="sm" variant="ghost" className="px-3" onClick={() => setFullscreen(true)}>
             Full screen
           </Button>
         )}
+        </div>
       </div>
     );
 

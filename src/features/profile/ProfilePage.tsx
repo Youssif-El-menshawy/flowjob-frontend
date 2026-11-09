@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProfile, useSaveProfile } from '@/shared/api/queries';
 import type { Education, Experience, Profile, Project } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
@@ -8,6 +8,10 @@ import { Card, Note, PageHeader, ProgressBar, Tabs } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
+import { ContactLinksFields, type ContactLinksHandle } from './ContactLinksFields';
+import { LanguagesEditor } from './LanguagesEditor';
+import { LocationFields } from './LocationFields';
+import { PhoneFieldWithHandle, type PhoneFieldHandle } from './PhoneFields';
 import { blank, ItemEditor, SkillsEditor, type Kind } from './profileParts';
 
 const TABS = ['Personal details', 'Summary', 'Experience', 'Education', 'Projects', 'Skills'] as const;
@@ -19,6 +23,8 @@ export default function ProfilePage() {
   const { data } = useProfile();
   const save = useSaveProfile();
   const [p, setP] = useState<Profile | null>(null);
+  const linksRef = useRef<ContactLinksHandle>(null);
+  const phoneRef = useRef<PhoneFieldHandle>(null);
   const [tab, setTab] = useState<Tab>('Experience');
   const [editing, setEditing] = useState<{
     kind: Kind;
@@ -36,11 +42,21 @@ export default function ProfilePage() {
   const strength = profileStrength(p);
 
   const set = <K extends keyof Profile>(k: K, v: Profile[K]) => setP((x) => (x ? { ...x, [k]: v } : x));
-  const doSave = (next = p) =>
+  // Validate/normalise LinkedIn + GitHub before any profile save; a bad link blocks the save.
+  const doSave = (next = p) => {
+    const links = linksRef.current?.validate();
+    const phone = phoneRef.current?.validate();
+    if (links === null || phone === null) {
+      toast({ text: 'Please fix the highlighted field first.', tone: 'error' });
+      return;
+    }
+    if (links) next = { ...next, links };
+    if (phone !== undefined) next = { ...next, phone };
     save.mutate(next, {
       onSuccess: () => toast({ text: 'Profile saved.' }),
       onError: () => toast({ text: 'Could not save. Please try again.', tone: 'error' }),
     });
+  };
 
   const commitItem = (kind: Kind, item: Experience | Education | Project) => {
     const list = p[kind] as Array<{ id: string }>;
@@ -138,32 +154,10 @@ export default function ProfilePage() {
                 value={p.email}
                 onChange={(e) => set('email', e.target.value)}
               />
-              <Input label="Phone" optional value={p.phone} onChange={(e) => set('phone', e.target.value)} />
-              <Input label="City" value={p.location} onChange={(e) => set('location', e.target.value)} />
-              <Input
-                className="sm:col-span-2"
-                label="Links"
-                optional
-                hint="LinkedIn, GitHub or portfolio, separated by commas."
-                value={p.links.join(', ')}
-                onChange={(e) =>
-                  set(
-                    'links',
-                    e.target.value
-                      .split(',')
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  )
-                }
-              />
-              <Input
-                className="sm:col-span-2"
-                label="Languages"
-                optional
-                placeholder="English C1, Polish native"
-                value={p.languages}
-                onChange={(e) => set('languages', e.target.value)}
-              />
+              <PhoneFieldWithHandle ref={phoneRef} value={p.phone} onChange={(v) => set('phone', v)} className="sm:col-span-2" />
+              <LocationFields value={p.location} onChange={(v) => set('location', v)} />
+              <ContactLinksFields ref={linksRef} links={p.links} onChange={(l) => set('links', l)} />
+              <LanguagesEditor className="sm:col-span-2" value={p.languages} onChange={(v) => set('languages', v)} />
             </Card>
           )}
           {tab === 'Summary' && (

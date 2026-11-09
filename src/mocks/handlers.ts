@@ -7,7 +7,7 @@ import type {
   Profile,
   StatusEvent,
 } from '@/shared/api/types';
-import { STATUSES } from '@/shared/api/types';
+import { STATUSES, type MatchResult } from '@/shared/api/types';
 import { clearCookie, db, issueTokens, publicUser, readCookie, save, type UserData } from './db';
 import { analyseMatch, extractSkills, tailorSuggestions } from './matcher';
 import { emptyProfile, toContent, uid } from './seed';
@@ -293,22 +293,44 @@ export const handlers = [
   http.post(
     `${B}/tailor`,
     authed(async ({ request, u }) => {
-      const { matchId } = (await request.json()) as { matchId: string };
-      const m = u.data.matches.find((x) => x.id === matchId);
-      if (!m) return err(404, 'Match not found.');
-      const cv = u.data.cvs.find((c) => c.id === m.cvId) ?? u.data.cvs.find((c) => c.kind === 'original');
-      if (!cv) return err(409, 'Create your CV first.');
+      const body = (await request.json()) as {
+        matchId?: string;
+        cvId?: string;
+        jobTitle?: string;
+        jobDescription?: string;
+        company?: string;
+      };
+      let m: MatchResult | undefined = body.matchId ? u.data.matches.find((x) => x.id === body.matchId) : undefined;
+      if (body.matchId && !m) return err(404, 'Match not found.');
+      const cv = m
+        ? (u.data.cvs.find((c) => c.id === m!.cvId) ?? u.data.cvs.find((c) => c.kind === 'original'))
+        : u.data.cvs.find((c) => c.id === body.cvId);
+      if (!cv) return err(m ? 409 : 404, m ? 'Create your CV first.' : 'Original CV not found.');
+      if (!m) {
+        // Direct tailoring: a transient analysis (never saved as a match record).
+        const job = (body.jobDescription ?? '').trim();
+        if (!body.jobTitle || job.length < 80) return err(422, 'Job description is too short or too long.');
+        m = { ...analyseMatch(cv.content, job), id: '', cvId: cv.id, cvName: cv.name, createdAt: now() } as MatchResult;
+      }
       await delay(import.meta.env.MODE === 'test' ? 0 : 1200);
       const draft = {
         id: uid(),
-        matchId: m.id,
+        matchId: body.matchId,
         sourceCvId: cv.id,
-        jobTitle: m.jobTitle,
-        company: m.company,
-        suggestions: tailorSuggestions(cv.content, m).map((s) => ({ ...s, id: uid() })),
+        jobTitle: body.matchId ? m!.jobTitle : (body.jobTitle ?? ''),
+        company: body.matchId ? m!.company : (body.company ?? ''),
+        suggestions: tailorSuggestions(cv.content, m!).map((s) => ({ ...s, id: uid() })),
       };
       u.data.drafts.push(draft);
       return HttpResponse.json(draft, { status: 201 });
+    }),
+  ),
+
+  http.get<{ id: string }>(
+    `${B}/tailor/:id`,
+    authed<{ id: string }>(({ params, u }) => {
+      const d = u.data.drafts.find((x) => x.id === params.id);
+      return d ? HttpResponse.json(d) : err(404, 'Draft not found.');
     }),
   ),
 

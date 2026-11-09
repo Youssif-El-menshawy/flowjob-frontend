@@ -5,6 +5,8 @@ import { uid } from '@/mocks/seed';
 import { Button } from '@/shared/ui/Button';
 import { controlClass, Input, Textarea } from '@/shared/ui/Field';
 import { Modal } from '@/shared/ui/Overlay';
+import { MonthYearPicker } from '@/shared/ui/MonthYearPicker';
+import { parseDate, validateRange } from '@/shared/lib/dates';
 
 export type Kind = 'experience' | 'education' | 'projects';
 type Item = Experience | Education | Project;
@@ -38,6 +40,11 @@ export function ItemEditor({
 }) {
   const [v, setV] = useState<Record<string, string>>({});
   const [err, setErr] = useState('');
+  // An empty end date means "Present" in the stored format, so the checkbox is derived from it.
+  const [present, setPresent] = useState(false);
+  const [showDateErrors, setShowDateErrors] = useState(false);
+  // A month picked without a year can't be stored, so each picker reports it here.
+  const [incomplete, setIncomplete] = useState({ start: false, end: false });
   useEffect(() => {
     if (!item) return;
     const r = item as unknown as Record<string, unknown>;
@@ -47,12 +54,21 @@ export function ItemEditor({
       ),
     );
     setErr('');
+    setShowDateErrors(false);
+    setIncomplete({ start: false, end: false });
+    const end = parseDate(String(r.end ?? '')).kind;
+    setPresent(end === 'empty' || end === 'present');
   }, [item]);
   if (!item) return null;
   const set = (k: string) => (e: { target: { value: string } }) =>
     setV((s) => ({ ...s, [k]: e.target.value }));
   const required =
     kind === 'experience' ? ['title', 'company'] : kind === 'education' ? ['degree', 'school'] : ['name'];
+  const hasDates = kind === 'experience' || kind === 'education';
+  const dateErrors = hasDates ? validateRange(v.start ?? '', v.end ?? '', present) : {};
+  const incompleteStart = hasDates && incomplete.start;
+  const incompleteEnd = hasDates && incomplete.end && !present;
+  const NEEDS_YEAR = 'Choose a year to go with the month.';
   const label = kind === 'experience' ? 'experience' : kind === 'education' ? 'education' : 'project';
 
   const save = () => {
@@ -60,7 +76,14 @@ export function ItemEditor({
       setErr('Please fill in the required fields.');
       return;
     }
+    if (hasDates && (incompleteStart || incompleteEnd || dateErrors.end)) {
+      setShowDateErrors(true);
+      setErr('Please check the dates.');
+      return;
+    }
     const out: Record<string, unknown> = { ...v };
+    // Present is stored as an empty end date; a legacy "Present" text value is left exactly as it was.
+    if (hasDates && present && parseDate(v.end).kind === 'date') out.end = '';
     if (kind === 'experience')
       out.bullets = (v.bullets ?? '')
         .split('\n')
@@ -68,6 +91,50 @@ export function ItemEditor({
         .filter(Boolean);
     onSave(out as unknown as Item);
   };
+
+  const setDate = (k: 'start' | 'end') => (value: string) => setV((s) => ({ ...s, [k]: value }));
+  const dateFields = (
+    <div className="grid items-start gap-4 sm:grid-cols-2">
+      <MonthYearPicker
+        label="Start date"
+        optional
+        value={v.start ?? ''}
+        onChange={setDate('start')}
+        onIncompleteChange={(b) => setIncomplete((s) => (s.start === b ? s : { ...s, start: b }))}
+        error={showDateErrors && incompleteStart ? NEEDS_YEAR : undefined}
+      />
+      <div className="flex flex-col gap-3">
+        <MonthYearPicker
+          label="End date"
+          value={present ? '' : (v.end ?? '')}
+          onChange={setDate('end')}
+          disabled={present}
+          onIncompleteChange={(b) => setIncomplete((s) => (s.end === b ? s : { ...s, end: b }))}
+          error={
+            incompleteEnd
+              ? showDateErrors
+                ? NEEDS_YEAR
+                : undefined
+              : showDateErrors || (!!v.end && !present)
+                ? dateErrors.end
+                : undefined
+          }
+        />
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[15px]">
+          <input
+            type="checkbox"
+            checked={present}
+            onChange={(e) => {
+              setPresent(e.target.checked);
+              if (e.target.checked) setV((s) => ({ ...s, end: '' }));
+            }}
+            className="size-[18px] accent-primary"
+          />
+          Present
+        </label>
+      </div>
+    </div>
+  );
 
   return (
     <Modal
@@ -92,11 +159,8 @@ export function ItemEditor({
               <Input label="Job title" value={v.title ?? ''} onChange={set('title')} />
               <Input label="Company" value={v.company ?? ''} onChange={set('company')} />
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Input label="City" optional value={v.location ?? ''} onChange={set('location')} />
-              <Input label="Start" placeholder="Jul 2026" value={v.start ?? ''} onChange={set('start')} />
-              <Input label="End" placeholder="Present" value={v.end ?? ''} onChange={set('end')} />
-            </div>
+            <Input label="City" optional value={v.location ?? ''} onChange={set('location')} />
+            {dateFields}
             <Textarea
               label="What you did"
               rows={5}
@@ -110,10 +174,7 @@ export function ItemEditor({
           <>
             <Input label="Degree" value={v.degree ?? ''} onChange={set('degree')} />
             <Input label="School" value={v.school ?? ''} onChange={set('school')} />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input label="Start" value={v.start ?? ''} onChange={set('start')} />
-              <Input label="End" value={v.end ?? ''} onChange={set('end')} />
-            </div>
+            {dateFields}
             <Input
               label="Note"
               optional

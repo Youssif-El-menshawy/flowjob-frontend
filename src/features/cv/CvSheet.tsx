@@ -1,4 +1,5 @@
 import type { CvContent } from '@/shared/api/types';
+import { linkKind, linkLabel } from '@/shared/lib/links';
 import { cn } from '@/shared/lib/utils';
 
 /** The printable CV. Always paper-white so it looks like the real document in both themes. */
@@ -25,7 +26,10 @@ export function CvSheet({
   );
   const hl = (id: string) =>
     cn('-mx-2 rounded-md px-2 transition-colors duration-300', highlight === id && 'bg-[#fde8d6]');
-  const contact = [cv.location, cv.email, cv.phone, ...cv.links].filter(Boolean).join(' · ');
+  // Same labels as the Harvard PDF: LinkedIn / GitHub instead of raw URLs; other links unchanged.
+  const contact = [cv.location, cv.email, cv.phone, ...cv.links.map((l) => { const k = linkKind(l); return k ? linkLabel(k) : l; })]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <div
       className={cn(
