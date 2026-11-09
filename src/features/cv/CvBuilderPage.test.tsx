@@ -506,3 +506,55 @@ describe('CV location', () => {
     expect(lastPreview().location).toBe('Berlin, Germany');
   });
 });
+
+describe('CV languages', () => {
+  const showSkills = () => {
+    const navigation = screen.queryByRole('tablist', { name: 'CV sections' }) ?? screen.getByRole('list', { name: 'Steps' });
+    fireEvent.click(within(navigation).getByText(/^(?:6\. |✓ )?Skills$/));
+  };
+
+  it('reads saved legacy languages without making the CV dirty', () => {
+    const legacy = { ...ORIG, content: { ...ORIG.content, languages: 'English - C1 / Arabic - Native' } };
+    mocks.cvs = { ...mocks.cvs, data: [legacy, HAYS, SNOW] };
+    renderAt('/app/cv-builder/o1');
+    showSkills();
+    expect(screen.getByRole('button', { name: 'Edit English' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Save CV' })[0]).toBeDisabled();
+    expect(lastPreview().languages).toBe(legacy.content.languages);
+    choose('t1');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit English' })).toBeNull();
+    expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('previews and saves the selected tailored CV language string without changing the original', async () => {
+    const original = { ...ORIG, content: { ...ORIG.content, languages: 'German B2' } };
+    const tailored = { ...HAYS, content: { ...HAYS.content, languages: 'English C1, Arabic Native' } };
+    mocks.cvs = { ...mocks.cvs, data: [original, tailored, SNOW] };
+    renderAt('/app/cv-builder/t1');
+    mocks.previewResolvers[0](new Blob(['%PDF']));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Update preview' })).toBeDisabled());
+    showSkills();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add language' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Add language' }));
+    fireEvent.change(dialog.getByLabelText('Language'), { target: { value: 'Polish' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Add language' }));
+    expect(mocks.previewCalls).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Update preview' }));
+    expect(lastPreview().languages).toBe('English (C1), Arabic (Native), Polish');
+
+    choose('o1');
+    expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save & switch' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1'));
+    expect(mocks.update.mutateAsync).toHaveBeenCalledExactlyOnceWith({
+      id: 't1',
+      name: 'Hays v1',
+      content: { ...tailored.content, languages: 'English (C1), Arabic (Native), Polish' },
+    });
+    expect(screen.getByRole('button', { name: 'Edit German' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit Polish' })).toBeNull();
+    expect(lastPreview().languages).toBe('German B2');
+  });
+});

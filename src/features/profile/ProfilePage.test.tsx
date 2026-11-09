@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Profile } from '@/shared/api/types';
@@ -12,7 +12,7 @@ vi.mock('@/shared/api/queries', () => ({
   useSaveProfile: () => ({ mutate: mocks.save, isPending: false }),
 }));
 
-function renderPersonalDetails(location: string) {
+function renderPersonalDetails(location: string, languages = '') {
   mocks.profile = {
     fullName: 'Profile Name',
     email: 'profile@example.test',
@@ -24,7 +24,7 @@ function renderPersonalDetails(location: string) {
     education: [],
     projects: [],
     skills: [],
-    languages: '',
+    languages,
   };
   render(
     <MemoryRouter>
@@ -87,5 +87,29 @@ describe('Profile location', () => {
     fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Renamed' } });
     save();
     expect(mocks.save.mock.calls[0][0].location).toBe(legacy);
+  });
+});
+
+describe('Profile languages', () => {
+  it('keeps the exact legacy string when saving a different field', () => {
+    const legacy = 'English - C1 / Arabic - Native / Reading only';
+    renderPersonalDetails('', legacy);
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Renamed' } });
+    save();
+    expect(mocks.save.mock.calls[0][0].languages).toBe(legacy);
+  });
+
+  it('saves the edited list in the existing Profile string field', () => {
+    renderPersonalDetails('', 'English C1, Arabic Native');
+    fireEvent.click(screen.getByRole('button', { name: 'Add language' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Add language' }));
+    fireEvent.change(dialog.getByLabelText('Language'), { target: { value: 'Polish' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Add language' }));
+    save();
+    expect(mocks.save.mock.calls[0][0]).toEqual({
+      ...mocks.profile,
+      languages: 'English (C1), Arabic (Native), Polish',
+    });
   });
 });

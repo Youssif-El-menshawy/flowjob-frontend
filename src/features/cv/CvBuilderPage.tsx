@@ -13,6 +13,7 @@ import { blank, ItemEditor, SkillsEditor, type Kind } from '@/features/profile/p
 import { CvLivePreview, type CvPreviewHandle } from './CvLivePreview';
 import { CvSelector } from './CvSelector';
 import { ContactLinksInputs, useContactLinks } from '@/features/profile/ContactLinksFields';
+import { LanguagesEditor } from '@/features/profile/LanguagesEditor';
 import { LocationFields } from '@/features/profile/LocationFields';
 import { PhoneInputs, usePhoneField } from '@/features/profile/PhoneFields';
 
@@ -287,12 +288,7 @@ function Editor({
           {cur === 'skills' && (
             <>
               <SkillsEditor skills={c.skills} onChange={(s) => set('skills', s)} />
-              <Input
-                label="Languages"
-                optional
-                value={c.languages}
-                onChange={(e) => set('languages', e.target.value)}
-              />
+              <LanguagesEditor value={c.languages} onChange={(v) => set('languages', v)} />
             </>
           )}
           <Note>Changes here only affect this CV, not your profile.</Note>
