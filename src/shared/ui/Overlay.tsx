@@ -12,6 +12,7 @@ export function Modal({
   footer,
   size = 'md',
   closeLabel = 'Close',
+  showCloseButton = true,
   icon,
   iconClose,
   dismissOnBackdrop = true,
@@ -24,6 +25,7 @@ export function Modal({
   footer?: ReactNode;
   size?: 'md' | 'lg' | 'confirm' | 'fullscreen';
   closeLabel?: string;
+  showCloseButton?: boolean;
   /** Optional decorative icon shown beside the title. */
   icon?: ReactNode;
   /** Use an accessible X icon button instead of the "Close" text button. */
@@ -103,7 +105,7 @@ export function Modal({
             {icon}
             <span className="min-w-0 break-words">{title}</span>
           </h2>
-          {iconClose ? (
+          {showCloseButton && (iconClose ? (
             <button
               type="button"
               onClick={onClose}
@@ -122,7 +124,7 @@ export function Modal({
             >
               {closeLabel}
             </button>
-          )}
+          ))}
         </div>
         {children}
         {footer && (

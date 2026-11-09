@@ -25,15 +25,10 @@ function LanguageDialog({ entries, index, onApply, onClose }: {
 }) {
   const original = entries[index];
   const initial = original?.kind === 'legacy' ? readLanguageFields(original.text) : original;
-  const [search, setSearch] = useState('');
   const [choice, setChoice] = useState(() => initial ? catalogName(initial.name) ?? CUSTOM : '');
   const [custom, setCustom] = useState(initial?.name ?? '');
   const [proficiency, setProficiency] = useState<Proficiency>(initial?.proficiency ?? '');
   const [error, setError] = useState('');
-  const matching = useMemo(() => {
-    const query = languageKey(search);
-    return LANGUAGE_NAMES.filter((name) => name === choice || languageKey(name).includes(query));
-  }, [search, choice]);
 
   const apply = () => {
     const name = (choice === CUSTOM ? custom : choice).trim();
@@ -65,6 +60,8 @@ function LanguageDialog({ entries, index, onApply, onClose }: {
     <Modal
       open
       onClose={onClose}
+      showCloseButton={false}
+      dismissOnBackdrop={false}
       title={index < 0 ? 'Add language' : 'Edit language'}
       footer={
         <>
@@ -73,26 +70,18 @@ function LanguageDialog({ entries, index, onApply, onClose }: {
         </>
       }
     >
-      <div className="grid gap-4">
-        <Input
-          label="Search languages"
-          type="search"
-          data-autofocus
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Type a language name"
-        />
+      <div className="grid gap-3">
         <Select
           label="Language"
+          data-autofocus
           value={choice}
           onChange={(event) => {
-            if (event.target.value === CUSTOM && !custom) setCustom(search.trim());
             setChoice(event.target.value);
             setError('');
           }}
         >
           <option value="">Choose a language</option>
-          {matching.map((name) => <option key={name} value={name}>{name}</option>)}
+          {LANGUAGE_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
           <option value={CUSTOM}>Enter a custom language</option>
         </Select>
         {choice === CUSTOM && (

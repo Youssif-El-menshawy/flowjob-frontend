@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LANGUAGE_NAMES } from '@/shared/lib/languageCatalog';
 import { LanguagesEditor } from './LanguagesEditor';
 
 function setup(value = '') {
@@ -21,12 +22,36 @@ function openAdd() {
 afterEach(cleanup);
 
 describe('Languages editor', () => {
-  it('searches, adds with no proficiency, edits the level, and removes the entry', () => {
+  it.each([
+    ['Add language', 'Cancel'],
+    ['Add language', 'Escape'],
+    ['Edit language', 'Cancel'],
+    ['Edit language', 'Escape'],
+  ])('%s dismisses with %s without saving a draft', (title, dismissal) => {
+    const change = setup('English (C1)');
+    fireEvent.click(screen.getByRole('button', { name: title === 'Add language' ? title : 'Edit English' }));
+    const modal = screen.getByRole('dialog', { name: title });
+    const dialog = within(modal);
+    expect(dialog.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+    fireEvent.change(dialog.getByRole('combobox', { name: 'Language' }), { target: { value: 'Polish' } });
+    fireEvent.click(modal.previousElementSibling!);
+    expect(modal).toBeInTheDocument();
+
+    if (dismissal === 'Escape') fireEvent.keyDown(document, { key: 'Escape' });
+    else fireEvent.click(dialog.getByRole('button', { name: 'Cancel' }));
+
+    expect(modal).not.toBeInTheDocument();
+    expect(change).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Edit English' })).toBeInTheDocument();
+  });
+
+  it('adds from the full language dropdown without proficiency, edits the level, and removes the entry', () => {
     const change = setup();
     const add = openAdd();
-    fireEvent.change(add.getByRole('searchbox', { name: 'Search languages' }), { target: { value: 'WOLO' } });
-    expect(add.getByRole('option', { name: 'Wolof' })).toBeInTheDocument();
-    expect(add.queryByRole('option', { name: 'English' })).not.toBeInTheDocument();
+    expect(add.queryByRole('searchbox')).not.toBeInTheDocument();
+    const picker = add.getByRole('combobox', { name: 'Language' });
+    expect(within(picker).getAllByRole('option')).toHaveLength(LANGUAGE_NAMES.length + 2);
+    expect(within(picker).getByRole('option', { name: 'Wolof' })).toBeInTheDocument();
     fireEvent.change(add.getByLabelText('Language'), { target: { value: 'Wolof' } });
     expect(add.getByLabelText(/^Proficiency/)).toHaveValue('');
     fireEvent.click(add.getByRole('button', { name: 'Add language' }));
