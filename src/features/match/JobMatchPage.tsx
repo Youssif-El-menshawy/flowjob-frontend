@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import { useCvs, useMatches, useRunMatch, useTailorDirect } from '@/shared/api/queries';
+import type { TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { fmtDate } from '@/shared/lib/utils';
@@ -52,16 +53,19 @@ interface FormError {
 export default function JobMatchPage() {
   useDocumentTitle('Job match');
   const nav = useNavigate();
+  const recovery = (useLocation().state as {
+    freshTailoringDraft?: Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company'>;
+  } | null)?.freshTailoringDraft;
   const cvs = useCvs();
   const recent = useMatches();
   const run = useRunMatch();
   const tailor = useTailorDirect();
   const [action, setAction] = useState<Action | null>(null);
-  const [cvId, setCvId] = useState('');
-  const [jobTitle, setJobTitle] = useState('');
-  const [company, setCompany] = useState('');
+  const [cvId, setCvId] = useState(recovery?.sourceCvId ?? '');
+  const [jobTitle, setJobTitle] = useState(recovery?.jobTitle ?? '');
+  const [company, setCompany] = useState(recovery?.company ?? '');
   const [jobUrl, setJobUrl] = useState('');
-  const [text, setText] = useState(() => pendingJob.get());
+  const [text, setText] = useState(() => recovery ? '' : pendingJob.get());
   const [error, setError] = useState<FormError | null>(null);
 
   useEffect(() => {
@@ -114,6 +118,7 @@ export default function JobMatchPage() {
         jobTitle: jobTitle.trim(),
         jobDescription: text.trim(),
         company: company.trim() || undefined,
+        ...(recovery && { fresh: true }),
       },
       {
         onSuccess: (d) => {
@@ -155,6 +160,8 @@ export default function JobMatchPage() {
         title="Match or tailor your CV"
         subtitle="Select a CV and paste a job posting to see how well you match or tailor your CV for the role."
       />
+
+      {recovery && <p className="mb-4 text-sm text-soft">Paste the job description and select Tailor my CV to create a fresh draft.</p>}
 
       <fieldset disabled={busy} className="m-0 flex min-w-0 flex-col gap-5 border-0 p-0">
         <legend className="sr-only">Job details</legend>

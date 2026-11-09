@@ -364,7 +364,7 @@ function Actions({
     <div className={cn('flex flex-wrap items-center gap-3', className)}>
       <Button
         loading={tailor.isPending}
-        onClick={() => tailor.mutate(matchId, { onSuccess: (draft) => nav(`/app/tailor/${draft.id}`) })}
+        onClick={() => tailor.mutate({ matchId }, { onSuccess: (draft) => nav(`/app/tailor/${draft.id}`) })}
       >
         Tailor my CV for this job
       </Button>

@@ -1,6 +1,7 @@
 // TanStack Query hooks for every resource. Screens only talk to the API through these.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiBlob } from './client';
+import { requestTailorDraft } from './tailoring';
 import type {
   Application,
   ApplicationInput,
@@ -12,6 +13,7 @@ import type {
   SyncResult,
   TailorDirectInput,
   TailorDraft,
+  TailorMatchInput,
   User,
 } from './types';
 
@@ -110,7 +112,7 @@ export function useRunMatch() {
 export function useTailor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (matchId: string) => api<TailorDraft>('/tailor', { method: 'POST', json: { matchId } }),
+    mutationFn: (input: TailorMatchInput) => requestTailorDraft(input),
     onSuccess: (draft) => qc.setQueryData(qk.tailorDraft(draft.id), draft),
   });
 }
@@ -123,7 +125,7 @@ export function useTailor() {
 export function useTailorDirect() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (b: TailorDirectInput) => api<TailorDraft>('/tailor', { method: 'POST', json: b }),
+    mutationFn: (input: TailorDirectInput) => requestTailorDraft(input),
     // Seed the draft query so the review route doesn't need a second request.
     onSuccess: (d) => qc.setQueryData(qk.tailorDraft(d.id), d),
   });

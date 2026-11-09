@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import { fetchCvPreviewPdf, useCreateCv, useCv, useCvs, useTailor, useTailorDraft } from '@/shared/api/queries';
+import { TAILORING_BACKEND_INCOMPATIBLE } from '@/shared/api/tailoring';
 import type { CvContent, TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { cn, downloadBlob } from '@/shared/lib/utils';
@@ -208,7 +209,7 @@ function MatchTailor({ matchId }: { matchId: string }) {
     <>
       <PageHeader back={back} title="Tailor your CV" />
       {tailor.isPending ? <TailorLoading /> : (
-        <Button onClick={() => tailor.mutate(matchId, {
+        <Button onClick={() => tailor.mutate({ matchId }, {
           onSuccess: (draft) => nav(`/app/tailor/${draft.id}`, { replace: true }),
         })}>
           Start tailoring
@@ -238,6 +239,46 @@ export default function TailorPage() {
   return <DraftTailor draftId={draftId ?? ''} />;
 }
 
+function DraftRecovery({ draft, incompatible }: { draft: TailorDraft; incompatible: boolean }) {
+  const nav = useNavigate();
+  const regenerate = useTailor();
+  const { matchId, sourceCvId, jobTitle, company } = draft;
+  const recoveryState = { freshTailoringDraft: { sourceCvId, jobTitle, company } };
+
+  return (
+    <div className="mb-4 rounded-xl bg-accent/15 p-3 text-sm text-accent-ink">
+      <p role="alert">
+        {incompatible
+          ? TAILORING_BACKEND_INCOMPATIBLE
+          : draft.sourceCvRevision === null
+            ? 'This older draft has no verified source revision.'
+            : 'The source CV changed after this draft was generated.'}
+      </p>
+      {!incompatible && (matchId ? (
+        <Button size="sm" variant="secondary" className="mt-2" loading={regenerate.isPending}
+          onClick={() => regenerate.mutate({ matchId, cvId: sourceCvId, fresh: true }, {
+            onSuccess: (freshDraft) => nav(`/app/tailor/${freshDraft.id}`, { replace: true }),
+          })}
+        >
+          Create fresh draft
+        </Button>
+      ) : (
+        <>
+          <p className="mt-1">Paste the job description again to create a fresh draft.</p>
+          <ButtonLink to="/app/match" state={recoveryState} size="sm" variant="secondary" className="mt-2">
+            Start a fresh draft
+          </ButtonLink>
+        </>
+      ))}
+      {regenerate.isError && (
+        <p role="alert" className="mt-2">
+          {regenerate.error instanceof ApiError ? regenerate.error.message : 'Could not create a fresh draft. Please try again.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The single review UI for both entry paths. Never assumes a match exists. */
 function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; back: Back; hideHeaderBack?: boolean }) {
   const nav = useNavigate();
@@ -260,7 +301,9 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const source = !checkingSource && sourceQuery.data?.id === draft.sourceCvId && !sourceQuery.isError
     ? sourceQuery.data
     : undefined;
-  const sourceIsCurrent = !sourceRejected && !!draft.sourceCvRevision && source?.contentRevision === draft.sourceCvRevision;
+  const incompatible = (draft.sourceCvRevision !== null && !draft.sourceCvRevision)
+    || (!!source && !source.contentRevision);
+  const sourceIsCurrent = !incompatible && !sourceRejected && !!draft.sourceCvRevision && source?.contentRevision === draft.sourceCvRevision;
   const refetchSource = sourceQuery.refetch;
   const rejectSource = useCallback(() => {
     setSourceRejected(true);
@@ -360,14 +403,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
         )
       ) : (
         <>
-          {!sourceIsCurrent && (
-            <p role="alert" className="mb-4 rounded-xl bg-accent/15 p-3 text-sm text-accent-ink">
-              {draft.sourceCvRevision
-                ? 'The source CV changed after this draft was generated.'
-                : 'This older draft has no verified source revision.'}{' '}
-              <ButtonLink to={back.to} size="sm" variant="ghost">Go back to start a new draft</ButtonLink>
-            </p>
-          )}
+          {!sourceIsCurrent && <DraftRecovery draft={draft} incompatible={incompatible} />}
           <div className="grid min-w-0 grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
             <div className="min-w-0">
               <header className="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1">

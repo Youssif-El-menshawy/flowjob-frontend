@@ -314,6 +314,7 @@ export const handlers = [
         ? u.data.cvs.find((c) => c.id === m!.cvId)
         : u.data.cvs.find((c) => c.id === body.cvId);
       if (!cv) return err(m ? 409 : 404, m ? 'Create your CV first.' : 'Original CV not found.');
+      if (body.cvId && body.cvId !== cv.id) return err(422, 'This match belongs to a different CV.');
       if (!m) {
         // Direct tailoring: a transient analysis (never saved as a match record).
         const job = (body.jobDescription ?? '').trim();
@@ -337,11 +338,12 @@ export const handlers = [
     }),
   ),
 
+  http.get(`${B}/tailor/capabilities`, () => HttpResponse.json({ sourceVerification: 1 })),
   http.get<{ id: string }>(
     `${B}/tailor/:id`,
     authed<{ id: string }>(({ params, u }) => {
       const d = u.data.drafts.find((x) => x.id === params.id);
-      return d ? HttpResponse.json(d) : err(404, 'Draft not found.');
+      return d ? HttpResponse.json({ ...d, sourceCvRevision: d.sourceCvRevision ?? null }) : err(404, 'Draft not found.');
     }),
   ),
 

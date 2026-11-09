@@ -77,7 +77,7 @@ describe('MatchReportPage', () => {
     renderReport();
     expect(mocks.tailorMutate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Tailor my CV for this job' }));
-    expect(mocks.tailorMutate).toHaveBeenCalledWith('m1', expect.anything());
+    expect(mocks.tailorMutate).toHaveBeenCalledWith({ matchId: 'm1' }, expect.anything());
     expect(screen.getByText('Tailoring draft d1')).toBeVisible();
     expect(mocks.runMutate).not.toHaveBeenCalled();
   });

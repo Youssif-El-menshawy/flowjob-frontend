@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
-import type { Cv, TailorDraft } from '@/shared/api/types';
+import type { Cv, TailorDraft, TailorMatchInput } from '@/shared/api/types';
 
 const draft: TailorDraft = {
   id: 'd1', sourceCvId: 'cv1', sourceCvRevision: 'revision-1', matchId: 'm1', jobTitle: 'Backend Engineer', company: 'Acme',
@@ -45,8 +45,8 @@ vi.mock('@/shared/api/queries', () => ({
   useTailor: () => ({
     isError: !!mocks.tailorError,
     error: mocks.tailorError,
-    mutate: (matchId: string, opts: { onSuccess: (d: TailorDraft) => void }) => {
-      mocks.tailorMutate(matchId);
+    mutate: (input: TailorMatchInput, opts: { onSuccess: (d: TailorDraft) => void }) => {
+      mocks.tailorMutate(input);
       if (!mocks.tailorError) {
         mocks.draftQuery = { data: draft, isError: false, error: null };
         opts.onSuccess(draft);
@@ -183,7 +183,7 @@ describe('TailorPage review', () => {
     });
     expect(sourceCv).toEqual(before);
     expect(payload.content).not.toBe(sourceCv.content);
-    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith('m1');
+    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
   });
 
   it('shows missing requirements without rendering or applying conversational questions', () => {
@@ -238,7 +238,7 @@ describe('TailorPage PDF preview and download', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Update preview' }));
     expect(mocks.preview).toHaveBeenCalledTimes(2);
     expect(mocks.preview.mock.calls[1][0]).toMatchObject({ summary: 'Latest summary', experience: [{ bullets: ['Old bullet'] }] });
-    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith('m1');
+    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
   });
 
   it('aborts obsolete previews and ignores late responses when changing the preview mode', async () => {
@@ -253,7 +253,7 @@ describe('TailorPage PDF preview and download', () => {
     await waitFor(() => expect(screen.getByTestId('pdf')).toHaveTextContent('application/original'));
     await act(async () => finish(new Blob(['old tailored'], { type: 'application/tailored' })));
     expect(screen.getByTestId('pdf')).toHaveTextContent('application/original');
-    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith('m1');
+    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
   });
 
   it('downloads the latest accepted edits from a stale preview without saving or calling AI', async () => {
@@ -498,7 +498,39 @@ it('does not generate on the old match URL until the user explicitly starts tail
   renderPage('/app/match/m1/tailor');
   expect(mocks.tailorMutate).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Start tailoring' }));
-  expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith('m1');
+  expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
   expect(mocks.draftIds).toContain('d1');
   expect(screen.getByRole('link', { name: /Back to match result/ })).toHaveAttribute('href', '/app/match/m1');
+});
+
+
+it('identifies a missing wire revision as a backend mismatch, not a legacy draft', () => {
+  mocks.draftQuery = { data: { ...directDraft, sourceCvRevision: undefined }, isError: false, error: null };
+  renderPage('/app/tailor/d9');
+  expect(screen.getByRole('alert')).toHaveTextContent('running backend does not support verified tailoring drafts');
+  expect(screen.queryByText(/older draft has no verified source revision/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Start a fresh draft' })).not.toBeInTheDocument();
+  expect(mocks.tailorMutate).not.toHaveBeenCalled();
+  expect(save()).toBeDisabled();
+});
+
+it('regenerates a legacy match draft only after the user clicks and opens a verified draft', () => {
+  mocks.draftQuery = { data: { ...draft, id: 'legacy', sourceCvRevision: null }, isError: false, error: null };
+  renderPage('/app/tailor/legacy');
+  expect(mocks.tailorMutate).not.toHaveBeenCalled();
+  expect(save()).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Create fresh draft' }));
+  expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1', cvId: 'cv1', fresh: true });
+  expect(mocks.draftIds).toContain('d1');
+  expect(screen.getByText('1 of 2 suggestions applied')).toBeVisible();
+  expect(mocks.preview.mock.lastCall?.[2]).toBe('d1');
+});
+
+it('sends a direct legacy draft back to the job form to re-enter the description', () => {
+  mocks.draftQuery = { data: { ...directDraft, sourceCvRevision: null }, isError: false, error: null };
+  renderPage('/app/tailor/d9');
+  expect(screen.getByText('Paste the job description again to create a fresh draft.')).toBeVisible();
+  fireEvent.click(screen.getByRole('link', { name: 'Start a fresh draft' }));
+  expect(screen.getByText('JOB FORM')).toBeVisible();
+  expect(mocks.tailorMutate).not.toHaveBeenCalled();
 });
