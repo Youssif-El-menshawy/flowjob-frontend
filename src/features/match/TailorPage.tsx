@@ -169,7 +169,7 @@ function TailorPreview({ content }: { content: CvContent }) {
   const loading = state.status === 'loading' || state.status === 'idle';
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="order-1 flex min-h-11 items-center">
         <Button
           size="sm"
           variant="secondary"
@@ -180,14 +180,14 @@ function TailorPreview({ content }: { content: CvContent }) {
           {loading ? 'Updating preview…' : state.error ? 'Retry preview' : 'Update preview'}
         </Button>
         {loading && <span role="status" className="sr-only">Rendering Harvard PDF preview</span>}
-        {state.error ? (
-          <p role="alert" className="text-sm text-danger">Could not render the preview. Try again.</p>
-        ) : stale && state.blob && !loading ? (
-          <p role="status" className="text-sm text-soft">Preview out of date</p>
-        ) : null}
       </div>
-      <div className="h-[min(62dvh,640px)] min-h-[300px] overflow-hidden rounded-md ring-1 ring-line lg:h-[clamp(300px,calc(100dvh-17rem),760px)]">
+      <div className="relative order-3 h-[min(62dvh,640px)] min-h-[300px] w-full overflow-hidden rounded-md ring-1 ring-line lg:h-[clamp(300px,calc(100dvh-17rem),760px)]">
         <HarvardPdfViewer blob={state.blob} status={state.status} errorText="Could not render the preview." />
+        {state.error && state.blob && (
+          <p role="alert" className="absolute inset-x-2 bottom-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+            Could not render the preview. Try again.
+          </p>
+        )}
       </div>
     </>
   );
@@ -283,7 +283,6 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const downloadRequest = useRef<AbortController | null>(null);
   const saving = useRef(false);
-  const confirmHintId = useId();
 
   const source = cvs.data?.find((cv) => cv.id === draft.sourceCvId);
   const defaultName = `${draft.company || draft.jobTitle} v${(cvs.data?.filter((cv) => cv.company === draft.company).length ?? 0) + 1}`;
@@ -364,43 +363,42 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
         )
       ) : (
         <>
-          <p className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-soft">
-            <span className="rounded-full bg-tint px-2.5 py-0.5 font-semibold text-ink">Draft</span>
-            <span>Original CV protected</span>
-            <span className="font-medium" aria-live="polite">
-              {appliedCount} of {suggestions.length} suggestions applied
-            </span>
-          </p>
-
           <div className="grid min-w-0 grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-            <div className="flex min-w-0 flex-col gap-3">
-              {suggestions.length === 0 && (
-                <Card>
-                  <p className="text-soft">There are no suggested changes for this draft.</p>
-                </Card>
-              )}
-              {suggestions.map((suggestion) => (
-                <SuggestionCard
-                  key={suggestion.id}
-                  suggestion={suggestion}
-                  onEdit={(text) => setEdits((current) => ({ ...current, [suggestion.id]: text }))}
-                  onDecide={(decision) => setDecisions((current) => ({ ...current, [suggestion.id]: decision }))}
-                />
-              ))}
+            <div className="min-w-0">
+              <header className="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <h2 className="text-base font-semibold">AI suggestions</h2>
+                <p className="ml-auto text-sm text-soft" aria-live="polite">
+                  {appliedCount} of {suggestions.length} suggestions applied
+                </p>
+              </header>
+              <div className="flex min-w-0 flex-col gap-3">
+                {suggestions.length === 0 && (
+                  <Card>
+                    <p className="text-soft">There are no suggested changes for this draft.</p>
+                  </Card>
+                )}
+                {suggestions.map((suggestion) => (
+                  <SuggestionCard
+                    key={suggestion.id}
+                    suggestion={suggestion}
+                    onEdit={(text) => setEdits((current) => ({ ...current, [suggestion.id]: text }))}
+                    onDecide={(decision) => setDecisions((current) => ({ ...current, [suggestion.id]: decision }))}
+                  />
+                ))}
 
-              {!!draft.missingQualifications?.length && (
-                <Card>
-                  <h3 className="mb-2 text-sm font-semibold">Requirements not evidenced in your CV</h3>
-                  <ul className="list-disc space-y-1 pl-5 text-sm break-words text-soft">
-                    {draft.missingQualifications.map((item, index) => <li key={index}>{item}</li>)}
-                  </ul>
-                </Card>
-              )}
+                {!!draft.missingQualifications?.length && (
+                  <Card>
+                    <h3 className="mb-2 text-sm font-semibold">Requirements not evidenced in your CV</h3>
+                    <ul className="list-disc space-y-1 pl-5 text-sm break-words text-soft">
+                      {draft.missingQualifications.map((item, index) => <li key={index}>{item}</li>)}
+                    </ul>
+                  </Card>
+                )}
+              </div>
             </div>
 
-            <div className="min-w-0 lg:sticky lg:top-20">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-soft">Preview · Harvard template</p>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-3 lg:sticky lg:top-20">
+              <div className="order-2 ml-auto shrink-0">
                 <Segmented
                   label="Preview"
                   options={['Tailored', 'Original'] as const}
@@ -428,12 +426,11 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
                   variant="secondary"
                   disabled={!agree}
                   loading={downloadStatus === 'loading'}
-                  aria-describedby={!agree ? confirmHintId : undefined}
                   onClick={() => void download()}
                 >
                   {downloadStatus === 'loading' ? 'Preparing PDF…' : 'Download tailored PDF'}
                 </Button>
-                <Button disabled={!agree} loading={create.isPending} aria-describedby={!agree ? confirmHintId : undefined} onClick={save}>
+                <Button disabled={!agree} loading={create.isPending} onClick={save}>
                   Save as new CV
                 </Button>
               </div>
@@ -447,7 +444,6 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
               />
               I checked this CV and everything in it is true
             </label>
-            {!agree && <p id={confirmHintId} className="text-xs text-soft">Confirm the wording above to save or download the tailored CV.</p>}
             {downloadStatus === 'loading' && <p role="status" className="sr-only">Preparing tailored PDF</p>}
             {downloadStatus === 'error' && <p role="alert" className="text-sm text-danger">Could not download the tailored PDF. Try again.</p>}
           </div>

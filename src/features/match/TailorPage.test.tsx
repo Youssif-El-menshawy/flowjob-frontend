@@ -107,9 +107,14 @@ describe('TailorPage review', () => {
     expect(card('Experience').getByText('Needs review')).toBeInTheDocument();
     expect(card('Experience').getByText(/Verify against your original CV/)).toBeVisible();
     expect(screen.queryByRole('textbox', { name: 'Suggested wording' })).toBeNull();
-    expect(screen.getByText('Draft')).toBeInTheDocument();
-    expect(screen.getByText('Original CV protected')).toBeInTheDocument();
-    expect(screen.getByText('1 of 2 suggestions applied')).toBeInTheDocument();
+    expect(screen.queryByText('Draft', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText('Original CV protected')).not.toBeInTheDocument();
+    const suggestionHeader = screen.getByRole('heading', { name: 'AI suggestions' }).closest('header')!;
+    expect(within(suggestionHeader).getByText('1 of 2 suggestions applied')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'CV preview' })).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Preview' })).toBeInTheDocument();
+    expect(screen.queryByText(/Confirm the wording above/)).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Rendering Harvard PDF preview');
     expect(mocks.preview.mock.calls[0][0]).toMatchObject({
       summary: 'New summary',
       experience: [{ bullets: ['Old bullet'] }],
@@ -197,12 +202,14 @@ describe('TailorPage PDF preview and download', () => {
   it('refreshes on an explicit preview update, never on edits or review decisions', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Update preview' })).toBeDisabled());
+    expect(screen.queryByText('Preview up to date')).not.toBeInTheDocument();
     fireEvent.click(toggle('Summary'));
     fireEvent.change(wording('Summary'), { target: { value: 'Latest summary' } });
     fireEvent.click(toggle('Experience'));
     decide('Experience', 'Keep original');
     expect(mocks.preview).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Preview out of date')).toBeVisible();
+    expect(screen.queryByText('Preview out of date')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Update preview' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Update preview' }));
     expect(mocks.preview).toHaveBeenCalledTimes(2);
     expect(mocks.preview.mock.calls[1][0]).toMatchObject({ summary: 'Latest summary', experience: [{ bullets: ['Old bullet'] }] });
@@ -251,7 +258,8 @@ describe('TailorPage PDF preview and download', () => {
     const blob = new Blob(['%PDF-current']);
     await act(async () => finish(blob));
     expect(mocks.download).toHaveBeenCalledExactlyOnceWith(blob, 'Reviewed_version.pdf');
-    expect(screen.getByText('Preview out of date')).toBeVisible();
+    expect(screen.queryByText('Preview out of date')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Update preview' })).toBeEnabled();
     expect(mocks.create.mutate).not.toHaveBeenCalled();
     expect(mocks.tailorMutate).not.toHaveBeenCalled();
   });
