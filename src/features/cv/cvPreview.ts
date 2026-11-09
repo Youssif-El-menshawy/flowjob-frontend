@@ -138,6 +138,7 @@ export function createPreviewEngine(
     isStale,
     getState: () => ({ ...state }),
     dispose: () => {
+      ++token; // Ignore even a late response from a fetcher that did not honor abort.
       controller?.abort();
       inFlightFp = null;
       inFlightPromise = null;
