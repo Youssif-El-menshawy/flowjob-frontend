@@ -271,6 +271,15 @@ export const handlers = [
       return m ? HttpResponse.json(m) : err(404, 'Match not found.');
     }),
   ),
+  http.delete<{ id: string }>(
+    `${B}/matches/:id`,
+    authed<{ id: string }>(({ params, u }) => {
+      const index = u.data.matches.findIndex((match) => match.id === params.id);
+      if (index === -1) return err(404, 'Match not found.');
+      u.data.matches.splice(index, 1);
+      return new HttpResponse(null, { status: 204 });
+    }),
+  ),
   http.post(
     `${B}/matches`,
     authed(async ({ request, u }) => {

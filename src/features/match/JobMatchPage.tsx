@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
-import { useCvs, useMatches, useRunMatch, useTailorDirect } from '@/shared/api/queries';
+import { useCvs, useRunMatch, useTailorDirect } from '@/shared/api/queries';
 import type { TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
@@ -9,8 +9,8 @@ import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { EmptyState, PageHeader } from '@/shared/ui/Display';
 import { Input, Select, Textarea } from '@/shared/ui/Field';
-import { Icon } from '@/shared/ui/Icons';
 import { PageLoader, Spinner } from '@/shared/ui/Spinner';
+import { RecentMatches } from './RecentMatches';
 
 const MATCH_STEPS = ['Reading the job post…', 'Comparing it with your CV…', 'Writing your feedback…'];
 const TAILOR_STEPS = ['Reading the job post…', 'Finding what to emphasise in your CV…', 'Drafting your suggestions…'];
@@ -57,7 +57,6 @@ export default function JobMatchPage() {
     freshTailoringDraft?: Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company'>;
   } | null)?.freshTailoringDraft;
   const cvs = useCvs();
-  const recent = useMatches();
   const run = useRunMatch();
   const tailor = useTailorDirect();
   const [action, setAction] = useState<Action | null>(null);
@@ -229,33 +228,7 @@ export default function JobMatchPage() {
         </div>
       )}
 
-      {!!recent.data?.length && (
-        <section className="mt-12" aria-labelledby="recent-matches">
-          <h2 id="recent-matches" className="mb-3 text-[17px] font-semibold">
-            Recent matches
-          </h2>
-          <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
-            {recent.data.slice(0, 5).map((m) => (
-              <li key={m.id}>
-                <Link
-                  to={`/app/match/${m.id}`}
-                  className="flex items-center gap-4 px-4 py-3 hover:bg-bg"
-                >
-                  <span className="font-display w-12 shrink-0 text-lg font-semibold">
-                    {m.scoreAvailable === false ? '—' : `${m.score}%`}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {m.jobTitle}
-                    {m.company ? ` · ${m.company}` : ''}
-                  </span>
-                  <span className="shrink-0 text-sm text-soft">{fmtDate(m.createdAt)}</span>
-                  <Icon.arrowRight />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <RecentMatches />
     </div>
   );
 }

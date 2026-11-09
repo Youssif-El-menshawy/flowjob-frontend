@@ -92,13 +92,28 @@ export function useDeleteCv() {
 
 // Matching + tailoring
 export const useMatches = () =>
-  useQuery({ queryKey: qk.matches, queryFn: () => api<MatchResult[]>('/matches') });
+  useQuery({ queryKey: qk.matches, queryFn: ({ signal }) => api<MatchResult[]>('/matches', { signal }) });
 export const useMatch = (id?: string) =>
   useQuery({
     queryKey: qk.match(id ?? ''),
-    queryFn: () => api<MatchResult>(`/matches/${id}`),
+    queryFn: ({ signal }) => api<MatchResult>(`/matches/${id}`, { signal }),
     enabled: !!id,
   });
+export function useDeleteMatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<void>(`/matches/${id}`, { method: 'DELETE' }),
+    onSuccess: async (_, id) => {
+      const list = { queryKey: qk.matches, exact: true };
+      const report = { queryKey: qk.match(id), exact: true };
+      // A fetch started before deletion must not restore the removed report.
+      await Promise.all([qc.cancelQueries(list), qc.cancelQueries(report)]);
+      qc.setQueryData<MatchResult[]>(qk.matches, (old) => old?.filter((match) => match.id !== id));
+      qc.removeQueries(report);
+      void qc.invalidateQueries(list);
+    },
+  });
+}
 export function useRunMatch() {
   const qc = useQueryClient();
   return useMutation({
