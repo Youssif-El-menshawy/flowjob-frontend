@@ -265,6 +265,18 @@ export interface JobListing {
   url: string | null;
   postedAt: string | null;
   source: string;
+  /** Keyword skill fit against the chosen CV (no AI). Only present when a CV is chosen. */
+  fit?: JobFit;
+}
+
+export interface JobFit {
+  /** 0-100, or null when the ad names too few known skills (or has no description). */
+  score: number | null;
+  label: 'Strong fit' | 'Good fit' | 'Partial fit' | 'Low fit' | 'Not enough detail' | 'No description';
+  matched: string[];
+  missing: string[];
+  missingOptional: string[];
+  missingLanguages: string[];
 }
 
 export interface JobDetail extends JobListing {
@@ -281,6 +293,10 @@ export interface JobsQuery {
   city?: string;
   company?: string;
   q?: string;
+  /** Score every job against this CV. */
+  cvId?: string;
+  /** 'fit' needs a cvId. */
+  sort?: 'recent' | 'fit';
   page: number;
   pageSize?: number;
 }

@@ -58,9 +58,9 @@ export default function JobMatchPage() {
   const run = useRunMatch();
   const tailor = useTailorDirect();
   const [action, setAction] = useState<Action | null>(null);
-  const [cvId, setCvId] = useState('');
-  // "Match my CV" on the Jobs page opens this form with the job already filled in.
+  // "Match my CV" on the Jobs page opens this form with the job (and the CV chosen there) filled in.
   const fromJobs = (useLocation().state as { job?: PrefilledJob } | null)?.job;
+  const [cvId, setCvId] = useState(fromJobs?.cvId ?? '');
   const [jobTitle, setJobTitle] = useState(fromJobs?.title ?? '');
   const [company, setCompany] = useState(fromJobs?.company ?? '');
   const [jobUrl, setJobUrl] = useState(fromJobs?.url ?? '');

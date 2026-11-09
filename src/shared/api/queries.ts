@@ -214,12 +214,15 @@ function jobsPath(q: JobsQuery) {
   if (q.city) p.set('city', q.city);
   if (q.company) p.set('company', q.company);
   if (q.q?.trim()) p.set('q', q.q.trim());
+  if (q.cvId) p.set('cvId', q.cvId);
+  if (q.sort) p.set('sort', q.sort);
   return `/jobs?${p}`;
 }
-export const useJobs = (q: JobsQuery) =>
+export const useJobs = (q: JobsQuery, enabled = true) =>
   useQuery({
     queryKey: qk.jobs(q),
     queryFn: () => api<JobsPage>(jobsPath(q)),
+    enabled,
     placeholderData: (previous) => previous,
     refetchInterval: (query) => (query.state.data?.refreshing ? 3000 : false),
   });

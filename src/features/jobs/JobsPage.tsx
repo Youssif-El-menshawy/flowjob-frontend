@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { fetchJob, useJobs } from '@/shared/api/queries';
-import type { JobLevel, JobLevelFilter, JobListing } from '@/shared/api/types';
+import { Link, useNavigate } from 'react-router-dom';
+import { fetchJob, useCvs, useJobs } from '@/shared/api/queries';
+import type { JobFit, JobLevel, JobLevelFilter, JobListing } from '@/shared/api/types';
 import { useDebouncedValue, useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { cn, fmtDate, fmtRelative } from '@/shared/lib/utils';
@@ -15,6 +15,8 @@ import { PageLoader, Spinner } from '@/shared/ui/Spinner';
 const PAGE_SIZE = 20;
 /** Same cap the match form uses for a job description. */
 const MAX_JOB_CHARS = 12000;
+/** How many skill names to show before "+N more". */
+const SHOW_SKILLS = 5;
 
 const TABS = ['Students & graduates', 'Internships', 'All levels'] as const;
 type Tab = (typeof TABS)[number];
@@ -23,11 +25,19 @@ const TAB_LEVEL: Record<Tab, JobLevelFilter> = {
   Internships: 'internship',
   'All levels': 'all',
 };
+type Sort = 'fit' | 'recent';
 
 const LEVEL_BADGE: Record<JobLevel, { label: string; className: string } | null> = {
   internship: { label: 'Internship', className: 'bg-accent-soft text-accent-ink' },
   entry: { label: 'Entry level', className: 'bg-success-bg text-success-ink' },
   other: null,
+};
+
+const FIT_STYLE: Record<string, string> = {
+  'Strong fit': 'bg-success-bg text-success-ink',
+  'Good fit': 'bg-accent-soft text-accent-ink',
+  'Partial fit': 'bg-tint text-ink',
+  'Low fit': 'bg-tint text-soft',
 };
 
 /** What the match form needs to start with this job already filled in. */
@@ -36,6 +46,41 @@ export interface PrefilledJob {
   company: string;
   url: string;
   description: string;
+  /** The CV chosen on the Jobs page, so Job Match uses the same one. */
+  cvId?: string;
+}
+
+const list = (names: string[]) =>
+  names.length > SHOW_SKILLS
+    ? `${names.slice(0, SHOW_SKILLS).join(', ')} +${names.length - SHOW_SKILLS} more`
+    : names.join(', ');
+
+/** Keyword skill fit: a quick guide, not the AI match. */
+function FitSummary({ fit }: { fit: JobFit }) {
+  if (fit.score === null) {
+    return (
+      <p className="mt-1.5 text-xs text-soft">
+        {fit.label === 'No description'
+          ? 'No description to compare with your CV. Open the posting to read it.'
+          : 'The ad names too few skills for a score.'}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-1.5 flex flex-col gap-0.5 text-xs">
+      <p>
+        <span className={cn('mr-2 rounded-full px-2 py-0.5 font-semibold', FIT_STYLE[fit.label])}>
+          {fit.label} · {fit.score}%
+        </span>
+        {fit.matched.length > 0 && <span className="text-soft">You have: {list(fit.matched)}</span>}
+      </p>
+      {fit.missing.length > 0 && <p className="text-soft">Missing: {list(fit.missing)}</p>}
+      {fit.missingOptional.length > 0 && <p className="text-soft">Nice to have: {list(fit.missingOptional)}</p>}
+      {fit.missingLanguages.length > 0 && (
+        <p className="font-medium text-danger">Asks for {fit.missingLanguages.join(' and ')}, which is not on your CV</p>
+      )}
+    </div>
+  );
 }
 
 function JobCard({ job, i, onMatch, matching }: {
@@ -63,6 +108,7 @@ function JobCard({ job, i, onMatch, matching }: {
           {job.company} · {job.city === 'Poland' ? 'Poland (location not specified)' : job.city}
           {job.postedAt ? ` · posted ${fmtDate(job.postedAt, true)}` : ''}
         </p>
+        {job.fit && <FitSummary fit={job.fit} />}
         <p className="mt-1 text-xs text-soft">From the company's careers page via {job.source}</p>
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
@@ -88,22 +134,35 @@ export default function JobsPage() {
   useDocumentTitle('Jobs');
   const nav = useNavigate();
   const toast = useToast();
+  const cvs = useCvs();
   const [tab, setTab] = useState<Tab>('Students & graduates');
   const [city, setCity] = useState('');
   const [company, setCompany] = useState('');
   const [search, setSearch] = useState('');
+  const [chosenCvId, setCvId] = useState('');
+  const [sort, setSort] = useState<Sort>('fit');
   const [page, setPage] = useState(1);
   const [matchingId, setMatchingId] = useState<string | null>(null);
   const q = useDebouncedValue(search, 350);
 
-  const { data, isLoading, isError, isFetching } = useJobs({
-    level: TAB_LEVEL[tab],
-    city: city || undefined,
-    company: company || undefined,
-    q: q || undefined,
-    page,
-    pageSize: PAGE_SIZE,
-  });
+  // Until the user picks one, compare with the original CV (or the first one), like Job Match does.
+  const defaultCvId = cvs.data?.find((c) => c.kind === 'original')?.id ?? cvs.data?.[0]?.id ?? '';
+  const cvId = chosenCvId || defaultCvId;
+  const hasCv = !!cvId;
+  const { data, isLoading, isError, isFetching } = useJobs(
+    {
+      level: TAB_LEVEL[tab],
+      city: city || undefined,
+      company: company || undefined,
+      q: q || undefined,
+      cvId: cvId || undefined,
+      sort: hasCv ? sort : 'recent',
+      page,
+      pageSize: PAGE_SIZE,
+    },
+    // Wait for the CV list, so the first request already uses the right CV.
+    !cvs.isLoading,
+  );
 
   // Any filter change starts again at page 1.
   const change = <T,>(set: (v: T) => void) => (v: T) => {
@@ -120,6 +179,7 @@ export default function JobsPage() {
         company: detail.company,
         url: detail.url ?? '',
         description: (detail.description ?? '').slice(0, MAX_JOB_CHARS),
+        cvId: cvId || undefined,
       };
       // Also keep the text for this browser session, so it survives "Create your CV first".
       pendingJob.set(prefill.description);
@@ -134,7 +194,7 @@ export default function JobsPage() {
     }
   }
 
-  if (isLoading) return <PageLoader />;
+  if (cvs.isLoading || isLoading) return <PageLoader />;
 
   const levels = data?.levels ?? {};
   const entryCount = (levels.entry ?? 0) + (levels.internship ?? 0);
@@ -142,6 +202,7 @@ export default function JobsPage() {
   const total = data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const filtered = !!(city || company || q);
+  const selectClass = cn(controlClass(), 'min-h-11 rounded-full bg-surface');
 
   return (
     <>
@@ -155,7 +216,7 @@ export default function JobsPage() {
         }
       />
 
-      <div className="mb-6 flex flex-wrap items-center gap-3">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
         <Segmented label="Experience level" options={TABS} value={tab} onChange={change(setTab)} />
         <div className="relative w-full max-w-xs">
           <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-soft">
@@ -177,7 +238,7 @@ export default function JobsPage() {
           aria-label="Filter by city"
           value={city}
           onChange={(e) => change(setCity)(e.target.value)}
-          className={cn(controlClass(), 'min-h-11 rounded-full bg-surface sm:w-48')}
+          className={cn(selectClass, 'sm:w-48')}
         >
           <option value="">All cities</option>
           {data?.cities.map((c) => (
@@ -190,7 +251,7 @@ export default function JobsPage() {
           aria-label="Filter by company"
           value={company}
           onChange={(e) => change(setCompany)(e.target.value)}
-          className={cn(controlClass(), 'min-h-11 rounded-full bg-surface sm:w-60')}
+          className={cn(selectClass, 'sm:w-60')}
         >
           <option value="">All companies</option>
           {data?.companies.map((c) => (
@@ -200,6 +261,48 @@ export default function JobsPage() {
           ))}
         </select>
         {isFetching && <Spinner className="size-4" />}
+      </div>
+
+      <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
+        {hasCv ? (
+          <>
+            <label className="flex items-center gap-2 text-soft">
+              Compare with
+              <select
+                aria-label="CV to compare with"
+                value={cvId}
+                onChange={(e) => change(setCvId)(e.target.value)}
+                className={cn(selectClass, 'w-auto text-ink sm:w-64')}
+              >
+                {cvs.data?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-soft">
+              Sort by
+              <select
+                aria-label="Sort jobs"
+                value={sort}
+                onChange={(e) => change(setSort)(e.target.value as Sort)}
+                className={cn(selectClass, 'w-auto text-ink sm:w-48')}
+              >
+                <option value="fit">Best match for my CV</option>
+                <option value="recent">Newest first</option>
+              </select>
+            </label>
+            <p className="text-xs text-soft">Skill fit is a quick keyword check. Use Match my CV for a full analysis.</p>
+          </>
+        ) : (
+          <p className="text-soft">
+            <Link to="/app/cv-builder" className="font-semibold text-primary hover:underline">
+              Create a CV
+            </Link>{' '}
+            to see how well each job fits you.
+          </p>
+        )}
       </div>
 
       {isError ? (
