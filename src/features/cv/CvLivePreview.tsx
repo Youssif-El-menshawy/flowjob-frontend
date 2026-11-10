@@ -22,8 +22,8 @@ export interface CvPreviewHandle {
  * on keystrokes. Renders via the shared HarvardPdfViewer (PDF.js canvases, no viewer chrome).
  * Read-only; same renderer as the saved preview and download. Never writes to MongoDB.
  */
-export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>(
-  function CvLivePreview({ content }, ref) {
+export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent; cvId: string }>(
+  function CvLivePreview({ content, cvId }, ref) {
     const [engineState, setEngineState] = useState<PreviewState>({
       status: 'idle',
       blob: null,
@@ -40,7 +40,7 @@ export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>
     const engineRef = useRef<PreviewEngine | null>(null);
     if (!engineRef.current) {
       engineRef.current = createPreviewEngine(
-        (c, signal) => fetchCvPreviewPdf(c, signal),
+        (c, signal) => fetchCvPreviewPdf(c, signal, undefined, cvId),
         setEngineState,
       );
     }
@@ -69,7 +69,7 @@ export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>
     }, [fullscreen]);
 
     const scale = ZOOMS[zoom];
-    const { status, blob, error } = engineState;
+    const { status, blob, error, errorMessage } = engineState;
     const loading = status === 'loading';
     // Derived from current form content vs the displayed PDF — recomputed every render, so
     // the button reacts to typing instantly without any network request.
@@ -149,7 +149,7 @@ export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>
         </div>
         <div
           className={cn(
-            'overflow-hidden rounded-md',
+            'relative overflow-hidden rounded-md',
             fullscreen
               ? 'mx-auto w-full max-w-4xl flex-1'
               : 'h-[clamp(420px,70vh,900px)] ring-1 ring-line',
@@ -159,8 +159,9 @@ export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent }>
             blob={blob}
             status={status}
             scale={scale}
-            errorText={'Could not generate the preview. Use “Retry” above.'}
+            errorText={errorMessage ?? 'Could not generate the preview. Use “Retry” above.'}
           />
+          {errorMessage && blob && <p role="alert" className="absolute inset-x-2 bottom-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{errorMessage}</p>}
         </div>
       </div>
     );

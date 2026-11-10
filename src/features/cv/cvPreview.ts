@@ -1,3 +1,4 @@
+import { ApiError } from '@/shared/api/client';
 import type { CvContent } from '@/shared/api/types';
 
 /**
@@ -53,6 +54,7 @@ export interface PreviewState {
   renderedFingerprint: string | null;
   /** True when the most recent attempt failed (previous blob is retained). */
   error: boolean;
+  errorMessage?: string;
 }
 
 export type PreviewFetcher = (content: CvContent, signal: AbortSignal) => Promise<Blob>;
@@ -100,6 +102,7 @@ export function createPreviewEngine(
     inFlightFp = fp;
     state.status = 'loading';
     state.error = false; // keep state.blob visible while loading
+    delete state.errorMessage;
     emit();
 
     const p = fetcher(content, signal)
@@ -118,6 +121,7 @@ export function createPreviewEngine(
           // Keep the previous PDF and its fingerprint; just flag the failure.
           state.status = state.blob ? 'ready' : 'error';
           state.error = true;
+          if (err instanceof ApiError) state.errorMessage = err.message;
           emit();
         },
       )

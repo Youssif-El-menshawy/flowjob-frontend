@@ -113,9 +113,10 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
 }
 
 /** Each preview mode has its own lifetime. Edits only mark its rendered PDF as stale. */
-function TailorPreview({ content, draftId, onSourceRejected }: {
+function TailorPreview({ content, draftId, cvId, onSourceRejected }: {
   content: CvContent;
   draftId?: string;
+  cvId?: string;
   onSourceRejected: () => void;
 }) {
   const [state, setState] = useState<PreviewState>({
@@ -123,7 +124,9 @@ function TailorPreview({ content, draftId, onSourceRejected }: {
   });
   const [engine] = useState(() => createPreviewEngine(async (value, signal) => {
     try {
-      return await fetchCvPreviewPdf(value, signal, draftId);
+      return cvId
+        ? await fetchCvPreviewPdf(value, signal, draftId, cvId)
+        : await fetchCvPreviewPdf(value, signal, draftId);
     } catch (error) {
       if (!signal.aborted && draftId && error instanceof ApiError && error.status === 409) onSourceRejected();
       throw error;
@@ -152,10 +155,10 @@ function TailorPreview({ content, draftId, onSourceRejected }: {
         {loading && <span role="status" className="sr-only">Rendering Harvard PDF preview</span>}
       </div>
       <div className="relative order-3 h-[min(62dvh,640px)] min-h-[300px] w-full overflow-hidden rounded-md ring-1 ring-line lg:h-[clamp(300px,calc(100dvh-17rem),760px)]">
-        <HarvardPdfViewer blob={state.blob} status={state.status} errorText="Could not render the preview." />
+        <HarvardPdfViewer blob={state.blob} status={state.status} errorText={state.errorMessage ?? 'Could not render the preview.'} />
         {state.error && state.blob && (
           <p role="alert" className="absolute inset-x-2 bottom-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-            Could not render the preview. Try again.
+            {state.errorMessage ?? 'Could not render the preview. Try again.'}
           </p>
         )}
       </div>
@@ -293,6 +296,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const [name, setName] = useState<string | null>(null);
   const [view, setView] = useState<'Tailored' | 'Original'>('Tailored');
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [downloadError, setDownloadError] = useState('');
   const downloadRequest = useRef<AbortController | null>(null);
   const saving = useRef(false);
 
@@ -347,7 +351,10 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
     } catch (error) {
       if (!controller.signal.aborted) {
         if (error instanceof ApiError && error.status === 409) rejectSource();
-        else setDownloadStatus('error');
+        else {
+          setDownloadError(error instanceof ApiError ? error.message : 'Could not download the tailored PDF. Try again.');
+          setDownloadStatus('error');
+        }
       }
     } finally {
       downloadRequest.current = null;
@@ -375,7 +382,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
         },
         onError: (error) => {
           if (error instanceof ApiError && error.status === 409) rejectSource();
-          else toast({ text: 'Could not save your CV.', tone: 'error' });
+          else toast({ text: error instanceof ApiError ? error.message : 'Could not save your CV.', tone: 'error' });
         },
         onSettled: () => { saving.current = false; },
       },
@@ -451,6 +458,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
                 key={tailoredPreview ? draft.id : `original:${source.contentRevision}`}
                 content={tailoredPreview ?? source.content}
                 draftId={tailoredPreview ? draft.id : undefined}
+                cvId={tailoredPreview ? undefined : source.id}
                 onSourceRejected={rejectSource}
               />
             </div>
@@ -492,7 +500,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
               I checked this CV and everything in it is true
             </label>
             {sourceIsCurrent && downloadStatus === 'loading' && <p role="status" className="sr-only">Preparing tailored PDF</p>}
-            {sourceIsCurrent && downloadStatus === 'error' && <p role="alert" className="text-sm text-danger">Could not download the tailored PDF. Try again.</p>}
+            {sourceIsCurrent && downloadStatus === 'error' && <p role="alert" className="text-sm text-danger">{downloadError}</p>}
           </div>
         </>
       )}

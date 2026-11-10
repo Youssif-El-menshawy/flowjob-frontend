@@ -50,6 +50,32 @@ async function tryRefresh(): Promise<boolean> {
   return refreshing;
 }
 
+async function responseError(res: Response, path: string, fallback: string): Promise<ApiError> {
+  let body: ApiErrorBody = { message: fallback };
+  try {
+    const parsed = await res.json();
+    if (typeof parsed.message === 'string') body = parsed;
+    else if (typeof parsed.detail === 'string') body = { message: parsed.detail };
+    else if (Array.isArray(parsed.detail)) {
+      const issues = parsed.detail
+        .filter((item: { loc?: unknown; msg?: unknown }) => Array.isArray(item.loc) && typeof item.msg === 'string') as
+        { loc: (string | number)[]; msg: string }[];
+      const first = issues[0];
+      const field = first?.loc.slice(1).join('.');
+      const cvRequest = path === '/cvs' || path.startsWith('/cvs/');
+      body = {
+        message: cvRequest && first
+          ? `${field ? `${field}: ` : ''}${first.msg}`
+          : 'Please check the highlighted fields.',
+        fieldErrors: Object.fromEntries(issues.map((item) => [item.loc.at(-1)!, item.msg])),
+      };
+    }
+  } catch {
+    /* keep default */
+  }
+  return new ApiError(res.status, body);
+}
+
 export async function api<T>(
   path: string,
   init: RequestInit & { json?: unknown } = {},
@@ -71,23 +97,7 @@ export async function api<T>(
     if (await tryRefresh()) return api<T>(path, init, false);
     onSessionExpired?.();
   }
-  if (!res.ok) {
-    let body: ApiErrorBody = { message: 'Something went wrong. Please try again.' };
-    try {
-      const parsed = await res.json();
-      if (typeof parsed.message === 'string') body = parsed;
-      else if (typeof parsed.detail === 'string') body = { message: parsed.detail };
-      else if (Array.isArray(parsed.detail)) body = {
-        message: 'Please check the highlighted fields.',
-        fieldErrors: Object.fromEntries(parsed.detail
-          .filter((item: { loc?: string[]; msg?: string }) => item.loc && item.msg)
-          .map((item: { loc: string[]; msg: string }) => [item.loc.at(-1)!, item.msg])),
-      };
-    } catch {
-      /* keep default */
-    }
-    throw new ApiError(res.status, body);
-  }
+  if (!res.ok) throw await responseError(res, path, 'Something went wrong. Please try again.');
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -114,16 +124,6 @@ export async function apiBlob(
     if (await tryRefresh()) return apiBlob(path, init, false);
     onSessionExpired?.();
   }
-  if (!res.ok) {
-    let body: ApiErrorBody = { message: 'Could not generate the PDF. Please try again.' };
-    try {
-      const parsed = await res.json();
-      if (typeof parsed.detail === 'string') body = { message: parsed.detail };
-      else if (typeof parsed.message === 'string') body = parsed;
-    } catch {
-      /* keep default */
-    }
-    throw new ApiError(res.status, body);
-  }
+  if (!res.ok) throw await responseError(res, path, 'Could not generate the PDF. Please try again.');
   return res.blob();
 }

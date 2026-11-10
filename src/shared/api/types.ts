@@ -72,6 +72,17 @@ export interface Cv {
   contentRevision?: string;
 }
 
+export type CvContentInput = Partial<Omit<CvContent, 'experience' | 'education' | 'projects'>> & {
+  experience?: Partial<Experience>[];
+  education?: Partial<Education>[];
+  projects?: Partial<Project>[];
+};
+
+export type CvWriteInput = Partial<Pick<Cv, 'name' | 'kind' | 'jobTitle' | 'company' | 'sourceCvId'>> & {
+  matchId?: ID | null;
+  content?: CvContentInput;
+};
+
 export interface MatchStrength {
   skill: string;
   evidence: string;

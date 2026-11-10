@@ -6,6 +6,8 @@ import type {
   Application,
   ApplicationInput,
   Cv,
+  CvContentInput,
+  CvWriteInput,
   GmailConnection,
   MatchResult,
   RunMatchInput,
@@ -52,14 +54,14 @@ export const useCv = (id?: string) =>
 export function useCreateCv() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (cv: Partial<Cv> & { tailorDraftId?: string }) => api<Cv>('/cvs', { method: 'POST', json: cv }),
+    mutationFn: (cv: CvWriteInput & { tailorDraftId?: string }) => api<Cv>('/cvs', { method: 'POST', json: cv }),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.cvs }),
   });
 }
 export function useUpdateCv() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...cv }: Partial<Cv> & { id: string }) =>
+    mutationFn: ({ id, ...cv }: CvWriteInput & { id: string }) =>
       api<Cv>(`/cvs/${id}`, { method: 'PUT', json: cv }),
     onSuccess: (cv) => {
       qc.setQueryData(qk.cv(cv.id), cv);
@@ -75,8 +77,8 @@ export const fetchCvPdfBlob = (id: string, signal?: AbortSignal) =>
   apiBlob(`/cvs/${id}/pdf`, { signal });
 
 /** Render unsaved CV content to a Harvard PDF for the live builder preview (no DB write). */
-export const fetchCvPreviewPdf = (content: unknown, signal?: AbortSignal, tailorDraftId?: string) =>
-  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content, tailorDraftId }, signal });
+export const fetchCvPreviewPdf = (content: CvContentInput, signal?: AbortSignal, tailorDraftId?: string, cvId?: string) =>
+  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content, tailorDraftId, cvId }, signal });
 
 export function useDeleteCv() {
   const qc = useQueryClient();
