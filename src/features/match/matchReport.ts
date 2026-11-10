@@ -1,7 +1,10 @@
-import type { MatchResult, RequirementImportance, RequirementMatch } from '@/shared/api/types';
+import type { MatchResult, RequirementCategory, RequirementImportance, RequirementMatch } from '@/shared/api/types';
 
 /** Legacy/demo results carry no importance, so it is optional for display. */
 export type Req = Omit<RequirementMatch, 'importance'> & { importance?: RequirementImportance };
+
+/** Required > Standard > Preferred; untagged legacy items last. */
+export const categoryOf = (r: Req): RequirementCategory | undefined => r.category ?? r.importance;
 
 export type TabKey = 'matched' | 'partial' | 'unverified';
 export type Groups = Record<TabKey, Req[]>;
@@ -26,7 +29,8 @@ export function defaultTab(g: Groups): TabKey {
   return 'matched';
 }
 
-const rank = (r: Req) => (r.importance === 'required' ? 0 : r.importance === 'preferred' ? 1 : 2);
+const RANK: Record<RequirementCategory, number> = { required: 0, standard: 1, preferred: 2 };
+const rank = (r: Req) => RANK[categoryOf(r)!] ?? 3;
 
 /** Up to `n` items, required first; otherwise keeps the saved order (stable sort). */
 export function pickTop(items: Req[], n = 3): Req[] {
@@ -111,4 +115,22 @@ export function improvements(m: MatchResult, g: Groups, max = 3): Improvement[] 
   return pickTop(g.partial, max)
     .filter((r) => !!r.evidence?.trim())
     .map((r) => ({ text: `Make ${r.requirement} clearer in your CV.`, basis: snippet(r.evidence, 160) }));
+}
+
+
+/**
+ * The Required/Standard/Preferred summary of an AI-first report: the saved counts when present,
+ * otherwise derived from per-requirement categories. Legacy reports (no categories) return null,
+ * so the row is simply omitted for them.
+ */
+export function categorySummary(m: MatchResult, g: Groups): { label: string; count: number }[] | null {
+  const all = [...g.matched, ...g.partial, ...g.unverified];
+  const counts = m.qualificationCounts;
+  const of = (c: RequirementCategory) => counts?.[c]?.count ?? all.filter((r) => r.category === c).length;
+  if (!counts && !all.some((r) => r.category)) return null;
+  return [
+    { label: 'required', count: of('required') },
+    { label: 'standard', count: of('standard') },
+    { label: 'preferred', count: of('preferred') },
+  ].filter((x) => x.count > 0);
 }

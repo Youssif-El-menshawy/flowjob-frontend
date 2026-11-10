@@ -107,7 +107,7 @@ it('generates once from a match report and reopens the same draft through Back, 
   const generated = deferred<Response>();
   const backend = mockBackend({ generate: () => generated.promise });
   const { router } = renderAt(['/app/match/m1']);
-  const tailor = await screen.findByRole('button', { name: 'Tailor my CV for this job' });
+  const tailor = await screen.findByRole('button', { name: 'Tailor my CV' });
   expect(backend.generations()).toHaveLength(0);
 
   act(() => { tailor.click(); tailor.click(); });
@@ -119,7 +119,7 @@ it('generates once from a match report and reopens the same draft through Back, 
   expect(router.state.location.pathname).toBe('/app/tailor/match-draft');
 
   await act(() => router.navigate(-1));
-  expect(await screen.findByRole('button', { name: 'Tailor my CV for this job' })).toBeVisible();
+  expect(await screen.findByRole('button', { name: 'Tailor my CV' })).toBeVisible();
   await act(() => router.navigate(1));
   await showDraft('Acme');
   expect(backend.reads(matchDraft.id)).toHaveLength(2);

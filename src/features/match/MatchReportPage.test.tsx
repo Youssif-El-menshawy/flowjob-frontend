@@ -190,7 +190,7 @@ describe('How your CV compares', () => {
     renderReport();
     const cmp = section('How your CV compares');
     expect(within(cmp).getByText(/Nothing from this post is clearly shown/)).toBeInTheDocument();
-    expect(within(cmp).getByText('Nothing obvious needs attention.')).toBeInTheDocument();
+    expect(within(cmp).getByText(/Every qualification this post lists is shown in your CV/)).toBeInTheDocument();
   });
 });
 
@@ -219,15 +219,18 @@ describe('Improve your CV for this job', () => {
     const imp = section('Improve your CV for this job');
     expect(within(imp).queryAllByRole('listitem')).toHaveLength(0);
     expect(within(imp).getByText(/No specific changes stand out/)).toBeInTheDocument();
-    expect(within(imp).getByRole('button', { name: 'Tailor my CV for this job' })).toBeEnabled(); // tailoring is still offered
+    expect(screen.getByRole('button', { name: 'Tailor my CV' })).toBeEnabled(); // tailoring is still offered
   });
 
-  it('has exactly one primary Tailor action and one secondary Add to Applications link', () => {
+  it('has exactly one primary Tailor action and one secondary Add to Applications link, in the header', () => {
     renderReport();
-    const imp = section('Improve your CV for this job');
-    expect(screen.getAllByRole('button', { name: 'Tailor my CV for this job' })).toHaveLength(1);
+    const tailorBtn = screen.getByRole('button', { name: 'Tailor my CV' });
+    const apps = screen.getByRole('link', { name: 'Add to Applications' });
+    expect(screen.getAllByRole('button', { name: 'Tailor my CV' })).toHaveLength(1);
     expect(screen.getAllByRole('link', { name: 'Add to Applications' })).toHaveLength(1);
-    const apps = within(imp).getByRole('link', { name: 'Add to Applications' });
+    // Both actions live in the page header, next to the job title.
+    expect(tailorBtn.closest('header')).not.toBeNull();
+    expect(apps.closest('header')).not.toBeNull();
     const q = new URLSearchParams(apps.getAttribute('href')!.split('?')[1]);
     expect([q.get('company'), q.get('jobTitle'), q.get('jobUrl'), q.get('cvId')]).toEqual(['Acme', 'Backend Engineer', 'acme.com/jobs/1', 'cv1']);
     expect(apps.getAttribute('href')).not.toContain('tailor'); // does not require tailoring
@@ -237,7 +240,7 @@ describe('Improve your CV for this job', () => {
     mocks.tailor.mutate.mockImplementation((_, { onSuccess }) => onSuccess({ id: 'd1' }));
     renderReport();
     expect(mocks.tailor.mutate).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Tailor my CV for this job' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tailor my CV' }));
     expect(mocks.tailor.mutate).toHaveBeenCalledTimes(1);
     expect(mocks.tailor.mutate).toHaveBeenCalledWith({ matchId: 'm1' }, expect.anything());
     expect(screen.getByText('Tailoring draft d1')).toBeVisible();
@@ -247,7 +250,7 @@ describe('Improve your CV for this job', () => {
   it('shows a loading state that blocks repeat clicks, and surfaces tailoring errors', () => {
     mocks.tailor.isPending = true;
     renderReport();
-    const btn = screen.getByRole('button', { name: /Tailor my CV for this job/ });
+    const btn = screen.getByRole('button', { name: /Tailor my CV/ });
     expect(btn).toBeDisabled();
     fireEvent.click(btn);
     expect(mocks.tailor.mutate).not.toHaveBeenCalled();
@@ -292,7 +295,7 @@ describe('page behaviour', () => {
 
   it('stacks its action buttons full-width on narrow screens', () => {
     renderReport();
-    expect(screen.getByRole('button', { name: 'Tailor my CV for this job' }).className).toContain('w-full');
+    expect(screen.getByRole('button', { name: 'Tailor my CV' }).className).toContain('w-full');
     expect(screen.getByRole('link', { name: 'Add to Applications' }).className).toContain('w-full');
   });
 });

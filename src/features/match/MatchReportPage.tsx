@@ -5,6 +5,8 @@ import { useMatch, useTailor } from '@/shared/api/queries';
 import type { MatchResult } from '@/shared/api/types';
 import {
   attentionItems,
+  categoryOf,
+  categorySummary,
   defaultTab,
   groupRequirements,
   improvements,
@@ -185,12 +187,18 @@ const TABS: { key: TabKey; label: string; hint: string; empty: string; fallback:
   },
 ];
 
-const badge = (r: Req) =>
-  r.importance && (
-    <span className="shrink-0 rounded-full bg-tint px-2 py-0.5 text-[11px] font-medium text-soft">
-      {r.importance === 'required' ? 'Required' : 'Preferred'}
-    </span>
+const CATEGORY_LABEL = { required: 'Required', standard: 'Standard', preferred: 'Preferred' } as const;
+
+const badge = (r: Req) => {
+  const category = categoryOf(r);
+  return (
+    category && (
+      <span className="shrink-0 rounded-full bg-tint px-2 py-0.5 text-[11px] font-medium text-soft">
+        {CATEGORY_LABEL[category]}
+      </span>
+    )
   );
+};
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -384,9 +392,7 @@ function CompareList({
   );
 }
 
-function ImproveSection({ m, groups, appQuery }: { m: MatchResult; groups: Groups; appQuery: string }) {
-  const nav = useNavigate();
-  const tailor = useTailor();
+function ImproveSection({ m, groups }: { m: MatchResult; groups: Groups }) {
   const list = improvements(m, groups);
   return (
     <Panel headingId="improve-h" title="Improve your CV for this job">
@@ -410,24 +416,32 @@ function ImproveSection({ m, groups, appQuery }: { m: MatchResult; groups: Group
         </p>
       )}
       <p className="mt-4 text-[13px] text-soft">You review every suggestion before anything is saved. Your original CV never changes.</p>
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <Button
-          className="w-full sm:w-auto"
-          loading={tailor.isPending}
-          onClick={() => tailor.mutate({ matchId: m.id }, { onSuccess: (draft) => nav(`/app/tailor/${draft.id}`) })}
-        >
-          Tailor my CV for this job
-        </Button>
-        <ButtonLink to={`/app/applications/new?${appQuery}`} variant="secondary" className="w-full sm:w-auto">
-          Add to Applications
-        </ButtonLink>
-        {tailor.isError && (
-          <p role="alert" className="basis-full text-sm text-danger">
-            {tailor.error instanceof ApiError ? tailor.error.message : 'Could not tailor your CV. Please try again.'}
-          </p>
-        )}
-      </div>
     </Panel>
+  );
+}
+
+/** The report's two actions, right in the header: tailoring (primary) and application tracking. */
+function HeaderActions({ m, appQuery }: { m: MatchResult; appQuery: string }) {
+  const nav = useNavigate();
+  const tailor = useTailor();
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+      <Button
+        className="w-full sm:w-auto"
+        loading={tailor.isPending}
+        onClick={() => tailor.mutate({ matchId: m.id }, { onSuccess: (draft) => nav(`/app/tailor/${draft.id}`) })}
+      >
+        Tailor my CV
+      </Button>
+      <ButtonLink to={`/app/applications/new?${appQuery}`} variant="secondary" className="w-full sm:w-auto">
+        Add to Applications
+      </ButtonLink>
+      {tailor.isError && (
+        <p role="alert" className="basis-full text-sm text-danger">
+          {tailor.error instanceof ApiError ? tailor.error.message : 'Could not tailor your CV. Please try again.'}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -436,8 +450,8 @@ function Report({ m }: { m: MatchResult }) {
   const score = useCountUp(scoreAvailable ? m.score : 0, 1000, 100);
   const groups = groupRequirements(m);
   const overview = overviewText(m, groups);
-  const strongest = pickTop(groups.matched).map((r) => ({ r, label: '' }));
-  const attention = attentionItems(groups).map(({ r, kind }) => ({
+  const strongest = pickTop(groups.matched, 2).map((r) => ({ r, label: '' }));
+  const attention = attentionItems(groups, 2).map(({ r, kind }) => ({
     r,
     label: kind === 'partial' ? 'Partly shown' : 'Not shown in your CV',
   }));
@@ -453,6 +467,7 @@ function Report({ m }: { m: MatchResult }) {
     ['Partial', groups.partial.length],
     ['Not shown', groups.unverified.length],
   ];
+  const categories = categorySummary(m, groups);
 
   return (
     <div className="flex flex-col gap-5">
@@ -462,6 +477,9 @@ function Report({ m }: { m: MatchResult }) {
         <p className="mt-1 text-base break-words text-soft">
           {[m.company, m.cvName ? `CV used: ${m.cvName}` : ''].filter(Boolean).join(' · ')}
         </p>
+        <div className="mt-4">
+          <HeaderActions m={m} appQuery={appQuery} />
+        </div>
       </header>
 
       <Panel headingId="overview-h" className="p-5 sm:p-6">
@@ -492,6 +510,11 @@ function Report({ m }: { m: MatchResult }) {
                 </div>
               ))}
             </dl>
+            {categories && (
+              <p className="mt-2 text-[13px] text-soft">
+                Scored qualifications: {categories.map((c) => `${c.count} ${c.label}`).join(' · ')}
+              </p>
+            )}
           </div>
         </div>
         <p className="mt-4 text-[12px] leading-relaxed text-soft">
@@ -524,13 +547,13 @@ function Report({ m }: { m: MatchResult }) {
             glyph="?"
             tone="bg-accent"
             items={attention}
-            empty="Nothing obvious needs attention."
+            empty="Every qualification this post lists is shown in your CV — nothing needs attention. Nice work."
             note="“Not shown” means your CV doesn’t demonstrate it — not that you lack the skill."
           />
         </div>
       </Panel>
 
-      <ImproveSection m={m} groups={groups} appQuery={appQuery} />
+      <ImproveSection m={m} groups={groups} />
 
       <DetailedAnalysis m={m} groups={groups} />
     </div>

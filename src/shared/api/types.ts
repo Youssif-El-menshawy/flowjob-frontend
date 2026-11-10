@@ -93,11 +93,21 @@ export interface MatchGap {
 }
 
 export type RequirementImportance = 'required' | 'preferred';
+export type RequirementCategory = 'required' | 'standard' | 'preferred';
 export interface RequirementMatch {
   requirement: string;
   importance: RequirementImportance;
+  /** AI-first reports: the scored category (Standard items carry no legacy importance). */
+  category?: RequirementCategory;
   status?: string;
   evidence: string;
+}
+
+export interface QualificationCategoryCount {
+  count: number;
+  demonstrated: number;
+  partial: number;
+  notShown: number;
 }
 export interface SuggestedWording {
   section: string;
@@ -128,6 +138,8 @@ export interface MatchResult {
   recommendations?: string[];
   suggestedWording?: SuggestedWording[];
   questions?: string[];
+  /** AI-first reports only. */
+  qualificationCounts?: { total: number } & Record<RequirementCategory, QualificationCategoryCount>;
   model?: string;
   analysisVersion?: string;
   jobUrl?: string;
