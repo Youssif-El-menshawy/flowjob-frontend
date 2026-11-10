@@ -1,31 +1,71 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { z } from 'zod';
 import { useProfile, useSaveProfile } from '@/shared/api/queries';
 import type { Education, Experience, Profile, Project } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { profileStrength } from '@/shared/lib/profile';
 import { Button, ButtonLink } from '@/shared/ui/Button';
-import { Card, Note, PageHeader, ProgressBar, Tabs } from '@/shared/ui/Display';
+import { Card, EmptyState, Note, PageHeader, ProgressBar, Tabs } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
-import { ContactLinksFields, type ContactLinksHandle } from './ContactLinksFields';
+import { ContactLinksInputs, useContactLinks } from './ContactLinksFields';
 import { LanguagesEditor } from './LanguagesEditor';
-import { LocationFields } from './LocationFields';
-import { PhoneFieldWithHandle, type PhoneFieldHandle } from './PhoneFields';
-import { blank, ItemEditor, SkillsEditor, type Kind } from './profileParts';
+import { LocationInputs, useLocationField } from './LocationFields';
+import { PhoneInputs, usePhoneField } from './PhoneFields';
+import { appendSkills, blank, ItemEditor, SkillsEditor, type Kind } from './profileParts';
 
 const TABS = ['Personal details', 'Summary', 'Experience', 'Education', 'Projects', 'Skills'] as const;
 type Tab = (typeof TABS)[number];
 
+const EMAIL = z.string().email();
+const CV_BUILDER = '/app/cv-builder';
+
 export default function ProfilePage() {
   useDocumentTitle('Profile');
-  const toast = useToast();
-  const { data } = useProfile();
-  const save = useSaveProfile();
-  const [p, setP] = useState<Profile | null>(null);
-  const linksRef = useRef<ContactLinksHandle>(null);
-  const phoneRef = useRef<PhoneFieldHandle>(null);
+  const profile = useProfile();
+  if (profile.data) return <LoadedProfile initial={profile.data} />;
+  if (profile.isError) {
+    return (
+      <>
+        <PageHeader title="Profile" />
+        <EmptyState
+          title="Could not load your profile"
+          text="Please check your connection and try again."
+          action={<Button loading={profile.isFetching} onClick={() => void profile.refetch()}>Retry</Button>}
+        />
+      </>
+    );
+  }
+  return <PageLoader />;
+}
+
+function LoadedProfile({ initial }: { initial: Profile }) {
   const [tab, setTab] = useState<Tab>('Experience');
+  const [checkpoint, setCheckpoint] = useState({ saved: initial, version: 0 });
+  // A new editor resets the input controllers and the draft together. The selected
+  // section stays put, and background query updates cannot replace unsaved edits.
+  const reset = useCallback((saved: Profile) => setCheckpoint(({ version }) => ({ saved, version: version + 1 })), []);
+  return <ProfileEditor key={checkpoint.version} saved={checkpoint.saved} latest={initial} tab={tab} setTab={setTab} reset={reset} />;
+}
+
+function ProfileEditor({ saved, latest, tab, setTab, reset }: {
+  saved: Profile;
+  latest: Profile;
+  tab: Tab;
+  setTab: (tab: Tab) => void;
+  reset: (saved: Profile) => void;
+}) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const save = useSaveProfile();
+  const saving = useRef(false);
+  const seenQuery = useRef(latest);
+  const [p, setP] = useState(() => structuredClone(saved));
+  const [validateEmail, setValidateEmail] = useState(false);
+  const [skillInput, setSkillInput] = useState('');
+  const [leaving, setLeaving] = useState(false);
   const [editing, setEditing] = useState<{
     kind: Kind;
     item: Experience | Education | Project;
@@ -33,28 +73,55 @@ export default function ProfilePage() {
   } | null>(null);
   const [removing, setRemoving] = useState<{ kind: Kind; id: string } | null>(null);
 
-  useEffect(() => {
-    if (data && !p) setP(structuredClone(data));
-  }, [data, p]);
-
-  const dirty = useMemo(() => !!p && !!data && JSON.stringify(p) !== JSON.stringify(data), [p, data]);
-  if (!p) return <PageLoader />;
+  const set = <K extends keyof Profile>(k: K, v: Profile[K]) => setP((draft) => ({ ...draft, [k]: v }));
+  // The raw contact inputs are draft state, separate from the persisted Profile
+  // format. Keep their controllers alive even when Personal details is unmounted.
+  const contact = useContactLinks(saved.links);
+  const phoneField = usePhoneField(saved.phone);
+  const location = useLocationField(p.location, (value) => set('location', value));
+  const dirty = contact.isDirty || phoneField.isDirty || !!skillInput.trim() || JSON.stringify(p) !== JSON.stringify(saved);
   const strength = profileStrength(p);
+  const invalidEmail = p.email !== saved.email && !!p.email.trim() && !EMAIL.safeParse(p.email.trim()).success;
 
-  const set = <K extends keyof Profile>(k: K, v: Profile[K]) => setP((x) => (x ? { ...x, [k]: v } : x));
-  // Validate/normalise LinkedIn + GitHub before any profile save; a bad link blocks the save.
+  useEffect(() => {
+    if (seenQuery.current === latest) return;
+    seenQuery.current = latest;
+    if (!dirty && !saving.current) reset(latest);
+  }, [dirty, latest, reset]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [dirty]);
+
   const doSave = (next = p) => {
-    const links = linksRef.current?.validate();
-    const phone = phoneRef.current?.validate();
-    if (links === null || phone === null) {
+    if (saving.current) return;
+    const links = contact.validate();
+    const phone = phoneField.validate();
+    setValidateEmail(true);
+    if (links === null || phone === null || invalidEmail) {
+      setTab('Personal details');
       toast({ text: 'Please fix the highlighted field first.', tone: 'error' });
       return;
     }
-    if (links) next = { ...next, links };
-    if (phone !== undefined) next = { ...next, phone };
-    save.mutate(next, {
-      onSuccess: () => toast({ text: 'Profile saved.' }),
-      onError: () => toast({ text: 'Could not save. Please try again.', tone: 'error' }),
+    saving.current = true;
+    const email = next.email === saved.email ? saved.email : next.email.trim();
+    const skills = skillInput.trim() ? appendSkills(next.skills, skillInput) : next.skills;
+    save.mutate({ ...next, email, links, phone, skills }, {
+      onSuccess: (profile) => {
+        saving.current = false;
+        reset(profile);
+        toast({ text: 'Profile saved.' });
+      },
+      onError: () => {
+        saving.current = false;
+        toast({ text: 'Could not save. Please try again.', tone: 'error' });
+      },
     });
   };
 
@@ -137,14 +204,22 @@ export default function ProfilePage() {
         title="Profile"
         subtitle="Your details in one place. New CVs and job matches start from here."
         actions={
-          <ButtonLink to="/app/cv-builder" variant="secondary">
+          <ButtonLink
+            to={CV_BUILDER}
+            variant="secondary"
+            onClick={(event) => {
+              if (!dirty || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              if (!saving.current) setLeaving(true);
+            }}
+          >
             Open CV builder
           </ButtonLink>
         }
       />
       <Tabs tabs={TABS} value={tab} onChange={setTab} label="Profile sections" />
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[1fr_300px]">
-        <div key={tab} className="animate-in">
+        <fieldset key={tab} disabled={save.isPending} className="m-0 min-w-0 border-0 p-0 animate-in">
           {tab === 'Personal details' && (
             <Card className="grid gap-4 sm:grid-cols-2">
               <Input label="Full name" value={p.fullName} onChange={(e) => set('fullName', e.target.value)} />
@@ -152,11 +227,12 @@ export default function ProfilePage() {
                 label="Email"
                 type="email"
                 value={p.email}
+                error={validateEmail && invalidEmail ? 'Enter a valid email address.' : undefined}
                 onChange={(e) => set('email', e.target.value)}
               />
-              <PhoneFieldWithHandle ref={phoneRef} value={p.phone} onChange={(v) => set('phone', v)} className="sm:col-span-2" />
-              <LocationFields value={p.location} onChange={(v) => set('location', v)} />
-              <ContactLinksFields ref={linksRef} links={p.links} onChange={(l) => set('links', l)} />
+              <PhoneInputs state={phoneField} className="sm:col-span-2" />
+              <LocationInputs state={location} />
+              <ContactLinksInputs state={contact} />
               <LanguagesEditor className="sm:col-span-2" value={p.languages} onChange={(v) => set('languages', v)} />
             </Card>
           )}
@@ -176,14 +252,14 @@ export default function ProfilePage() {
           {tab === 'Projects' && list('projects')}
           {tab === 'Skills' && (
             <Card>
-              <SkillsEditor skills={p.skills} onChange={(s) => set('skills', s)} />
+              <SkillsEditor skills={p.skills} onChange={(s) => set('skills', s)} input={{ value: skillInput, onChange: setSkillInput }} />
             </Card>
           )}
           {dirty && (
             <div className="sticky bottom-4 z-10 mt-5 flex items-center justify-between gap-3 rounded-full border border-line bg-surface py-2 pr-2 pl-5 shadow-lg animate-in">
               <span className="text-sm text-soft">You have unsaved changes</span>
               <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={() => data && setP(structuredClone(data))}>
+                <Button variant="ghost" size="sm" onClick={() => { if (!saving.current) reset(saved); }}>
                   Discard
                 </Button>
                 <Button size="sm" loading={save.isPending} onClick={() => doSave()}>
@@ -192,7 +268,7 @@ export default function ProfilePage() {
               </div>
             </div>
           )}
-        </div>
+        </fieldset>
 
         <aside className="flex flex-col gap-4">
           <Card>
@@ -227,6 +303,15 @@ export default function ProfilePage() {
         </aside>
       </div>
 
+      <ConfirmDialog
+        open={leaving}
+        onClose={() => setLeaving(false)}
+        onConfirm={() => navigate(CV_BUILDER)}
+        title="Leave profile?"
+        text="Your unsaved profile changes will be lost if you leave."
+        confirmLabel="Discard and leave"
+        danger
+      />
       {editing && (
         <ItemEditor
           kind={editing.kind}

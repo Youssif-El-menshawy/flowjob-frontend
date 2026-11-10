@@ -206,18 +206,25 @@ export function ItemEditor({
   );
 }
 
-export function SkillsEditor({ skills, onChange }: { skills: string[]; onChange: (s: string[]) => void }) {
-  const [draft, setDraft] = useState('');
+export function appendSkills(skills: string[], input: string): string[] {
+  const next = [...skills];
+  for (const part of input.split(',')) {
+    const skill = part.trim();
+    if (skill && !next.some((value) => value.toLowerCase() === skill.toLowerCase())) next.push(skill);
+  }
+  return next;
+}
+
+export function SkillsEditor({ skills, onChange, input }: {
+  skills: string[];
+  onChange: (skills: string[]) => void;
+  input?: { value: string; onChange: (value: string) => void };
+}) {
+  const [localDraft, setLocalDraft] = useState('');
+  const draft = input?.value ?? localDraft;
+  const setDraft = input?.onChange ?? setLocalDraft;
   const add = () => {
-    const parts = draft
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const next = [...skills];
-    parts.forEach((p) => {
-      if (!next.some((x) => x.toLowerCase() === p.toLowerCase())) next.push(p);
-    });
-    onChange(next);
+    onChange(appendSkills(skills, draft));
     setDraft('');
   };
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
