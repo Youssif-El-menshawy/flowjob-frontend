@@ -68,12 +68,14 @@ export default function LoginPage() {
             error={formState.errors.password?.message}
             {...register('password')}
           />
-          <Link
-            to="/forgot-password"
-            className="self-end text-[13px] text-soft hover:text-ink hover:underline"
-          >
-            Forgot password?
-          </Link>
+          {USE_MOCKS && (
+            <Link
+              to="/forgot-password"
+              className="self-end text-[13px] text-soft hover:text-ink hover:underline"
+            >
+              Forgot password?
+            </Link>
+          )}
         </div>
         <Button
           type="submit"

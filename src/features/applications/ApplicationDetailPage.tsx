@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { USE_MOCKS } from '@/shared/api/client';
 import {
   useApplication,
   useCvs,
@@ -84,7 +85,7 @@ export default function ApplicationDetailPage() {
         }
       />
 
-      {a.suggestion && (
+      {USE_MOCKS && a.suggestion && (
         <div className="mb-6 flex flex-wrap items-center gap-4 rounded-3xl border border-accent/60 bg-accent-soft p-5 animate-in">
           <div className="min-w-[260px] flex-1">
             <p className="font-display text-lg font-semibold">
@@ -209,7 +210,7 @@ export default function ApplicationDetailPage() {
                     </span>
                   </div>
                   {e.note && <p className="mt-1.5 text-[15px] leading-relaxed text-soft">{e.note}</p>}
-                  {i === 0 && history.length > 1 && (
+                  {USE_MOCKS && i === 0 && history.length > 1 && (
                     <button
                       className="mt-1.5 text-[13px] font-semibold text-accent-ink hover:underline"
                       onClick={() =>

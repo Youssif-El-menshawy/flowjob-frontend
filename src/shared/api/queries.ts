@@ -195,7 +195,11 @@ export const useUndoEvent = () =>
   );
 
 // Gmail
-export const useGmail = () => useQuery({ queryKey: qk.gmail, queryFn: () => api<GmailConnection>('/gmail') });
+export const useGmail = () =>
+  useQuery({
+    queryKey: qk.gmail,
+    queryFn: ({ signal }) => api<GmailConnection>('/gmail', { signal }),
+  });
 function useGmailMutation<V>(fn: (v: V) => Promise<GmailConnection>) {
   const qc = useQueryClient();
   return useMutation({ mutationFn: fn, onSuccess: (g) => qc.setQueryData(qk.gmail, g) });
