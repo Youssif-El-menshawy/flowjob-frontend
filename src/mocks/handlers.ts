@@ -2,6 +2,7 @@ import { delay, http, HttpResponse } from 'msw';
 import type {
   Application,
   ApplicationInput,
+  ApplicationPatch,
   ApplicationStatus,
   Cv,
   Profile,
@@ -250,9 +251,6 @@ export const handlers = [
       if (!cv) return err(404, 'CV not found.');
       if (cv.kind === 'original') return err(409, 'The original CV cannot be deleted.');
       u.data.cvs = u.data.cvs.filter((c) => c.id !== params.id);
-      u.data.applications.forEach((a) => {
-        if (a.cvId === params.id) a.cvId = undefined;
-      });
       return new HttpResponse(null, { status: 204 });
     }),
   ),
@@ -379,10 +377,10 @@ export const handlers = [
     authed(async ({ request, u }) => {
       const b = (await request.json()) as ApplicationInput;
       const fe: Record<string, string> = {};
-      if (!b.company?.trim()) fe.company = 'Company is required.';
-      if (!b.jobTitle?.trim()) fe.jobTitle = 'Job title is required.';
-      if (!b.dateApplied) fe.dateApplied = 'Date is required.';
+      if (typeof b.company !== 'string' || !b.company.trim()) fe.company = 'Company is required.';
+      if (typeof b.jobTitle !== 'string' || !b.jobTitle.trim()) fe.jobTitle = 'Job title is required.';
       if (!STATUSES.includes(b.status)) fe.status = 'Pick a status.';
+      if (b.cvId && !u.data.cvs.some((cv) => cv.id === b.cvId)) fe.cvId = 'Linked CV not found';
       if (Object.keys(fe).length) return err(422, 'Please fix the highlighted fields.', fe);
       const a: Application = {
         id: uid(),
@@ -390,9 +388,13 @@ export const handlers = [
         jobTitle: b.jobTitle.trim(),
         dateApplied: b.dateApplied,
         status: b.status,
-        jobUrl: b.jobUrl || undefined,
-        notes: b.notes || undefined,
-        cvId: b.cvId || undefined,
+        jobUrl: b.jobUrl || null,
+        location: b.location ?? null,
+        workArrangement: b.workArrangement ?? null,
+        employmentType: b.employmentType ?? null,
+        followUpDate: b.followUpDate ?? null,
+        notes: b.notes ?? null,
+        cvId: b.cvId || null,
         history: [{ id: uid(), status: b.status, at: now(), source: 'manual', note: 'Added by you.' }],
         suggestion: null,
         updatedAt: now(),
@@ -406,14 +408,24 @@ export const handlers = [
     authed<{ id: string }>(async ({ request, params, u }) => {
       const a = u.data.applications.find((x) => x.id === params.id);
       if (!a) return err(404, 'Application not found.');
-      const b = (await request.json()) as Partial<ApplicationInput>;
+      const b = (await request.json()) as ApplicationPatch;
+      const fe: Record<string, string> = {};
+      if ('company' in b && (typeof b.company !== 'string' || !b.company.trim())) fe.company = 'Company is required.';
+      if ('jobTitle' in b && (typeof b.jobTitle !== 'string' || !b.jobTitle.trim())) fe.jobTitle = 'Job title is required.';
+      if ('status' in b && (!b.status || !STATUSES.includes(b.status))) fe.status = 'Pick a status.';
+      if (b.cvId && !u.data.cvs.some((cv) => cv.id === b.cvId)) fe.cvId = 'Linked CV not found';
+      if (Object.keys(fe).length) return err(422, 'Please fix the highlighted fields.', fe);
+      if (Object.keys(b).length === 0) return HttpResponse.json(a);
+
       if (b.status && b.status !== a.status) {
         a.history.push({ id: uid(), status: b.status, at: now(), source: 'manual', note: 'Changed by you.' });
         a.status = b.status;
         if (a.suggestion && a.suggestion.proposedStatus === b.status) a.suggestion = null;
       }
-      for (const k of ['company', 'jobTitle', 'dateApplied', 'jobUrl', 'notes', 'cvId'] as const) {
-        if (k in b) (a as unknown as Record<string, unknown>)[k] = b[k] || undefined;
+      if (b.company) a.company = b.company.trim();
+      if (b.jobTitle) a.jobTitle = b.jobTitle.trim();
+      for (const k of ['dateApplied', 'jobUrl', 'location', 'workArrangement', 'employmentType', 'notes', 'followUpDate', 'cvId'] as const) {
+        if (k in b) Object.assign(a, { [k]: k === 'cvId' ? b[k] || null : b[k] });
       }
       a.updatedAt = now();
       return HttpResponse.json(a);

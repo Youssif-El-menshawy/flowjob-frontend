@@ -222,14 +222,14 @@ export interface Application {
   company: string;
   jobTitle: string;
   status: ApplicationStatus;
-  jobUrl?: string;
-  location?: string;
-  workArrangement?: WorkArrangement;
-  employmentType?: string;
-  dateApplied?: string;
-  notes?: string;
-  cvId?: ID;
-  followUpDate?: string;
+  jobUrl?: string | null;
+  location?: string | null;
+  workArrangement?: WorkArrangement | null;
+  employmentType?: string | null;
+  dateApplied?: string | null;
+  notes?: string | null;
+  cvId?: ID | null;
+  followUpDate?: string | null;
   createdAt?: string;
   updatedAt: string;
   // Deferred Gmail/timeline features. The real API returns an empty history and null
@@ -252,6 +252,8 @@ export type ApplicationInput = Pick<Application, 'company' | 'jobTitle' | 'statu
       | 'followUpDate'
     >
   >;
+
+export type ApplicationPatch = Partial<ApplicationInput>;
 
 export interface GmailConnection {
   connected: boolean;

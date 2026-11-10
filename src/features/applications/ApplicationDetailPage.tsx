@@ -49,6 +49,8 @@ export default function ApplicationDetailPage() {
       />
     );
   const cv = cvs.data?.find((c) => c.id === a.cvId);
+  const missingCvLabel = cvs.isError ? 'Could not load attached CV'
+    : cvs.data ? 'CV no longer available' : 'Loading attached CV…';
   // The real backend does not store a per-event timeline (Gmail/history is a deferred
   // feature); show the current status as a single entry. Demo (MSW) data has full history.
   const history =
@@ -165,7 +167,7 @@ export default function ApplicationDetailPage() {
           >
             <div className="min-w-0 flex-1">
               <p className="text-[13px] text-soft">CV you sent</p>
-              <p className="truncate font-medium">{cv ? cv.name : 'Not linked'}</p>
+              <p className="truncate font-medium">{cv?.name ?? (a.cvId ? missingCvLabel : 'Not linked')}</p>
             </div>
             {cv ? (
               <ButtonLink size="sm" variant="secondary" to="/app/cvs">
@@ -173,7 +175,7 @@ export default function ApplicationDetailPage() {
               </ButtonLink>
             ) : (
               <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-                Link a CV
+                {a.cvId ? 'Edit attachment' : 'Link a CV'}
               </Button>
             )}
           </Card>
@@ -229,24 +231,11 @@ export default function ApplicationDetailPage() {
 
       <Modal open={editing} onClose={() => setEditing(false)} title="Edit details" size="lg">
         <ApplicationForm
-          showStatus={false}
-          defaults={{
-            company: a.company,
-            jobTitle: a.jobTitle,
-            dateApplied: a.dateApplied ?? '',
-            status: a.status,
-            jobUrl: a.jobUrl ?? '',
-            location: a.location ?? '',
-            workArrangement: a.workArrangement,
-            employmentType: a.employmentType ?? '',
-            notes: a.notes ?? '',
-            cvId: a.cvId ?? '',
-            followUpDate: a.followUpDate ?? '',
-          }}
+          mode="edit"
+          defaults={a}
           submitLabel="Save changes"
           onCancel={() => setEditing(false)}
           onSubmit={(v) =>
-            // v is already cleaned by ApplicationForm; PATCH only the fields it carries.
             update
               .mutateAsync({ id: a.id, ...v })
               .then(() => {

@@ -5,6 +5,7 @@ import { requestTailorDraft } from './tailoring';
 import type {
   Application,
   ApplicationInput,
+  ApplicationPatch,
   Cv,
   CvContentInput,
   CvWriteInput,
@@ -178,7 +179,7 @@ function useAppMutation<V>(fn: (v: V) => Promise<Application | void>) {
 export const useCreateApplication = () =>
   useAppMutation((b: ApplicationInput) => api<Application>('/applications', { method: 'POST', json: b }));
 export const useUpdateApplication = () =>
-  useAppMutation(({ id, ...b }: Partial<ApplicationInput> & { id: string }) =>
+  useAppMutation(({ id, ...b }: ApplicationPatch & { id: string }) =>
     api<Application>(`/applications/${id}`, { method: 'PATCH', json: b }),
   );
 export const useDeleteApplication = () =>
