@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ApiError } from '@/shared/api/client';
 import { fetchCvPdfBlob, useCreateCv, useCvs, useProfile, useUpdateCv } from '@/shared/api/queries';
 import type { Cv, CvContent, Education, Experience, Project } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
@@ -58,7 +59,7 @@ function Editor({
   const [name, setName] = useState(cv.name);
   // Target CV id while the unsaved-changes dialog is open.
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [switchError, setSwitchError] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const previewRef = useRef<CvPreviewHandle>(null);
   const tabsId = useId();
@@ -107,7 +108,10 @@ function Editor({
           // Refresh the preview only if it no longer matches what was saved (deduped).
           previewRef.current?.updateIfStale();
         },
-        onError: () => toast({ text: 'Could not save your CV.', tone: 'error' }),
+        onError: (error) => toast({
+          text: error instanceof ApiError ? error.message : 'Could not save your CV.',
+          tone: 'error',
+        }),
       },
     );
   };
@@ -117,14 +121,14 @@ function Editor({
   const requestSwitch = (id: string) => {
     if (id === cv.id || update.isPending) return;
     if (!dirty) return goToCv(id); // nothing to lose: switch straight away
-    setSwitchError(false);
+    setSwitchError(null);
     setPendingId(id);
   };
   const targetCv = pendingId ? cvs.find((x) => x.id === pendingId) : undefined;
   const closeDialog = () => {
     if (update.isPending) return; // never abandon a save that is still running
     setPendingId(null);
-    setSwitchError(false);
+    setSwitchError(null);
   };
   const discardAndSwitch = () => {
     // Drops only the local edits; nothing is sent to the backend.
@@ -135,7 +139,7 @@ function Editor({
   const saveAndSwitch = async () => {
     const id = pendingId;
     if (!id || update.isPending) return;
-    setSwitchError(false);
+    setSwitchError(null);
     const content = prepareContent();
     if (!content) {
       setPendingId(null); // close the dialog so the link error is visible; nothing was saved or switched
@@ -144,8 +148,11 @@ function Editor({
     try {
       // Always this CV's own id; the target's data is never involved until after the save succeeds.
       await update.mutateAsync({ id: cv.id, name, content });
-    } catch {
-      setSwitchError(true); // stay on this CV with every edit intact
+    } catch (error) {
+      setSwitchError(error instanceof ApiError
+        ? error.message
+        : 'Could not save your CV, so nothing was switched. Your changes are still here.');
+      // Stay on this CV with every edit intact.
       return;
     }
     toast({ text: 'CV saved.' });
@@ -164,8 +171,8 @@ function Editor({
       }
       const blob = await fetchCvPdfBlob(cv.id);
       downloadBlob(blob, `${name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'CV'}.pdf`);
-    } catch {
-      toast({ text: 'Could not generate the PDF.', tone: 'error' });
+    } catch (error) {
+      toast({ text: error instanceof ApiError ? error.message : 'Could not generate the PDF.', tone: 'error' });
     } finally {
       setPdfBusy(false);
     }
@@ -315,7 +322,7 @@ function Editor({
           </div>
         </div>
         <div className="min-w-0 xl:sticky xl:top-8">
-          <CvLivePreview ref={previewRef} content={c} />
+          <CvLivePreview ref={previewRef} content={c} cvId={cv.id} />
         </div>
       </div>
       <Modal
@@ -360,7 +367,7 @@ function Editor({
         </p>
         {switchError && (
           <p role="alert" className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">
-            Could not save your CV, so nothing was switched. Your changes are still here.
+            {switchError}
           </p>
         )}
       </Modal>
@@ -449,6 +456,11 @@ export default function CvBuilderPage() {
           </div>
         }
       />
+      {create.isError && (
+        <p role="alert" className="mt-3 text-center text-sm text-danger">
+          {create.error instanceof ApiError ? create.error.message : 'Could not create your CV. Please try again.'}
+        </p>
+      )}
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { USE_MOCKS } from '@/shared/api/client';
 import { useApplications, useCvs, useGmail, useMatches, useProfile, useReviewSuggestion } from '@/shared/api/queries';
 import { isProfileComplete } from '@/shared/lib/profile';
 import type { Application } from '@/shared/api/types';
@@ -118,6 +119,20 @@ function ReviewCard({ apps }: { apps: Application[] }) {
   );
 }
 
+function DemoGmailConnectNote() {
+  const gmail = useGmail();
+  if (!gmail.data || gmail.data.connected) return null;
+
+  return (
+    <Note className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
+      <span>Try Gmail in the demo to see how simulated replies can update your applications.</span>
+      <ButtonLink to="/app/settings" size="sm" variant="secondary">
+        Connect Gmail
+      </ButtonLink>
+    </Note>
+  );
+}
+
 function Onboarding({
   profileComplete,
   hasCv,
@@ -219,7 +234,6 @@ export default function DashboardPage() {
   const matches = useMatches();
   const profile = useProfile();
   const profileComplete = isProfileComplete(profile.data);
-  const gmail = useGmail();
   const last = matches.data?.[0];
   const score = useCountUp(last?.score ?? 0);
 
@@ -227,8 +241,6 @@ export default function DashboardPage() {
   const list = apps.data ?? [];
   const isNew = !loading && (list.length === 0 || !cvs.data?.length);
 
-  // Stats come only from real, always-present fields (status). Gmail/history/suggestion are
-  // deferred features the real API does not return, so the dashboard never reads them here.
   const active = list.filter((a) => a.status !== 'Rejected' && a.status !== 'Withdrawn').length;
   const interviews = list.filter((a) => a.status === 'Interview').length;
   const offers = list.filter((a) => a.status === 'Offer').length;
@@ -286,7 +298,7 @@ export default function DashboardPage() {
         </div>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-          <Card className="animate-in">
+          <Card className={cn('animate-in', !USE_MOCKS && 'lg:col-span-2')}>
             <CardTitle
               action={
                 <Link to="/app/applications" className="text-sm font-medium text-primary hover:underline">
@@ -298,7 +310,7 @@ export default function DashboardPage() {
             </CardTitle>
             <Staircase apps={list} />
           </Card>
-          <ReviewCard apps={list} />
+          {USE_MOCKS && <ReviewCard apps={list} />}
 
           <Card className="animate-in" style={{ animationDelay: '.2s' }}>
             <CardTitle
@@ -361,14 +373,7 @@ export default function DashboardPage() {
               </>
             )}
           </Card>
-          {gmail.data && !gmail.data.connected && (
-            <Note className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
-              <span>Connect Gmail and replies from companies can update your applications for you.</span>
-              <ButtonLink to="/app/settings" size="sm" variant="secondary">
-                Connect Gmail
-              </ButtonLink>
-            </Note>
-          )}
+          {USE_MOCKS && <DemoGmailConnectNote />}
         </div>
       )}
     </>

@@ -3,7 +3,7 @@ import { formatLocation, parseLocation, type LocationParts } from '@/shared/lib/
 import { CountrySelect } from '@/shared/ui/CountrySelect';
 import { Input } from '@/shared/ui/Field';
 
-export function LocationFields({ value, onChange }: { value: string; onChange: (location: string) => void }) {
+export function useLocationField(value: string, onChange: (location: string) => void) {
   // Keep the draft as typed, including spaces and punctuation. Reparse when the parent
   // replaces the value (e.g. Profile's Discard). Reading legacy text never emits a change.
   const [draft, setDraft] = useState(() => ({ ...parseLocation(value), value }));
@@ -17,6 +17,10 @@ export function LocationFields({ value, onChange }: { value: string; onChange: (
     onChange(next);
   };
 
+  return { current, edit };
+}
+
+export function LocationInputs({ state: { current, edit } }: { state: ReturnType<typeof useLocationField> }) {
   return (
     <div className="grid min-w-0 gap-4 sm:col-span-2 sm:grid-cols-2">
       <Input
@@ -40,4 +44,10 @@ export function LocationFields({ value, onChange }: { value: string; onChange: (
       </div>
     </div>
   );
+}
+
+
+export function LocationFields({ value, onChange }: { value: string; onChange: (location: string) => void }) {
+  const state = useLocationField(value, onChange);
+  return <LocationInputs state={state} />;
 }

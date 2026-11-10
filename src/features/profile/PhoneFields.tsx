@@ -18,7 +18,7 @@ import { cn } from '@/shared/lib/utils';
  * - A value the user hasn't touched is never rewritten (legacy formats survive exactly as stored).
  * - A stored value whose country can't be identified is shown as-is with no country selected.
  */
-export function usePhoneField(value: string, onChange: (value: string) => void) {
+export function usePhoneField(value: string, onChange?: (value: string) => void) {
   const initial = useRef(parseStoredPhone(value)).current;
   const initialNational = initial.kind === 'parsed' ? initial.national : initial.kind === 'unrecognised' ? initial.raw : '';
   const initialCountry: CountryCode | '' = initial.kind === 'parsed' ? initial.country : initial.kind === 'empty' ? localeCountry() : '';
@@ -36,6 +36,7 @@ export function usePhoneField(value: string, onChange: (value: string) => void) 
 
   /** Update the stored value: E.164 when valid, otherwise the raw text so the change still counts as unsaved. */
   const emit = (c: CountryCode | '', n: string) => {
+    if (!onChange) return;
     const r = buildPhone(c, n);
     onChange(r.ok ? r.value : n.trim());
   };
@@ -64,12 +65,12 @@ export function usePhoneField(value: string, onChange: (value: string) => void) 
     if (!r.ok) return null;
     if (r.national) setNational(r.national);
     if (r.country) setCountry(r.country);
-    onChange(r.value);
+    onChange?.(r.value);
     return r.value;
   };
 
   const legacy = initial.kind === 'unrecognised' && national.trim() === initialNational.trim() ? initial.raw : null;
-  return { country, national, editNational, pickCountry, blur, errorOf, validate, legacy };
+  return { country, national, editNational, pickCountry, blur, errorOf, validate, legacy, isDirty: changed() };
 }
 export type PhoneField = ReturnType<typeof usePhoneField>;
 

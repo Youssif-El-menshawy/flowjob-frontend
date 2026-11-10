@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { api, refreshSession, setSessionExpiredHandler, tokenStore } from '@/shared/api/client';
-import type { AuthResponse, User } from '@/shared/api/types';
+import { createContext, useContext, useLayoutEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
+import { type QueryClient, useQueryClient } from '@tanstack/react-query';
+import { authSession } from '@/shared/api/client';
+import type { User } from '@/shared/api/types';
 
 interface AuthState {
   user: User | null;
@@ -13,66 +13,31 @@ interface AuthState {
 }
 
 const Ctx = createContext<AuthState | null>(null);
-
-let initialSession: Promise<AuthResponse | null> | null = null;
+const cacheOwners = new WeakMap<QueryClient, string | undefined>();
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const [user, setUser] = useState<User | null>(null);
-  const [status, setStatus] = useState<AuthState['status']>('loading');
+  const session = useSyncExternalStore(authSession.subscribe, authSession.getSnapshot);
 
-  const accept = useCallback((r: AuthResponse) => {
-    tokenStore.set(r.accessToken);
-    setUser(r.user);
-    setStatus('authenticated');
-    return r.user;
-  }, []);
-
-  const clear = useCallback(() => {
-    tokenStore.set(null);
-    setUser(null);
-    setStatus('anonymous');
-    qc.clear();
+  useLayoutEffect(() => {
+    const syncCacheOwner = () => {
+      const currentUser = authSession.getSnapshot().user?.id;
+      if (cacheOwners.has(qc) && cacheOwners.get(qc) !== currentUser) qc.clear();
+      cacheOwners.set(qc, currentUser);
+    };
+    syncCacheOwner();
+    const unsubscribe = authSession.subscribe(syncCacheOwner);
+    authSession.initialize();
+    return unsubscribe;
   }, [qc]);
 
-  // Restore a session using the HttpOnly refresh cookie on first load.
-  useEffect(() => {
-    let alive = true;
-    if (!initialSession) initialSession = refreshSession().catch(() => null);
-    initialSession
-      .then((r) => {
-        if (!alive) return;
-        if (r) accept(r);
-        else setStatus('anonymous');
-      })
-      .catch(() => alive && setStatus('anonymous'));
-    return () => {
-      alive = false;
-    };
-  }, [accept]);
-
-  useEffect(() => setSessionExpiredHandler(clear), [clear]);
-
-  const value = useMemo<AuthState>(
-    () => ({
-      user,
-      status,
-      setUser,
-      login: async (email, password) =>
-        accept(await api<AuthResponse>('/auth/login', { method: 'POST', json: { email, password } })),
-      register: async (name, email, password) =>
-        accept(await api<AuthResponse>('/auth/register', { method: 'POST', json: { name, email, password } })),
-      logout: async () => {
-        try {
-          await api('/auth/logout', { method: 'POST' });
-        } finally {
-          initialSession = null;
-          clear();
-        }
-      },
-    }),
-    [user, status, accept, clear],
-  );
+  const value = useMemo<AuthState>(() => ({
+    ...session,
+    setUser: authSession.setUser,
+    login: authSession.login,
+    register: authSession.register,
+    logout: authSession.logout,
+  }), [session]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

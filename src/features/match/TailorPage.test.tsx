@@ -2,18 +2,18 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
-import type { Cv, TailorDraft } from '@/shared/api/types';
+import type { Cv, TailorDraft, TailorMatchInput } from '@/shared/api/types';
 
 const draft: TailorDraft = {
-  id: 'd1', sourceCvId: 'cv1', matchId: 'm1', jobTitle: 'Backend Engineer', company: 'Acme',
+  id: 'd1', sourceCvId: 'cv1', sourceCvRevision: 'revision-1', matchId: 'm1', jobTitle: 'Backend Engineer', company: 'Acme',
   suggestions: [
-    { id: 's0', section: 'summary', original: 'Old summary', suggested: 'New summary', explanation: 'Lead with relevant experience.', reviewRequired: false },
+    { id: 's0', section: 'summary', original: 'Old summary', suggested: 'Old summary.', explanation: 'Lead with relevant experience.', reviewRequired: false },
     { id: 's1', section: 'experience', experienceId: '0', bulletIndex: 0, original: 'Old bullet', suggested: 'New bullet', reviewRequired: true },
   ],
   missingQualifications: ['Docker'], questions: ['Used Docker?'],
 };
 const sourceCv: Cv = {
-  id: 'cv1', name: 'My CV', kind: 'original', createdAt: '', updatedAt: '',
+  id: 'cv1', name: 'My CV', kind: 'original', createdAt: '', updatedAt: '', contentRevision: 'revision-1',
   content: {
     fullName: 'A', email: 'a@x.com', phone: '', location: '', links: [], summary: 'Old summary',
     experience: [{ id: '0', title: 'Dev', company: 'Acme', start: '2022-01', end: '', bullets: ['Old bullet'] }],
@@ -27,18 +27,30 @@ const mocks = vi.hoisted(() => ({
   tailorError: null as unknown,
   draftQuery: { data: undefined as unknown, isError: false, error: null as unknown },
   draftIds: [] as (string | undefined)[],
+  source: undefined as Cv | undefined,
+  sourceFetching: false,
+  refetchSource: vi.fn(),
   preview: vi.fn(),
   download: vi.fn(),
 }));
 
 vi.mock('@/shared/api/queries', () => ({
   useCvs: () => ({ data: [sourceCv], isLoading: false }),
+  useCv: () => ({
+    data: mocks.source,
+    isFetching: mocks.sourceFetching,
+    isFetchedAfterMount: !mocks.sourceFetching,
+    refetch: mocks.refetchSource,
+  }),
   useTailor: () => ({
     isError: !!mocks.tailorError,
     error: mocks.tailorError,
-    mutate: (matchId: string, opts: { onSuccess: (d: TailorDraft) => void }) => {
-      mocks.tailorMutate(matchId);
-      if (!mocks.tailorError) opts.onSuccess(draft);
+    mutate: (input: TailorMatchInput, opts: { onSuccess: (d: TailorDraft) => void }) => {
+      mocks.tailorMutate(input);
+      if (!mocks.tailorError) {
+        mocks.draftQuery = { data: draft, isError: false, error: null };
+        opts.onSuccess(draft);
+      }
     },
   }),
   useTailorDraft: (id?: string) => {
@@ -58,8 +70,8 @@ vi.mock('@/features/cv/HarvardPdfViewer', () => ({
 
 import TailorPage from './TailorPage';
 
-function renderPage(path = '/app/match/m1/tailor') {
-  return render(
+function page(path = '/app/match/m1/tailor') {
+  return (
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/app/match/:matchId/tailor" element={<TailorPage />} />
@@ -67,13 +79,25 @@ function renderPage(path = '/app/match/m1/tailor') {
         <Route path="/app/match" element={<div>JOB FORM</div>} />
         <Route path="/app/cvs" element={<div>MY CVS</div>} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderPage(path?: string) {
+  const rendered = render(page(path));
+  if (!path) {
+    const start = screen.queryByRole('button', { name: 'Start tailoring' });
+    if (start) fireEvent.click(start);
+  }
+  return rendered;
 }
 
 const directDraft: TailorDraft = { ...draft, id: 'd9', matchId: undefined };
 
 beforeEach(() => {
+  mocks.source = sourceCv;
+  mocks.sourceFetching = false;
+  mocks.refetchSource.mockClear();
   mocks.preview.mockResolvedValue(new Blob(['%PDF-'], { type: 'application/pdf' }));
 });
 
@@ -116,7 +140,7 @@ describe('TailorPage review', () => {
     expect(screen.queryByText(/Confirm the wording above/)).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Rendering Harvard PDF preview');
     expect(mocks.preview.mock.calls[0][0]).toMatchObject({
-      summary: 'New summary',
+      summary: 'Old summary.',
       experience: [{ bullets: ['Old bullet'] }],
     });
   });
@@ -154,12 +178,12 @@ describe('TailorPage review', () => {
     expect(mocks.create.mutate).toHaveBeenCalledTimes(1);
     const payload = mocks.create.mutate.mock.calls[0][0];
     expect(payload).toMatchObject({
-      kind: 'tailored', sourceCvId: 'cv1', company: 'Acme', matchId: 'm1', jobTitle: 'Backend Engineer',
+      kind: 'tailored', sourceCvId: 'cv1', tailorDraftId: 'd1', company: 'Acme', matchId: 'm1', jobTitle: 'Backend Engineer',
       content: { summary: 'Old summary', experience: [{ bullets: ['Verified bullet'] }] },
     });
     expect(sourceCv).toEqual(before);
     expect(payload.content).not.toBe(sourceCv.content);
-    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith('m1');
+    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
   });
 
   it('shows missing requirements without rendering or applying conversational questions', () => {
@@ -205,6 +229,7 @@ describe('TailorPage PDF preview and download', () => {
     expect(screen.queryByText('Preview up to date')).not.toBeInTheDocument();
     fireEvent.click(toggle('Summary'));
     fireEvent.change(wording('Summary'), { target: { value: 'Latest summary' } });
+    decide('Summary', 'Apply suggestion');
     fireEvent.click(toggle('Experience'));
     decide('Experience', 'Keep original');
     expect(mocks.preview).toHaveBeenCalledTimes(1);
@@ -213,7 +238,7 @@ describe('TailorPage PDF preview and download', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Update preview' }));
     expect(mocks.preview).toHaveBeenCalledTimes(2);
     expect(mocks.preview.mock.calls[1][0]).toMatchObject({ summary: 'Latest summary', experience: [{ bullets: ['Old bullet'] }] });
-    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith('m1');
+    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
   });
 
   it('aborts obsolete previews and ignores late responses when changing the preview mode', async () => {
@@ -228,7 +253,7 @@ describe('TailorPage PDF preview and download', () => {
     await waitFor(() => expect(screen.getByTestId('pdf')).toHaveTextContent('application/original'));
     await act(async () => finish(new Blob(['old tailored'], { type: 'application/tailored' })));
     expect(screen.getByTestId('pdf')).toHaveTextContent('application/original');
-    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith('m1');
+    expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
   });
 
   it('downloads the latest accepted edits from a stale preview without saving or calling AI', async () => {
@@ -240,6 +265,7 @@ describe('TailorPage PDF preview and download', () => {
     expect(mocks.preview).toHaveBeenCalledTimes(1);
     fireEvent.click(toggle('Summary'));
     fireEvent.change(wording('Summary'), { target: { value: 'Latest confirmed summary' } });
+    decide('Summary', 'Apply suggestion');
     fireEvent.click(toggle('Experience'));
     fireEvent.change(wording('Experience'), { target: { value: 'Rejected text' } });
     decide('Experience', 'Keep original');
@@ -255,6 +281,7 @@ describe('TailorPage PDF preview and download', () => {
     expect(mocks.preview.mock.calls[1][0]).toMatchObject({
       summary: 'Latest confirmed summary', experience: [{ bullets: ['Old bullet'] }],
     });
+    expect(mocks.preview.mock.calls[1][2]).toBe('d9');
     const blob = new Blob(['%PDF-current']);
     await act(async () => finish(blob));
     expect(mocks.download).toHaveBeenCalledExactlyOnceWith(blob, 'Reviewed_version.pdf');
@@ -291,12 +318,12 @@ describe('TailorPage direct draft route (/app/tailor/:draftId)', () => {
     expect(screen.queryByRole('link', { name: /Back to Job Match/i })).toBeNull();
   });
 
-  it('survives a refresh: a fresh mount re-reads the same draft by id and makes no AI request', () => {
-    mocks.draftQuery = { data: directDraft, isError: false, error: null };
-    renderPage('/app/tailor/d9');
+  it.each([directDraft, draft])('reopens draft $id by id without generating a new draft', (savedDraft) => {
+    mocks.draftQuery = { data: savedDraft, isError: false, error: null };
+    renderPage(`/app/tailor/${savedDraft.id}`);
     cleanup();
-    renderPage('/app/tailor/d9');
-    expect(mocks.draftIds.filter((i) => i === 'd9').length).toBeGreaterThanOrEqual(2);
+    renderPage(`/app/tailor/${savedDraft.id}`);
+    expect(mocks.draftIds.filter((i) => i === savedDraft.id).length).toBeGreaterThanOrEqual(2);
     expect(mocks.tailorMutate).not.toHaveBeenCalled();
     expect(screen.getByText('1 of 2 suggestions applied')).toBeTruthy();
   });
@@ -343,4 +370,167 @@ describe('TailorPage errors', () => {
     expect(screen.getByText(/check your connection/i)).toBeInTheDocument();
     expect(screen.queryByText(/Failed to fetch/)).toBeNull();
   });
+});
+
+
+describe('TailorPage source verification', () => {
+  it('waits for source verification before applying suggestions to cached CV data', () => {
+    mocks.sourceFetching = true;
+    const rendered = renderPage();
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Save as new CV' })).not.toBeInTheDocument();
+    mocks.sourceFetching = false;
+    rendered.rerender(page());
+    expect(screen.getByText('1 of 2 suggestions applied')).toBeVisible();
+    expect(mocks.preview.mock.lastCall?.[2]).toBe('d1');
+  });
+
+  it('invalidates reviewed wording and confirmation after a source revision changes', async () => {
+    const rendered = renderPage();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Update preview' })).toBeDisabled());
+    fireEvent.click(toggle('Experience'));
+    decide('Experience', 'Apply suggestion');
+    confirm();
+    expect(save()).toBeEnabled();
+
+    const updated = structuredClone(sourceCv);
+    updated.contentRevision = 'revision-2';
+    updated.content.experience[0].bullets.unshift('A different bullet');
+    mocks.source = updated;
+    rendered.rerender(page());
+
+    expect(screen.getByRole('alert')).toHaveTextContent('source CV changed');
+    expect(card('Experience').getByRole('button', { name: 'Apply suggestion' })).toBeDisabled();
+    expect(screen.getByText('0 of 2 suggestions applied')).toBeVisible();
+    expect(save()).toBeDisabled();
+    expect(download()).toBeDisabled();
+    expect(mocks.preview.mock.lastCall?.[0]).toEqual(updated.content);
+    expect(mocks.preview.mock.lastCall?.[2]).toBeUndefined();
+    expect(mocks.tailorMutate).toHaveBeenCalledTimes(1);
+    expect(mocks.create.mutate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { experienceId: '0', bulletIndex: 0, original: 'Earlier bullet text' },
+    { experienceId: '0', bulletIndex: 0, original: '' },
+    { experienceId: 'missing', bulletIndex: 0, original: 'Old bullet' },
+    { experienceId: '0', bulletIndex: 4, original: 'Old bullet' },
+  ])('blocks an invalid target even when the source revision matches (%o)', (change) => {
+    mocks.draftQuery = { data: {
+      ...directDraft,
+      suggestions: [{ ...draft.suggestions[1], ...change, reviewRequired: false }],
+    }, isError: false, error: null };
+    renderPage('/app/tailor/d9');
+    fireEvent.click(toggle('Experience'));
+    expect(card('Experience').getByRole('button', { name: 'Apply suggestion' })).toBeDisabled();
+    expect(screen.getByText('0 of 1 suggestions applied')).toBeVisible();
+    expect(mocks.preview.mock.lastCall?.[0]).toEqual(sourceCv.content);
+    confirm();
+    fireEvent.click(save());
+    expect(mocks.create.mutate.mock.lastCall?.[0].content).toEqual(sourceCv.content);
+  });
+
+  it('keeps older drafts readable while blocking apply, download and save', () => {
+    mocks.draftQuery = { data: { ...directDraft, sourceCvRevision: null }, isError: false, error: null };
+    renderPage('/app/tailor/d9');
+    expect(screen.getByRole('alert')).toHaveTextContent('older draft has no verified source revision');
+    fireEvent.click(toggle('Summary'));
+    expect(card('Summary').getByText('Old summary')).toBeVisible();
+    expect(card('Summary').getByRole('button', { name: 'Apply suggestion' })).toBeDisabled();
+    expect(screen.getByRole('checkbox')).toBeDisabled();
+    expect(save()).toBeDisabled();
+    expect(download()).toBeDisabled();
+    expect(mocks.preview.mock.lastCall?.[0]).toEqual(sourceCv.content);
+    expect(mocks.tailorMutate).not.toHaveBeenCalled();
+  });
+
+  it('does not accept a different source CV with the same content revision', () => {
+    mocks.source = { ...sourceCv, id: 'other-cv' };
+    renderPage();
+    expect(screen.getByText('Could not verify the source CV')).toBeVisible();
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.create.mutate).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit decision for a factual addition and shares the reviewed content across all outputs', async () => {
+    mocks.draftQuery = { data: {
+      ...directDraft,
+      suggestions: [{ ...draft.suggestions[0], suggested: 'Old summary. AWS certified.', reviewRequired: true }],
+    }, isError: false, error: null };
+    renderPage('/app/tailor/d9');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Update preview' })).toBeDisabled());
+    expect(card('Summary').getByText('Needs review')).toBeVisible();
+    expect(mocks.preview.mock.lastCall?.[0].summary).toBe('Old summary');
+    fireEvent.click(toggle('Summary'));
+    // The user corrects the unsupported wording and explicitly approves the replacement.
+    fireEvent.change(wording('Summary'), { target: { value: 'Old summary. APIs maintained.' } });
+    decide('Summary', 'Apply suggestion');
+    fireEvent.click(screen.getByRole('button', { name: 'Update preview' }));
+    const [previewContent, , previewDraftId] = mocks.preview.mock.lastCall!;
+    confirm();
+    fireEvent.click(download());
+    const [downloadContent, , downloadDraftId] = mocks.preview.mock.lastCall!;
+    await waitFor(() => expect(mocks.download).toHaveBeenCalledTimes(1));
+    fireEvent.click(save());
+    const saved = mocks.create.mutate.mock.lastCall?.[0];
+    expect(previewContent.summary).toBe('Old summary. APIs maintained.');
+    expect(downloadContent).toEqual(previewContent);
+    expect(saved).toMatchObject({ content: previewContent, tailorDraftId: 'd9' });
+    expect([previewDraftId, downloadDraftId]).toEqual(['d9', 'd9']);
+    expect(sourceCv.content.summary).toBe('Old summary');
+  });
+
+  it('blocks a download and subsequent saves if the server detects a newer source', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Update preview' })).toBeDisabled());
+    confirm();
+    mocks.preview.mockRejectedValueOnce(new ApiError(409, { message: 'The source CV changed.' }));
+    fireEvent.click(download());
+    expect(await screen.findByRole('alert')).toHaveTextContent('source CV changed');
+    expect(save()).toBeDisabled();
+    expect(download()).toBeDisabled();
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.refetchSource).toHaveBeenCalledTimes(1);
+  });
+});
+
+it('does not generate on the old match URL until the user explicitly starts tailoring', () => {
+  renderPage('/app/match/m1/tailor');
+  expect(mocks.tailorMutate).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Start tailoring' }));
+  expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
+  expect(mocks.draftIds).toContain('d1');
+  expect(screen.getByRole('link', { name: /Back to match result/ })).toHaveAttribute('href', '/app/match/m1');
+});
+
+
+it('identifies a missing wire revision as a backend mismatch, not a legacy draft', () => {
+  mocks.draftQuery = { data: { ...directDraft, sourceCvRevision: undefined }, isError: false, error: null };
+  renderPage('/app/tailor/d9');
+  expect(screen.getByRole('alert')).toHaveTextContent('running backend does not support verified tailoring drafts');
+  expect(screen.queryByText(/older draft has no verified source revision/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Start a fresh draft' })).not.toBeInTheDocument();
+  expect(mocks.tailorMutate).not.toHaveBeenCalled();
+  expect(save()).toBeDisabled();
+});
+
+it('regenerates a legacy match draft only after the user clicks and opens a verified draft', () => {
+  mocks.draftQuery = { data: { ...draft, id: 'legacy', sourceCvRevision: null }, isError: false, error: null };
+  renderPage('/app/tailor/legacy');
+  expect(mocks.tailorMutate).not.toHaveBeenCalled();
+  expect(save()).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Create fresh draft' }));
+  expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1', cvId: 'cv1', fresh: true });
+  expect(mocks.draftIds).toContain('d1');
+  expect(screen.getByText('1 of 2 suggestions applied')).toBeVisible();
+  expect(mocks.preview.mock.lastCall?.[2]).toBe('d1');
+});
+
+it('sends a direct legacy draft back to the job form to re-enter the description', () => {
+  mocks.draftQuery = { data: { ...directDraft, sourceCvRevision: null }, isError: false, error: null };
+  renderPage('/app/tailor/d9');
+  expect(screen.getByText('Paste the job description again to create a fresh draft.')).toBeVisible();
+  fireEvent.click(screen.getByRole('link', { name: 'Start a fresh draft' }));
+  expect(screen.getByText('JOB FORM')).toBeVisible();
+  expect(mocks.tailorMutate).not.toHaveBeenCalled();
 });

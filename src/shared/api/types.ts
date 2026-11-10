@@ -69,7 +69,19 @@ export interface Cv {
   createdAt: string;
   updatedAt: string;
   content: CvContent;
+  contentRevision?: string;
 }
+
+export type CvContentInput = Partial<Omit<CvContent, 'experience' | 'education' | 'projects'>> & {
+  experience?: Partial<Experience>[];
+  education?: Partial<Education>[];
+  projects?: Partial<Project>[];
+};
+
+export type CvWriteInput = Partial<Pick<Cv, 'name' | 'kind' | 'jobTitle' | 'company' | 'sourceCvId'>> & {
+  matchId?: ID | null;
+  content?: CvContentInput;
+};
 
 export interface MatchStrength {
   skill: string;
@@ -131,11 +143,19 @@ export interface RunMatchInput {
   jobUrl?: string;
 }
 
+export interface TailorMatchInput {
+  matchId: ID;
+  cvId?: ID;
+  fresh?: boolean;
+}
+
 export interface TailorDirectInput {
   cvId: ID;
   jobTitle: string;
   jobDescription: string;
   company?: string;
+  jobUrl?: string;
+  fresh?: boolean;
 }
 
 export interface TailorSuggestion {
@@ -155,8 +175,10 @@ export interface TailorDraft {
   id: ID;
   matchId?: ID;
   sourceCvId: ID;
+  sourceCvRevision?: string | null;
   jobTitle: string;
   company: string;
+  jobUrl?: string | null;
   suggestions: TailorSuggestion[];
   missingQualifications?: string[];
   questions?: string[];
@@ -200,14 +222,14 @@ export interface Application {
   company: string;
   jobTitle: string;
   status: ApplicationStatus;
-  jobUrl?: string;
-  location?: string;
-  workArrangement?: WorkArrangement;
-  employmentType?: string;
-  dateApplied?: string;
-  notes?: string;
-  cvId?: ID;
-  followUpDate?: string;
+  jobUrl?: string | null;
+  location?: string | null;
+  workArrangement?: WorkArrangement | null;
+  employmentType?: string | null;
+  dateApplied?: string | null;
+  notes?: string | null;
+  cvId?: ID | null;
+  followUpDate?: string | null;
   createdAt?: string;
   updatedAt: string;
   // Deferred Gmail/timeline features. The real API returns an empty history and null
@@ -230,6 +252,8 @@ export type ApplicationInput = Pick<Application, 'company' | 'jobTitle' | 'statu
       | 'followUpDate'
     >
   >;
+
+export type ApplicationPatch = Partial<ApplicationInput>;
 
 export interface GmailConnection {
   connected: boolean;

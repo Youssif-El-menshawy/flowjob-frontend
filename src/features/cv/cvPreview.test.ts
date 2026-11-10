@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ApiError } from '@/shared/api/client';
 import type { CvContent } from '@/shared/api/types';
 import { createPreviewEngine, pdfFingerprint, type PreviewState } from './cvPreview';
 
@@ -104,6 +105,29 @@ describe('preview engine', () => {
     calls[0].resolve(pdf()); // late, stale response
     await flush();
     expect(engine.getState().blob).toBe(blobB); // unchanged
+  });
+
+  it('exposes validation feedback and clears it on retry without dropping the last PDF', async () => {
+    const { fetcher, calls } = makeFetcher();
+    const engine = createPreviewEngine(fetcher, () => {});
+    const original = pdf();
+    const first = engine.request(base);
+    calls[0].resolve(original);
+    await first;
+
+    const edited = { ...base, summary: 'Longer summary' };
+    const invalid = engine.request(edited);
+    calls[1].reject(new ApiError(422, { message: 'content.summary: String should have at most 8000 characters' }));
+    await invalid;
+    expect(engine.getState()).toMatchObject({
+      status: 'ready', blob: original, error: true, errorMessage: expect.stringContaining('content.summary'),
+    });
+
+    const retry = engine.request(edited, { force: true });
+    expect(engine.getState().errorMessage).toBeUndefined();
+    calls[2].resolve(pdf());
+    await retry;
+    expect(engine.getState().error).toBe(false);
   });
 
   it('keeps the previous preview and stays stale when a request fails', async () => {

@@ -16,7 +16,7 @@ const KINDS: LinkKind[] = ['linkedin', 'github'];
  * `links: string[]` field. Hold it in a component that stays mounted (e.g. the CV Builder editor) so
  * typed text survives step changes.
  */
-export function useContactLinks(links: string[], onChange: (links: string[]) => void) {
+export function useContactLinks(links: string[], onChange?: (links: string[]) => void) {
   // Captured once: the original split, so untouched values and every other legacy link survive verbatim.
   const initial = useRef(splitLinks(links)).current;
   const [text, setText] = useState({ linkedin: initial.linkedin, github: initial.github });
@@ -24,6 +24,7 @@ export function useContactLinks(links: string[], onChange: (links: string[]) => 
 
   const compose = (t: { linkedin: string; github: string }) => joinLinks(t.linkedin, t.github, initial.others);
   const changed = (k: LinkKind, t = text) => t[k].trim() !== initial[k].trim();
+  const isDirty = KINDS.some((k) => changed(k));
   const errorOf = (k: LinkKind): string | undefined => {
     if (!shown[k] || !changed(k)) return undefined; // never nag about, or rewrite, a link the user hasn't touched
     const r = normalizeHttpsUrl(text[k], k);
@@ -33,7 +34,7 @@ export function useContactLinks(links: string[], onChange: (links: string[]) => 
   const edit = (k: LinkKind, value: string) => {
     const t = { ...text, [k]: value };
     setText(t);
-    onChange(compose(t));
+    onChange?.(compose(t));
   };
   const blur = (k: LinkKind) => {
     setShown((s) => ({ ...s, [k]: true }));
@@ -48,7 +49,7 @@ export function useContactLinks(links: string[], onChange: (links: string[]) => 
    */
   const validate = (): string[] | null => {
     setShown({ linkedin: true, github: true });
-    if (!KINDS.some((k) => changed(k))) return links; // nothing edited: keep every stored link as it is
+    if (!isDirty) return links; // nothing edited: keep every stored link as it is
     const next = { ...text };
     let ok = true;
     for (const k of KINDS) {
@@ -60,11 +61,11 @@ export function useContactLinks(links: string[], onChange: (links: string[]) => 
     if (!ok) return null;
     setText(next);
     const out = compose(next);
-    onChange(out);
+    onChange?.(out);
     return out;
   };
 
-  return { text, edit, blur, errorOf, validate };
+  return { text, edit, blur, errorOf, validate, isDirty };
 }
 export type ContactLinks = ReturnType<typeof useContactLinks>;
 

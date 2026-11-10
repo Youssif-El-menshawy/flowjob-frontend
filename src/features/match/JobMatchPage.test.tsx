@@ -27,9 +27,9 @@ function LocationProbe() {
   return <div>DRAFT PAGE {useParams().draftId}</div>;
 }
 
-function renderPage() {
+function renderPage(entry: string | { pathname: string; state: unknown } = '/app/match') {
   return render(
-    <MemoryRouter initialEntries={['/app/match']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/app/match" element={<JobMatchPage />} />
         <Route path="/app/match/:matchId" element={<div>REPORT PAGE</div>} />
@@ -205,6 +205,7 @@ describe('JobMatchPage direct tailoring', () => {
       jobTitle: 'Backend Engineer',
       jobDescription: JOB,
       company: 'Acme',
+      jobUrl: 'acme.com/jobs/1',
     });
     expect(mocks.run.mutate).not.toHaveBeenCalled();
   });
@@ -269,4 +270,30 @@ describe('JobMatchPage direct tailoring', () => {
     fireEvent.change(screen.getByLabelText('Job description'), { target: { value: JOB + ' more' } });
     expect(mocks.tailor.mutate).not.toHaveBeenCalled();
   });
+});
+
+
+it('prefills a direct recovery and requests a fresh draft only on submit', () => {
+  renderPage({
+    pathname: '/app/match',
+    state: {
+      freshTailoringDraft: {
+        sourceCvId: 'cv1', jobTitle: 'Product Quality Analyst', company: 'Example Analytics',
+        jobUrl: 'example.com/jobs/1',
+      },
+    },
+  });
+  expect(screen.getByLabelText('CV to use')).toHaveValue('cv1');
+  expect(screen.getByLabelText('Job title')).toHaveValue('Product Quality Analyst');
+  expect(screen.getByLabelText(/Company/)).toHaveValue('Example Analytics');
+  expect(screen.getByLabelText(/Job URL/)).toHaveValue('example.com/jobs/1');
+  expect(screen.getByLabelText('Job description')).toHaveValue('');
+  expect(tailorBtn()).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Job description'), { target: { value: JOB } });
+  expect(mocks.tailor.mutate).not.toHaveBeenCalled();
+  fireEvent.click(tailorBtn());
+  expect(mocks.tailor.mutate).toHaveBeenCalledWith({
+    cvId: 'cv1', jobTitle: 'Product Quality Analyst', company: 'Example Analytics',
+    jobDescription: JOB, jobUrl: 'example.com/jobs/1', fresh: true,
+  }, expect.anything());
 });

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(),
   },
   useMatchArg: undefined as string | undefined,
+  tailorMutate: vi.fn(),
   runMutate: vi.fn(), // must NEVER be called by the report page
 }));
 
@@ -22,6 +23,7 @@ vi.mock('@/shared/api/queries', () => ({
     mocks.useMatchArg = id;
     return mocks.match;
   },
+  useTailor: () => ({ mutate: mocks.tailorMutate, isPending: false }),
   useRunMatch: () => ({ mutate: mocks.runMutate, isPending: false }),
 }));
 
@@ -48,6 +50,7 @@ function renderReport(id = 'm1') {
     <MemoryRouter initialEntries={[`/app/match/${id}`]}>
       <Routes>
         <Route path="/app/match/:matchId" element={<MatchReportPage />} />
+        <Route path="/app/tailor/d1" element={<div>Tailoring draft d1</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -57,6 +60,7 @@ afterEach(() => {
   cleanup();
   mocks.match = { data: base, isLoading: false, isError: false, error: null, isFetching: false, refetch: vi.fn() };
   mocks.runMutate = vi.fn();
+  mocks.tailorMutate = vi.fn();
 });
 mocks.match.data = base;
 
@@ -66,6 +70,16 @@ describe('MatchReportPage', () => {
     expect(mocks.useMatchArg).toBe('m1');
     expect(mocks.runMutate).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { level: 1, name: 'Backend Engineer' })).toBeInTheDocument();
+  });
+
+  it('starts tailoring only on click and opens the resulting read-only draft URL', () => {
+    mocks.tailorMutate.mockImplementation((_, { onSuccess }) => onSuccess({ id: 'd1' }));
+    renderReport();
+    expect(mocks.tailorMutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Tailor my CV for this job' }));
+    expect(mocks.tailorMutate).toHaveBeenCalledWith({ matchId: 'm1' }, expect.anything());
+    expect(screen.getByText('Tailoring draft d1')).toBeVisible();
+    expect(mocks.runMutate).not.toHaveBeenCalled();
   });
 
   it('shows job header, company, CV used, verdict, score bar and explanation', () => {

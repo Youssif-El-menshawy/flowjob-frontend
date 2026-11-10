@@ -10,10 +10,11 @@ import { Input } from '@/shared/ui/Field';
 import { useAuth } from './AuthProvider';
 import { Icon } from '@/shared/ui/Icons';
 import { AuthShell } from './AuthShell';
+import { loginPassword } from './passwordValidation';
 
 const schema = z.object({
   email: z.string().trim().email('Please enter a valid email address.'),
-  password: z.string().min(1, 'Please enter your password.'),
+  password: loginPassword,
 });
 type Form = z.infer<typeof schema>;
 
@@ -67,12 +68,14 @@ export default function LoginPage() {
             error={formState.errors.password?.message}
             {...register('password')}
           />
-          <Link
-            to="/forgot-password"
-            className="self-end text-[13px] text-soft hover:text-ink hover:underline"
-          >
-            Forgot password?
-          </Link>
+          {USE_MOCKS && (
+            <Link
+              to="/forgot-password"
+              className="self-end text-[13px] text-soft hover:text-ink hover:underline"
+            >
+              Forgot password?
+            </Link>
+          )}
         </div>
         <Button
           type="submit"

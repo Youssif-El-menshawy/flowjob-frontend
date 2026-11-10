@@ -14,6 +14,7 @@ vi.mock('@/shared/api/queries', () => ({
     mocks.useMatchCalls++;
     return mocks.match;
   },
+  useTailor: () => ({ mutate: vi.fn(), isPending: false }),
   useRunMatch: () => ({ mutate: mocks.runMutate, isPending: false }),
 }));
 
@@ -245,15 +246,14 @@ describe('expandable requirement cards', () => {
 });
 
 describe('actions', () => {
-  it('offers exactly one Tailor and one Add to Applications link, in the header, with the right targets', () => {
+  it('offers one Tailor action and the Add to Applications link in the header', () => {
     renderReport();
     const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
-    const tailor = within(header).getByRole('link', { name: 'Tailor my CV for this job' });
     const apps = within(header).getByRole('link', { name: 'Add to Applications' });
-    expect(tailor).toHaveAttribute('href', '/app/match/m1/tailor');
+    expect(within(header).getByRole('button', { name: 'Tailor my CV for this job' })).toBeVisible();
     const q = new URLSearchParams(apps.getAttribute('href')!.split('?')[1]);
     expect([q.get('company'), q.get('jobTitle'), q.get('jobUrl'), q.get('cvId')]).toEqual(['Acme', 'Backend Engineer', 'acme.com/j', 'cv1']);
-    expect(screen.getAllByRole('link', { name: 'Tailor my CV for this job' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Tailor my CV for this job' })).toHaveLength(1);
     expect(screen.getAllByRole('link', { name: 'Add to Applications' })).toHaveLength(1);
   });
 
@@ -266,7 +266,7 @@ describe('actions', () => {
 
   it('places the header actions before the requirement breakdown', () => {
     renderReport();
-    const tailor = screen.getByRole('link', { name: 'Tailor my CV for this job' });
+    const tailor = screen.getByRole('button', { name: 'Tailor my CV for this job' });
     expect(tailor.compareDocumentPosition(screen.getByRole('tablist')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

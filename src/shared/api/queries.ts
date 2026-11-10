@@ -1,17 +1,22 @@
 // TanStack Query hooks for every resource. Screens only talk to the API through these.
+import { useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiBlob } from './client';
+import { fetchTailorDraft, requestTailorDraft } from './tailoring';
 import type {
   Application,
   ApplicationInput,
+  ApplicationPatch,
   Cv,
+  CvContentInput,
+  CvWriteInput,
   GmailConnection,
   MatchResult,
   RunMatchInput,
   Profile,
   SyncResult,
   TailorDirectInput,
-  TailorDraft,
+  TailorMatchInput,
   User,
 } from './types';
 
@@ -40,18 +45,24 @@ export function useSaveProfile() {
 // CVs
 export const useCvs = () => useQuery({ queryKey: qk.cvs, queryFn: () => api<Cv[]>('/cvs') });
 export const useCv = (id?: string) =>
-  useQuery({ queryKey: qk.cv(id ?? ''), queryFn: () => api<Cv>(`/cvs/${id}`), enabled: !!id });
+  useQuery({
+    queryKey: qk.cv(id ?? ''),
+    queryFn: ({ signal }) => api<Cv>(`/cvs/${id}`, { signal }),
+    enabled: !!id,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+  });
 export function useCreateCv() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (cv: Partial<Cv>) => api<Cv>('/cvs', { method: 'POST', json: cv }),
+    mutationFn: (cv: CvWriteInput & { tailorDraftId?: string }) => api<Cv>('/cvs', { method: 'POST', json: cv }),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.cvs }),
   });
 }
 export function useUpdateCv() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...cv }: Partial<Cv> & { id: string }) =>
+    mutationFn: ({ id, ...cv }: CvWriteInput & { id: string }) =>
       api<Cv>(`/cvs/${id}`, { method: 'PUT', json: cv }),
     onSuccess: (cv) => {
       qc.setQueryData(qk.cv(cv.id), cv);
@@ -67,8 +78,8 @@ export const fetchCvPdfBlob = (id: string, signal?: AbortSignal) =>
   apiBlob(`/cvs/${id}/pdf`, { signal });
 
 /** Render unsaved CV content to a Harvard PDF for the live builder preview (no DB write). */
-export const fetchCvPreviewPdf = (content: unknown, signal?: AbortSignal) =>
-  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content }, signal });
+export const fetchCvPreviewPdf = (content: CvContentInput, signal?: AbortSignal, tailorDraftId?: string, cvId?: string) =>
+  apiBlob('/cvs/preview/pdf', { method: 'POST', json: { content, tailorDraftId, cvId }, signal });
 
 export function useDeleteCv() {
   const qc = useQueryClient();
@@ -84,13 +95,28 @@ export function useDeleteCv() {
 
 // Matching + tailoring
 export const useMatches = () =>
-  useQuery({ queryKey: qk.matches, queryFn: () => api<MatchResult[]>('/matches') });
+  useQuery({ queryKey: qk.matches, queryFn: ({ signal }) => api<MatchResult[]>('/matches', { signal }) });
 export const useMatch = (id?: string) =>
   useQuery({
     queryKey: qk.match(id ?? ''),
-    queryFn: () => api<MatchResult>(`/matches/${id}`),
+    queryFn: ({ signal }) => api<MatchResult>(`/matches/${id}`, { signal }),
     enabled: !!id,
   });
+export function useDeleteMatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<void>(`/matches/${id}`, { method: 'DELETE' }),
+    onSuccess: async (_, id) => {
+      const list = { queryKey: qk.matches, exact: true };
+      const report = { queryKey: qk.match(id), exact: true };
+      // A fetch started before deletion must not restore the removed report.
+      await Promise.all([qc.cancelQueries(list), qc.cancelQueries(report)]);
+      qc.setQueryData<MatchResult[]>(qk.matches, (old) => old?.filter((match) => match.id !== id));
+      qc.removeQueries(report);
+      void qc.invalidateQueries(list);
+    },
+  });
+}
 export function useRunMatch() {
   const qc = useQueryClient();
   return useMutation({
@@ -101,30 +127,33 @@ export function useRunMatch() {
     },
   });
 }
-export const useTailor = () =>
-  useMutation({
-    mutationFn: (matchId: string) => api<TailorDraft>('/tailor', { method: 'POST', json: { matchId } }),
-  });
-
-/**
- * Direct tailoring: a CV + job details, no match record. Same endpoint and quota as the
- * match-linked path; the backend reuses an identical cached draft without a new AI call.
- * (`jobUrl` is not part of the tailoring contract, so it is intentionally not sent.)
- */
-export function useTailorDirect() {
+function useTailorMutation<Input extends TailorMatchInput | TailorDirectInput>() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (b: TailorDirectInput) => api<TailorDraft>('/tailor', { method: 'POST', json: b }),
-    // Seed the draft query so the review route doesn't need a second request.
-    onSuccess: (d) => qc.setQueryData(qk.tailorDraft(d.id), d),
+  const pending = useRef(false);
+  const mutation = useMutation({
+    mutationFn: (input: Input) => requestTailorDraft(input),
+    retry: false,
+    onSuccess: (draft) => qc.setQueryData(qk.tailorDraft(draft.id), draft),
+    onSettled: () => { pending.current = false; },
   });
+  const mutate: typeof mutation.mutate = (...args) => {
+    // Lock immediately, before React has rendered the pending button state.
+    if (pending.current || mutation.isPending) return;
+    pending.current = true;
+    mutation.mutate(...args);
+  };
+  return { mutate, isPending: mutation.isPending, isError: mutation.isError, error: mutation.error };
 }
-/** Reads a saved draft (GET only — never starts AI work); makes /app/tailor/:draftId refresh-safe. */
-export const useTailorDraft = (id?: string) =>
+
+export const useTailor = () => useTailorMutation<TailorMatchInput>();
+export const useTailorDirect = () => useTailorMutation<TailorDirectInput>();
+
+/** Opening a draft only reads it. Recheck cached drafts on entry in case they were removed. */
+export const useTailorDraft = (id: string) =>
   useQuery({
-    queryKey: qk.tailorDraft(id ?? ''),
-    queryFn: () => api<TailorDraft>(`/tailor/${id}`),
-    enabled: !!id,
+    queryKey: qk.tailorDraft(id),
+    queryFn: ({ signal }) => fetchTailorDraft(id, signal),
+    refetchOnMount: 'always',
     retry: false,
   });
 
@@ -151,7 +180,7 @@ function useAppMutation<V>(fn: (v: V) => Promise<Application | void>) {
 export const useCreateApplication = () =>
   useAppMutation((b: ApplicationInput) => api<Application>('/applications', { method: 'POST', json: b }));
 export const useUpdateApplication = () =>
-  useAppMutation(({ id, ...b }: Partial<ApplicationInput> & { id: string }) =>
+  useAppMutation(({ id, ...b }: ApplicationPatch & { id: string }) =>
     api<Application>(`/applications/${id}`, { method: 'PATCH', json: b }),
   );
 export const useDeleteApplication = () =>
@@ -166,7 +195,11 @@ export const useUndoEvent = () =>
   );
 
 // Gmail
-export const useGmail = () => useQuery({ queryKey: qk.gmail, queryFn: () => api<GmailConnection>('/gmail') });
+export const useGmail = () =>
+  useQuery({
+    queryKey: qk.gmail,
+    queryFn: ({ signal }) => api<GmailConnection>('/gmail', { signal }),
+  });
 function useGmailMutation<V>(fn: (v: V) => Promise<GmailConnection>) {
   const qc = useQueryClient();
   return useMutation({ mutationFn: fn, onSuccess: (g) => qc.setQueryData(qk.gmail, g) });

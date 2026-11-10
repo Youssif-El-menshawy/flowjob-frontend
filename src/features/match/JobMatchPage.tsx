@@ -1,15 +1,16 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
-import { useCvs, useMatches, useRunMatch, useTailorDirect } from '@/shared/api/queries';
+import { useCvs, useRunMatch, useTailorDirect } from '@/shared/api/queries';
+import type { TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { EmptyState, PageHeader } from '@/shared/ui/Display';
 import { Input, Select, Textarea } from '@/shared/ui/Field';
-import { Icon } from '@/shared/ui/Icons';
 import { PageLoader, Spinner } from '@/shared/ui/Spinner';
+import { RecentMatches } from './RecentMatches';
 
 const MATCH_STEPS = ['Reading the job post…', 'Comparing it with your CV…', 'Writing your feedback…'];
 const TAILOR_STEPS = ['Reading the job post…', 'Finding what to emphasise in your CV…', 'Drafting your suggestions…'];
@@ -49,26 +50,42 @@ interface FormError {
  * /app/match/:id) and "Tailor my CV" (POST /tailor with the CV + job, no match record →
  * /app/tailor/:draftId). Nothing runs while typing — only an explicit click on one action.
  */
+type Recovery = Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company' | 'jobUrl'>;
+
 export default function JobMatchPage() {
   useDocumentTitle('Job match');
+  const location = useLocation();
+  const recovery = (location.state as { freshTailoringDraft?: Recovery } | null)?.freshTailoringDraft;
+  return <JobMatchForm key={recovery ? location.key : 'job-form'} recovery={recovery} />;
+}
+
+function JobMatchForm({ recovery }: { recovery?: Recovery }) {
   const nav = useNavigate();
   const cvs = useCvs();
-  const recent = useMatches();
   const run = useRunMatch();
   const tailor = useTailorDirect();
+  const submitting = useRef(false);
   const [action, setAction] = useState<Action | null>(null);
-  const [cvId, setCvId] = useState('');
-  const [jobTitle, setJobTitle] = useState('');
-  const [company, setCompany] = useState('');
-  const [jobUrl, setJobUrl] = useState('');
-  const [text, setText] = useState(() => pendingJob.get());
+  const [cvId, setCvId] = useState(recovery?.sourceCvId ?? '');
+  const [jobTitle, setJobTitle] = useState(recovery?.jobTitle ?? '');
+  const [company, setCompany] = useState(recovery?.company ?? '');
+  const [jobUrl, setJobUrl] = useState(recovery?.jobUrl ?? '');
+  const [text, setText] = useState(() => recovery ? '' : pendingJob.get());
   const [error, setError] = useState<FormError | null>(null);
 
   useEffect(() => {
     if (!cvId && cvs.data?.length) setCvId(cvs.data.find((c) => c.kind === 'original')?.id ?? cvs.data[0].id);
   }, [cvs.data, cvId]);
 
-  if (cvs.isLoading) return <PageLoader />;
+  if (cvs.isPending || cvs.isLoading) return <PageLoader />;
+  if (cvs.isError && !cvs.data?.length)
+    return (
+      <EmptyState
+        title="Could not load your CVs"
+        text="Check your connection and try again."
+        action={<Button loading={cvs.isFetching} onClick={() => void cvs.refetch()}>Try again</Button>}
+      />
+    );
   if (!cvs.data?.length)
     return (
       <>
@@ -87,7 +104,8 @@ export default function JobMatchPage() {
   const busy = run.isPending || tailor.isPending;
   const jobLen = text.trim().length;
   const textOk = jobLen >= MIN_JOB_CHARS && jobLen <= MAX_JOB_CHARS;
-  const canSubmit = !!cvId && !!jobTitle.trim() && textOk && !busy;
+  const cvAvailable = cvs.data.some((cv) => cv.id === cvId);
+  const canSubmit = cvAvailable && !!jobTitle.trim() && textOk && !busy;
   const textHint =
     jobLen > 0 && jobLen < MIN_JOB_CHARS
       ? `Add a bit more — at least ${MIN_JOB_CHARS} characters of the job post (${jobLen} so far).`
@@ -105,7 +123,8 @@ export default function JobMatchPage() {
   };
 
   const tailorSubmit = () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
     setError(null);
     setAction('tailor');
     tailor.mutate(
@@ -114,6 +133,8 @@ export default function JobMatchPage() {
         jobTitle: jobTitle.trim(),
         jobDescription: text.trim(),
         company: company.trim() || undefined,
+        jobUrl: jobUrl.trim() || undefined,
+        ...(recovery && { fresh: true }),
       },
       {
         onSuccess: (d) => {
@@ -121,13 +142,17 @@ export default function JobMatchPage() {
           nav(`/app/tailor/${d.id}`);
         },
         // Tailoring 422s can be about the CV itself (e.g. empty), so show them as an alert.
-        onError: (e) => onError(e, false),
+        onError: (e) => {
+          submitting.current = false;
+          onError(e, false);
+        },
       },
     );
   };
 
   const submit = () => {
-    if (!canSubmit) return; // also guards against duplicate submissions while pending
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
     setError(null);
     setAction('match');
     run.mutate(
@@ -144,7 +169,10 @@ export default function JobMatchPage() {
           // A normal (push) navigation, so the browser Back button returns to this form.
           nav(`/app/match/${m.id}`);
         },
-        onError: (e) => onError(e, true),
+        onError: (e) => {
+          submitting.current = false;
+          onError(e, true);
+        },
       },
     );
   };
@@ -156,9 +184,12 @@ export default function JobMatchPage() {
         subtitle="Select a CV and paste a job posting to see how well you match or tailor your CV for the role."
       />
 
+      {recovery && <p className="mb-4 text-sm text-soft">Paste the job description and select Tailor my CV to create a fresh draft.</p>}
+
       <fieldset disabled={busy} className="m-0 flex min-w-0 flex-col gap-5 border-0 p-0">
         <legend className="sr-only">Job details</legend>
-        <Select label="CV to use" value={cvId} onChange={(e) => setCvId(e.target.value)}>
+        <Select label="CV to use" value={cvAvailable ? cvId : ''} onChange={(e) => setCvId(e.target.value)}>
+          {!cvAvailable && <option value="" disabled>Choose a CV</option>}
           {cvs.data.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -222,33 +253,7 @@ export default function JobMatchPage() {
         </div>
       )}
 
-      {!!recent.data?.length && (
-        <section className="mt-12" aria-labelledby="recent-matches">
-          <h2 id="recent-matches" className="mb-3 text-[17px] font-semibold">
-            Recent matches
-          </h2>
-          <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
-            {recent.data.slice(0, 5).map((m) => (
-              <li key={m.id}>
-                <Link
-                  to={`/app/match/${m.id}`}
-                  className="flex items-center gap-4 px-4 py-3 hover:bg-bg"
-                >
-                  <span className="font-display w-12 shrink-0 text-lg font-semibold">
-                    {m.scoreAvailable === false ? '—' : `${m.score}%`}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {m.jobTitle}
-                    {m.company ? ` · ${m.company}` : ''}
-                  </span>
-                  <span className="shrink-0 text-sm text-soft">{fmtDate(m.createdAt)}</span>
-                  <Icon.arrowRight />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <RecentMatches />
     </div>
   );
 }

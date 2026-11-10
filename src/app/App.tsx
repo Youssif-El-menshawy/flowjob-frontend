@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { createRoutesFromElements, Navigate, Outlet, Route, useLocation } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { AppLayout } from './AppLayout';
@@ -36,69 +36,65 @@ function GuestOnly({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function App() {
-  return (
-    <Suspense fallback={<PageLoader />}>
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route
-          path="/login"
-          element={
-            <GuestOnly>
-              <Login />
-            </GuestOnly>
-          }
-        />
-        <Route
-          path="/register"
-          element={
-            <GuestOnly>
-              <Register />
-            </GuestOnly>
-          }
-        />
-        <Route
-          path="/forgot-password"
-          element={
-            <GuestOnly>
-              <Forgot />
-            </GuestOnly>
-          }
-        />
-        {/* Focused AI workflows (match report + CV tailoring): their own layout with NO sidebar,
-            sibling of AppLayout, same auth guard. Back navigation lives in the layout/page. */}
-        <Route
-          element={
-            <RequireAuth>
-              <ReportLayout />
-            </RequireAuth>
-          }
-        >
-          <Route path="/app/match/:matchId" element={<MatchReport />} />
-          <Route path="/app/match/:matchId/tailor" element={<Tailor />} />
-          <Route path="/app/tailor/:draftId" element={<Tailor />} />
-        </Route>
-        <Route
-          path="/app"
-          element={
-            <RequireAuth>
-              <AppLayout />
-            </RequireAuth>
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="profile" element={<Profile />} />
-          <Route path="cv-builder" element={<CvBuilder />} />
-          <Route path="cv-builder/:cvId" element={<CvBuilder />} />
-          <Route path="cvs" element={<MyCvs />} />
-          <Route path="match" element={<JobMatch />} />
-          <Route path="applications" element={<Applications />} />
-          <Route path="applications/new" element={<AddApplication />} />
-          <Route path="applications/:id" element={<ApplicationDetail />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
-  );
-}
+export const appRoutes = createRoutesFromElements(
+  <Route element={<Suspense fallback={<PageLoader />}><Outlet /></Suspense>}>
+    <Route path="/" element={<Landing />} />
+    <Route
+      path="/login"
+      element={
+        <GuestOnly>
+          <Login />
+        </GuestOnly>
+      }
+    />
+    <Route
+      path="/register"
+      element={
+        <GuestOnly>
+          <Register />
+        </GuestOnly>
+      }
+    />
+    <Route
+      path="/forgot-password"
+      element={
+        <GuestOnly>
+          <Forgot />
+        </GuestOnly>
+      }
+    />
+    {/* Focused AI workflows (match report + CV tailoring): their own layout with NO sidebar,
+        sibling of AppLayout, same auth guard. Back navigation lives in the layout/page. */}
+    <Route
+      element={
+        <RequireAuth>
+          <ReportLayout />
+        </RequireAuth>
+      }
+    >
+      <Route path="/app/match/:matchId" element={<MatchReport />} />
+      <Route path="/app/match/:matchId/tailor" element={<Tailor />} />
+      <Route path="/app/tailor/:draftId" element={<Tailor />} />
+    </Route>
+    <Route
+      path="/app"
+      element={
+        <RequireAuth>
+          <AppLayout />
+        </RequireAuth>
+      }
+    >
+      <Route index element={<Dashboard />} />
+      <Route path="profile" element={<Profile />} />
+      <Route path="cv-builder" element={<CvBuilder />} />
+      <Route path="cv-builder/:cvId" element={<CvBuilder />} />
+      <Route path="cvs" element={<MyCvs />} />
+      <Route path="match" element={<JobMatch />} />
+      <Route path="applications" element={<Applications />} />
+      <Route path="applications/new" element={<AddApplication />} />
+      <Route path="applications/:id" element={<ApplicationDetail />} />
+      <Route path="settings" element={<Settings />} />
+    </Route>
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Route>,
+);

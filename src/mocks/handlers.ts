@@ -2,6 +2,7 @@ import { delay, http, HttpResponse } from 'msw';
 import type {
   Application,
   ApplicationInput,
+  ApplicationPatch,
   ApplicationStatus,
   Cv,
   Profile,
@@ -197,13 +198,20 @@ export const handlers = [
     `${B}/cvs/:id`,
     authed<{ id: string }>(({ params, u }) => {
       const cv = u.data.cvs.find((c) => c.id === params.id);
-      return cv ? HttpResponse.json(cv) : err(404, 'CV not found.');
+      return cv ? HttpResponse.json({ ...cv, contentRevision: cv.updatedAt }) : err(404, 'CV not found.');
     }),
   ),
   http.post(
     `${B}/cvs`,
     authed(async ({ request, u }) => {
-      const body = (await request.json()) as Partial<Cv>;
+      const body = (await request.json()) as Partial<Cv> & { tailorDraftId?: string };
+      if (body.tailorDraftId) {
+        const draft = u.data.drafts.find((d) => d.id === body.tailorDraftId);
+        if (!draft) return err(404, 'Draft not found.');
+        const source = u.data.cvs.find((c) => c.id === draft.sourceCvId);
+        if (!source || source.updatedAt !== draft.sourceCvRevision) return err(409, 'The source CV changed.');
+        if (body.kind !== 'tailored' || body.sourceCvId !== source.id) return err(422, 'Choose the source CV of the draft.');
+      }
       if (body.kind !== 'tailored' && u.data.cvs.some((c) => c.kind === 'original'))
         return err(409, 'You already have an original CV.');
       const cv: Cv = {
@@ -213,6 +221,7 @@ export const handlers = [
         jobTitle: body.jobTitle,
         company: body.company,
         matchId: body.matchId,
+        sourceCvId: body.sourceCvId,
         createdAt: now(),
         updatedAt: now(),
         content: body.content ?? toContent(u.data.profile),
@@ -242,9 +251,6 @@ export const handlers = [
       if (!cv) return err(404, 'CV not found.');
       if (cv.kind === 'original') return err(409, 'The original CV cannot be deleted.');
       u.data.cvs = u.data.cvs.filter((c) => c.id !== params.id);
-      u.data.applications.forEach((a) => {
-        if (a.cvId === params.id) a.cvId = undefined;
-      });
       return new HttpResponse(null, { status: 204 });
     }),
   ),
@@ -261,6 +267,15 @@ export const handlers = [
     authed<{ id: string }>(({ params, u }) => {
       const m = u.data.matches.find((x) => x.id === params.id);
       return m ? HttpResponse.json(m) : err(404, 'Match not found.');
+    }),
+  ),
+  http.delete<{ id: string }>(
+    `${B}/matches/:id`,
+    authed<{ id: string }>(({ params, u }) => {
+      const index = u.data.matches.findIndex((match) => match.id === params.id);
+      if (index === -1) return err(404, 'Match not found.');
+      u.data.matches.splice(index, 1);
+      return new HttpResponse(null, { status: 204 });
     }),
   ),
   http.post(
@@ -299,38 +314,45 @@ export const handlers = [
         jobTitle?: string;
         jobDescription?: string;
         company?: string;
+        jobUrl?: string;
       };
       let m: MatchResult | undefined = body.matchId ? u.data.matches.find((x) => x.id === body.matchId) : undefined;
       if (body.matchId && !m) return err(404, 'Match not found.');
       const cv = m
-        ? (u.data.cvs.find((c) => c.id === m!.cvId) ?? u.data.cvs.find((c) => c.kind === 'original'))
+        ? u.data.cvs.find((c) => c.id === m!.cvId)
         : u.data.cvs.find((c) => c.id === body.cvId);
       if (!cv) return err(m ? 409 : 404, m ? 'Create your CV first.' : 'Original CV not found.');
+      if (body.cvId && body.cvId !== cv.id) return err(422, 'This match belongs to a different CV.');
       if (!m) {
         // Direct tailoring: a transient analysis (never saved as a match record).
         const job = (body.jobDescription ?? '').trim();
         if (!body.jobTitle || job.length < 80) return err(422, 'Job description is too short or too long.');
         m = { ...analyseMatch(cv.content, job), id: '', cvId: cv.id, cvName: cv.name, createdAt: now() } as MatchResult;
       }
-      await delay(import.meta.env.MODE === 'test' ? 0 : 1200);
       const draft = {
         id: uid(),
         matchId: body.matchId,
         sourceCvId: cv.id,
+        sourceCvRevision: cv.updatedAt,
         jobTitle: body.matchId ? m!.jobTitle : (body.jobTitle ?? ''),
         company: body.matchId ? m!.company : (body.company ?? ''),
-        suggestions: tailorSuggestions(cv.content, m!).map((s) => ({ ...s, id: uid() })),
+        jobUrl: (body.matchId ? m.jobUrl : body.jobUrl) ?? null,
+        suggestions: tailorSuggestions(cv.content, m!)
+          .filter((s) => s.original.trim())
+          .map((s) => ({ ...s, id: uid(), reviewRequired: s.section !== 'skills' })),
       };
+      await delay(import.meta.env.MODE === 'test' ? 0 : 1200);
       u.data.drafts.push(draft);
       return HttpResponse.json(draft, { status: 201 });
     }),
   ),
 
+  http.get(`${B}/tailor/capabilities`, () => HttpResponse.json({ sourceVerification: 1 })),
   http.get<{ id: string }>(
     `${B}/tailor/:id`,
     authed<{ id: string }>(({ params, u }) => {
       const d = u.data.drafts.find((x) => x.id === params.id);
-      return d ? HttpResponse.json(d) : err(404, 'Draft not found.');
+      return d ? HttpResponse.json({ ...d, sourceCvRevision: d.sourceCvRevision ?? null }) : err(404, 'Draft not found.');
     }),
   ),
 
@@ -355,10 +377,10 @@ export const handlers = [
     authed(async ({ request, u }) => {
       const b = (await request.json()) as ApplicationInput;
       const fe: Record<string, string> = {};
-      if (!b.company?.trim()) fe.company = 'Company is required.';
-      if (!b.jobTitle?.trim()) fe.jobTitle = 'Job title is required.';
-      if (!b.dateApplied) fe.dateApplied = 'Date is required.';
+      if (typeof b.company !== 'string' || !b.company.trim()) fe.company = 'Company is required.';
+      if (typeof b.jobTitle !== 'string' || !b.jobTitle.trim()) fe.jobTitle = 'Job title is required.';
       if (!STATUSES.includes(b.status)) fe.status = 'Pick a status.';
+      if (b.cvId && !u.data.cvs.some((cv) => cv.id === b.cvId)) fe.cvId = 'Linked CV not found';
       if (Object.keys(fe).length) return err(422, 'Please fix the highlighted fields.', fe);
       const a: Application = {
         id: uid(),
@@ -366,9 +388,13 @@ export const handlers = [
         jobTitle: b.jobTitle.trim(),
         dateApplied: b.dateApplied,
         status: b.status,
-        jobUrl: b.jobUrl || undefined,
-        notes: b.notes || undefined,
-        cvId: b.cvId || undefined,
+        jobUrl: b.jobUrl || null,
+        location: b.location ?? null,
+        workArrangement: b.workArrangement ?? null,
+        employmentType: b.employmentType ?? null,
+        followUpDate: b.followUpDate ?? null,
+        notes: b.notes ?? null,
+        cvId: b.cvId || null,
         history: [{ id: uid(), status: b.status, at: now(), source: 'manual', note: 'Added by you.' }],
         suggestion: null,
         updatedAt: now(),
@@ -382,14 +408,24 @@ export const handlers = [
     authed<{ id: string }>(async ({ request, params, u }) => {
       const a = u.data.applications.find((x) => x.id === params.id);
       if (!a) return err(404, 'Application not found.');
-      const b = (await request.json()) as Partial<ApplicationInput>;
+      const b = (await request.json()) as ApplicationPatch;
+      const fe: Record<string, string> = {};
+      if ('company' in b && (typeof b.company !== 'string' || !b.company.trim())) fe.company = 'Company is required.';
+      if ('jobTitle' in b && (typeof b.jobTitle !== 'string' || !b.jobTitle.trim())) fe.jobTitle = 'Job title is required.';
+      if ('status' in b && (!b.status || !STATUSES.includes(b.status))) fe.status = 'Pick a status.';
+      if (b.cvId && !u.data.cvs.some((cv) => cv.id === b.cvId)) fe.cvId = 'Linked CV not found';
+      if (Object.keys(fe).length) return err(422, 'Please fix the highlighted fields.', fe);
+      if (Object.keys(b).length === 0) return HttpResponse.json(a);
+
       if (b.status && b.status !== a.status) {
         a.history.push({ id: uid(), status: b.status, at: now(), source: 'manual', note: 'Changed by you.' });
         a.status = b.status;
         if (a.suggestion && a.suggestion.proposedStatus === b.status) a.suggestion = null;
       }
-      for (const k of ['company', 'jobTitle', 'dateApplied', 'jobUrl', 'notes', 'cvId'] as const) {
-        if (k in b) (a as unknown as Record<string, unknown>)[k] = b[k] || undefined;
+      if (b.company) a.company = b.company.trim();
+      if (b.jobTitle) a.jobTitle = b.jobTitle.trim();
+      for (const k of ['dateApplied', 'jobUrl', 'location', 'workArrangement', 'employmentType', 'notes', 'followUpDate', 'cvId'] as const) {
+        if (k in b) Object.assign(a, { [k]: k === 'cvId' ? b[k] || null : b[k] });
       }
       a.updatedAt = now();
       return HttpResponse.json(a);

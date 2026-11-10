@@ -57,3 +57,18 @@ describe('application form', () => {
     ).toBe(true);
   });
 });
+
+describe('registration password bounds', () => {
+  const parse = (password: string) => registerSchema.safeParse({
+    name: 'Synthetic User', email: 'fixture@example.com', password, terms: true,
+  }).success;
+
+  it('uses Unicode code points and preserves ordinary passphrases', () => {
+    expect(parse('🙂'.repeat(7))).toBe(false);
+    expect(parse('🙂'.repeat(8))).toBe(true);
+    expect(parse('🙂'.repeat(256))).toBe(true);
+    expect(parse('🙂'.repeat(257))).toBe(false);
+    expect(parse(' a phrase with spaces ')).toBe(true);
+    expect(parse('unsafe\npassphrase')).toBe(false);
+  });
+});

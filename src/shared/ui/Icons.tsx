@@ -72,6 +72,11 @@ export const Icon = {
       <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
     </I>
   ),
+  trash: () => (
+    <I>
+      <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
+    </I>
+  ),
   menu: () => (
     <I>
       <path d="M4 7h16M4 12h16M4 17h16" />

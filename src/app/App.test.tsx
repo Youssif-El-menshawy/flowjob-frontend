@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MatchResult } from '@/shared/api/types';
 
@@ -30,28 +30,23 @@ vi.mock('@/shared/api/queries', () => ({
     return { data: match, isLoading: false, isError: false, error: null, isFetching: false, refetch: vi.fn() };
   },
   useRunMatch: () => ({ mutate: vi.fn(), isPending: false }),
+  useTailor: () => ({ mutate: vi.fn(), isPending: false }),
   useTailorDirect: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('@/features/auth/LoginPage', () => ({ default: () => <div>LOGIN PAGE</div> }));
 vi.mock('@/features/match/TailorPage', () => ({ default: () => <div>TAILOR PAGE</div> }));
 
-import { App } from './App';
+import { appRoutes } from './App';
 import { ToastProvider } from '@/shared/ui/Overlay';
 
-function BackButton() {
-  const nav = useNavigate();
-  return <button onClick={() => nav(-1)}>browser back</button>;
-}
-
 function renderApp(entries: string[], index?: number) {
-  return render(
-    <MemoryRouter initialEntries={entries} initialIndex={index}>
-      <ToastProvider>
-        <App />
-        <BackButton />
-      </ToastProvider>
-    </MemoryRouter>,
+  const router = createMemoryRouter(appRoutes, { initialEntries: entries, initialIndex: index });
+  render(
+    <ToastProvider>
+      <RouterProvider router={router} />
+    </ToastProvider>,
   );
+  return router;
 }
 
 afterEach(() => {
@@ -138,9 +133,9 @@ describe('Job Match route structure', () => {
   });
 
   it('"Back to Job Match" and browser Back both return to the input page', async () => {
-    renderApp(['/app/match', '/app/match/m1'], 1);
+    const router = renderApp(['/app/match', '/app/match/m1'], 1);
     await screen.findByRole('heading', { level: 1, name: 'Backend Engineer' });
-    fireEvent.click(screen.getByRole('button', { name: 'browser back' }));
+    await act(() => router.navigate(-1));
     expect(await screen.findByRole('button', { name: /Check my match/i })).toBeInTheDocument();
 
     cleanup();

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { ThemeToggle } from '@/features/auth/AuthShell';
+import { USE_MOCKS } from '@/shared/api/client';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { Button, ButtonLink } from '@/shared/ui/Button';
@@ -25,7 +26,7 @@ const STEPS = [
   },
   {
     t: 'Track',
-    d: 'Every application and Gmail reply in one place.',
+    d: 'Track your applications and their current status.',
     h: '100%',
     c: 'bg-[#2e5b44] text-white',
   },
@@ -149,7 +150,9 @@ export default function LandingPage() {
               },
               {
                 t: 'Your applications, kept in order',
-                d: 'Connect Gmail and replies update the status, or ask you first when unsure.',
+                d: USE_MOCKS
+                  ? 'Try how simulated Gmail replies can suggest status updates.'
+                  : 'Track each application and update its status as you hear back.',
                 x: (
                   <div className="flex flex-wrap gap-2">
                     <StatusPill status="Applied" />
@@ -171,27 +174,29 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-[1180px] gap-12 px-6 py-24 md:grid-cols-2 md:items-center">
-        <div>
-          <h2 className="text-4xl font-semibold">Your inbox stays yours.</h2>
-          <p className="mt-4 text-lg leading-relaxed text-soft">
-            Gmail access is read-only and optional. FlowJob only looks for replies to applications you added
-            yourself.
-          </p>
-        </div>
-        <ul>
-          {[
-            'We keep the sender, subject and result. Never the full email.',
-            'Gmail never creates applications on its own.',
-            'When a reply is unclear, you decide.',
-            'Disconnect any time and your access token is deleted.',
-          ].map((s) => (
-            <li key={s} className="border-t border-line py-4 text-[17px] last:border-b">
-              {s}
-            </li>
-          ))}
-        </ul>
-      </section>
+      {USE_MOCKS && (
+        <section className="mx-auto grid max-w-[1180px] gap-12 px-6 py-24 md:grid-cols-2 md:items-center">
+          <div>
+            <h2 className="text-4xl font-semibold">Try Gmail in the demo.</h2>
+            <p className="mt-4 text-lg leading-relaxed text-soft">
+              FlowJob uses simulated replies to show how Gmail could help track applications you added.
+              The demo does not access your inbox.
+            </p>
+          </div>
+          <ul>
+            {[
+              'Simulated replies show a sender, subject and result.',
+              'Replies never create applications on their own.',
+              'When a reply is unclear, you decide.',
+              'Disconnect the simulated account at any time.',
+            ].map((s) => (
+              <li key={s} className="border-t border-line py-4 text-[17px] last:border-b">
+                {s}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section id="pricing" className="bg-[#10261b] text-[#e8efe6]">
         <div className="mx-auto max-w-[1180px] px-6 py-24">
@@ -201,7 +206,8 @@ export default function LandingPage() {
               <span className="font-medium">Student</span>
               <span className="font-display text-5xl font-semibold">0 zł</span>
               <p className="leading-relaxed text-[#56665b]">
-                CV builder, 10 job matches and 5 tailored CVs a month, application tracking and Gmail sync.
+                CV builder, job matching, CV tailoring and application tracking.
+                {USE_MOCKS && ' Try simulated Gmail sync in the demo.'}
               </p>
               <ButtonLink to={authed ? '/app' : '/register'} className="mt-3 self-start">
                 {authed ? 'Open dashboard' : 'Create free account'}

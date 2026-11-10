@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { USE_MOCKS } from '@/shared/api/client';
 import { useApplications, useUpdateApplication } from '@/shared/api/queries';
 import type { Application, ApplicationStatus } from '@/shared/api/types';
 import { STATUSES } from '@/shared/api/types';
@@ -23,6 +24,7 @@ const COLUMNS: { name: string; statuses: ApplicationStatus[]; slab: string; drop
 function CardItem({ a, i }: { a: Application; i: number }) {
   const hist = a.history ?? [];
   const lastGmail = hist.length > 0 && hist[hist.length - 1].source !== 'manual';
+  const needsReview = USE_MOCKS && !!a.suggestion;
   return (
     <Link
       to={`/app/applications/${a.id}`}
@@ -30,7 +32,7 @@ function CardItem({ a, i }: { a: Application; i: number }) {
       onDragStart={(e) => e.dataTransfer.setData('text/plain', a.id)}
       className={cn(
         'block rounded-2xl border bg-surface p-3.5 lift animate-in',
-        a.suggestion ? 'border-accent' : 'border-line',
+        needsReview ? 'border-accent' : 'border-line',
       )}
       style={{ animationDelay: `${i * 0.04}s` }}
     >
@@ -38,7 +40,7 @@ function CardItem({ a, i }: { a: Application; i: number }) {
       <p className="mt-0.5 text-[13px] leading-snug text-soft">{a.jobTitle}</p>
       <div className="mt-3 flex items-center justify-between gap-2 text-xs">
         <span className="text-soft">{fmtDate(a.dateApplied)}</span>
-        {a.suggestion ? (
+        {needsReview ? (
           <span className="font-semibold text-accent-ink">Needs review</span>
         ) : a.status === 'Rejected' || a.status === 'Withdrawn' ? (
           <span className="text-soft">{a.status}</span>
@@ -101,7 +103,7 @@ export default function ApplicationsPage() {
       {!data?.length ? (
         <EmptyState
           title="No applications yet"
-          text="Add the jobs you have applied for. Later, Gmail replies can keep their status up to date."
+          text="Add the jobs you have applied for and track their status in one place."
           action={<ButtonLink to="/app/applications/new">Add your first application</ButtonLink>}
         />
       ) : (

@@ -1,8 +1,9 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
-import { fetchCvPreviewPdf, useCreateCv, useCvs, useTailor, useTailorDraft } from '@/shared/api/queries';
-import type { CvContent, TailorDraft, TailorSuggestion } from '@/shared/api/types';
+import { fetchCvPreviewPdf, useCreateCv, useCv, useCvs, useTailor, useTailorDraft } from '@/shared/api/queries';
+import { TAILORING_BACKEND_INCOMPATIBLE } from '@/shared/api/tailoring';
+import type { CvContent, TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { cn, downloadBlob } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
@@ -12,6 +13,7 @@ import { useToast } from '@/shared/ui/Overlay';
 import { Skeleton } from '@/shared/ui/Spinner';
 import { HarvardPdfViewer } from '@/features/cv/HarvardPdfViewer';
 import { createPreviewEngine, type PreviewState } from '@/features/cv/cvPreview';
+import { applySuggestions, reviewSuggestion, type Decision, type ReviewedSuggestion } from './tailorReview';
 
 const SECTION: Record<string, string> = {
   summary: 'Summary',
@@ -19,52 +21,6 @@ const SECTION: Record<string, string> = {
   skills: 'Skills',
   project: 'Project',
 };
-
-const splitSkills = (text: string) => text.split(',').map((skill) => skill.trim()).filter(Boolean);
-const skillKey = (skill: string) => skill.trim().toLowerCase();
-
-function compareSkills(original: string[], proposed: string) {
-  const next = splitSkills(proposed);
-  const before = new Set(original.map(skillKey));
-  const after = new Set(next.map(skillKey));
-  return {
-    retained: original.filter((skill) => after.has(skillKey(skill))),
-    added: next.filter((skill) => !before.has(skillKey(skill))),
-    removed: original.filter((skill) => !after.has(skillKey(skill))),
-  };
-}
-
-type Decision = 'original' | { acceptedText: string };
-
-function reviewSuggestion(suggestion: TailorSuggestion, source: CvContent, text: string, decision?: Decision) {
-  const skillChanges = suggestion.section === 'skills' ? compareSkills(source.skills ?? [], text) : null;
-  const needsReview = !!suggestion.reviewRequired || !!(skillChanges && (skillChanges.added.length || skillChanges.removed.length));
-  const applied = decision !== 'original' && (!needsReview || decision?.acceptedText === text);
-  const status = applied ? 'Applied' : needsReview && decision !== 'original' ? 'Needs review' : 'Original kept';
-  return { ...suggestion, text, skillChanges, needsReview, applied, status };
-}
-type ReviewedSuggestion = ReturnType<typeof reviewSuggestion>;
-
-/** Preview, download and save all consume the same reviewed clone. */
-function apply(content: CvContent, suggestions: ReviewedSuggestion[]): CvContent {
-  const cv = structuredClone(content);
-  for (const suggestion of suggestions) {
-    if (!suggestion.applied) continue;
-    const { section, text, experienceId, bulletIndex, projectId } = suggestion;
-    if (section === 'summary') cv.summary = text;
-    else if (section === 'skills') cv.skills = splitSkills(text);
-    else if (section === 'experience') {
-      const experience = cv.experience.find((item) => item.id === experienceId);
-      if (experience && bulletIndex !== undefined && bulletIndex >= 0 && bulletIndex < experience.bullets.length) {
-        experience.bullets[bulletIndex] = text;
-      }
-    } else if (section === 'project') {
-      const project = cv.projects.find((item) => item.id === projectId);
-      if (project) project.description = text;
-    }
-  }
-  return cv;
-}
 
 function SuggestionCard({ suggestion, onEdit, onDecide }: {
   suggestion: ReviewedSuggestion;
@@ -99,7 +55,7 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
           {suggestion.explanation || 'Compare the suggested wording with your original CV.'}
         </span>
         {suggestion.needsReview && (
-          <span className="text-xs font-semibold text-accent-ink">Verify against your original CV before applying.</span>
+          <span className="text-xs font-semibold text-accent-ink">{suggestion.blocked ? 'This suggestion cannot be matched to the verified source.' : 'Verify against your original CV before applying.'}</span>
         )}
       </button>
       <div id={detailsId} hidden={!expanded}>
@@ -113,6 +69,7 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
               label="Suggested wording"
               rows={3}
               value={suggestion.text}
+              disabled={suggestion.blocked}
               onChange={(event) => onEdit(event.target.value)}
             />
             {suggestion.skillChanges && (
@@ -133,6 +90,7 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
                 size="sm"
                 variant={suggestion.applied ? 'primary' : 'secondary'}
                 aria-pressed={suggestion.applied}
+                disabled={suggestion.blocked || !suggestion.text.trim()}
                 onClick={() => onDecide({ acceptedText: suggestion.text })}
               >
                 Apply suggestion
@@ -141,6 +99,7 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
                 size="sm"
                 variant={suggestion.status === 'Original kept' ? 'primary' : 'secondary'}
                 aria-pressed={suggestion.status === 'Original kept'}
+                disabled={suggestion.blocked}
                 onClick={() => onDecide('original')}
               >
                 Keep original
@@ -154,11 +113,25 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
 }
 
 /** Each preview mode has its own lifetime. Edits only mark its rendered PDF as stale. */
-function TailorPreview({ content }: { content: CvContent }) {
+function TailorPreview({ content, draftId, cvId, onSourceRejected }: {
+  content: CvContent;
+  draftId?: string;
+  cvId?: string;
+  onSourceRejected: () => void;
+}) {
   const [state, setState] = useState<PreviewState>({
     status: 'idle', blob: null, renderedFingerprint: null, error: false,
   });
-  const [engine] = useState(() => createPreviewEngine(fetchCvPreviewPdf, setState));
+  const [engine] = useState(() => createPreviewEngine(async (value, signal) => {
+    try {
+      return cvId
+        ? await fetchCvPreviewPdf(value, signal, draftId, cvId)
+        : await fetchCvPreviewPdf(value, signal, draftId);
+    } catch (error) {
+      if (!signal.aborted && draftId && error instanceof ApiError && error.status === 409) onSourceRejected();
+      throw error;
+    }
+  }, setState));
   const initialContent = useRef(content);
   useEffect(() => {
     void engine.request(initialContent.current);
@@ -182,10 +155,10 @@ function TailorPreview({ content }: { content: CvContent }) {
         {loading && <span role="status" className="sr-only">Rendering Harvard PDF preview</span>}
       </div>
       <div className="relative order-3 h-[min(62dvh,640px)] min-h-[300px] w-full overflow-hidden rounded-md ring-1 ring-line lg:h-[clamp(300px,calc(100dvh-17rem),760px)]">
-        <HarvardPdfViewer blob={state.blob} status={state.status} errorText="Could not render the preview." />
+        <HarvardPdfViewer blob={state.blob} status={state.status} errorText={state.errorMessage ?? 'Could not render the preview.'} />
         {state.error && state.blob && (
           <p role="alert" className="absolute inset-x-2 bottom-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-            Could not render the preview. Try again.
+            {state.errorMessage ?? 'Could not render the preview. Try again.'}
           </p>
         )}
       </div>
@@ -198,11 +171,11 @@ interface Back {
   label: string;
 }
 
-function TailorLoading() {
+function TailorLoading({ message = 'Writing truthful, focused suggestions for this job…' }: { message?: string }) {
   return (
     <div className="grid gap-6 lg:grid-cols-2" aria-live="polite">
       <Card className="flex flex-col gap-4">
-        <p className="font-medium">Writing truthful, focused suggestions for this job…</p>
+        <p className="font-medium">{message}</p>
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
@@ -212,7 +185,9 @@ function TailorLoading() {
   );
 }
 
-function TailorError({ error, back, missing }: { error: unknown; back: Back; missing?: boolean }) {
+function TailorError({ error, back, missing, title = 'Could not tailor this CV', retry }: {
+  error: unknown; back: Back; missing?: boolean; title?: string; retry?: ReactNode;
+}) {
   // Backend messages (quota, provider unavailable…) are already user-safe; anything else is generic.
   const text = missing
     ? 'This draft was not found. It may have expired or been removed — start again from the job form.'
@@ -221,52 +196,105 @@ function TailorError({ error, back, missing }: { error: unknown; back: Back; mis
       : 'Please check your connection and try again.';
   return (
     <EmptyState
-      title={missing ? 'Draft not found' : 'Could not tailor this CV'}
+      title={missing ? 'Draft not found' : title}
       text={text}
-      action={<ButtonLink to={back.to}>{back.label}</ButtonLink>}
+      action={
+        <div className="flex flex-wrap justify-center gap-2.5">
+          {retry}
+          <ButtonLink to={back.to} variant={retry ? 'secondary' : 'primary'}>{back.label}</ButtonLink>
+        </div>
+      }
     />
   );
 }
 
-/**
- * Entry path A: /app/match/:matchId/tailor. Creates (or reuses the cached) draft for an existing
- * match — the match is never re-analysed.
- */
+/** The old match-tailor link stays usable. Opening or refreshing it never starts AI work. */
 function MatchTailor({ matchId }: { matchId: string }) {
+  const nav = useNavigate();
   const tailor = useTailor();
-  const [draft, setDraft] = useState<TailorDraft | null>(null);
-  const started = useRef(false);
   const back = { to: `/app/match/${matchId}`, label: 'Back to match' };
 
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    tailor.mutate(matchId, { onSuccess: setDraft });
-  }, [matchId, tailor]);
-
-  if (tailor.isError) return <TailorError error={tailor.error} back={back} />;
-  if (!draft) return <><PageHeader back={{ ...back, label: 'Back to match result' }} title="Tailor your CV" /><TailorLoading /></>;
-  return <TailorReview key={draft.id} draft={draft} back={{ ...back, label: 'Back to match result' }} />;
+  const start = () => tailor.mutate({ matchId }, {
+    onSuccess: (draft) => nav(`/app/tailor/${draft.id}`, { replace: true }),
+  });
+  if (tailor.isError) {
+    return <TailorError error={tailor.error} back={back}
+      retry={<Button onClick={start}>Retry tailoring</Button>} />;
+  }
+  return (
+    <>
+      <PageHeader back={back} title="Tailor your CV" />
+      {tailor.isPending ? <TailorLoading /> : <Button onClick={start}>Start tailoring</Button>}
+    </>
+  );
 }
 
-/**
- * Entry path B: /app/tailor/:draftId — a direct-tailoring draft (no match). GET only, so
- * opening or refreshing never starts new AI work.
- */
+/** A persisted draft is read by id, whether it came from a match or the job form. */
 function DraftTailor({ draftId }: { draftId: string }) {
   const q = useTailorDraft(draftId);
-  const back = { to: '/app/match', label: 'Back to Job Match' };
-  if (q.isError) return <TailorError error={q.error} back={back} missing={q.error instanceof ApiError && q.error.status === 404} />;
-  if (!q.data) return <><PageHeader back={back} title="Tailor your CV" /><TailorLoading /></>;
+  const matchId = q.data?.matchId;
+  const back = matchId
+    ? { to: `/app/match/${matchId}`, label: 'Back to match result' }
+    : { to: '/app/match', label: 'Back to Job Match' };
+  const checkingDraft = !q.isFetchedAfterMount && q.isFetching;
+  if (q.isPending || checkingDraft) {
+    return <><PageHeader back={back} title="Tailor your CV" /><TailorLoading message="Loading your saved draft…" /></>;
+  }
+  if (q.isError || !q.data) {
+    const missing = q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 410);
+    return <TailorError error={q.error} back={back} missing={missing} title="Could not load this draft"
+      retry={!missing && <Button loading={q.isFetching} onClick={() => void q.refetch()}>Try again</Button>} />;
+  }
   // The focused layout's top bar already offers "Back to Job Match", so don't repeat it here.
-  return <TailorReview key={q.data.id} draft={q.data} back={back} hideHeaderBack />;
+  return <TailorReview key={q.data.id} draft={q.data} back={back} hideHeaderBack={!matchId} />;
 }
 
 export default function TailorPage() {
   useDocumentTitle('Tailor CV');
   const { matchId, draftId } = useParams();
-  if (matchId) return <MatchTailor matchId={matchId} />;
-  return <DraftTailor draftId={draftId ?? ''} />;
+  if (matchId) return <MatchTailor key={matchId} matchId={matchId} />;
+  if (draftId) return <DraftTailor key={draftId} draftId={draftId} />;
+  return <TailorError error={null} back={{ to: '/app/match', label: 'Back to Job Match' }} missing />;
+}
+
+function DraftRecovery({ draft, incompatible }: { draft: TailorDraft; incompatible: boolean }) {
+  const nav = useNavigate();
+  const regenerate = useTailor();
+  const { matchId, sourceCvId, jobTitle, company, jobUrl } = draft;
+  const recoveryState = { freshTailoringDraft: { sourceCvId, jobTitle, company, jobUrl } };
+
+  return (
+    <div className="mb-4 rounded-xl bg-accent/15 p-3 text-sm text-accent-ink">
+      <p role="alert">
+        {incompatible
+          ? TAILORING_BACKEND_INCOMPATIBLE
+          : draft.sourceCvRevision === null
+            ? 'This older draft has no verified source revision.'
+            : 'The source CV changed after this draft was generated.'}
+      </p>
+      {!incompatible && (matchId ? (
+        <Button size="sm" variant="secondary" className="mt-2" loading={regenerate.isPending}
+          onClick={() => regenerate.mutate({ matchId, cvId: sourceCvId, fresh: true }, {
+            onSuccess: (freshDraft) => nav(`/app/tailor/${freshDraft.id}`, { replace: true }),
+          })}
+        >
+          Create fresh draft
+        </Button>
+      ) : (
+        <>
+          <p className="mt-1">Paste the job description again to create a fresh draft.</p>
+          <ButtonLink to="/app/match" state={recoveryState} size="sm" variant="secondary" className="mt-2">
+            Start a fresh draft
+          </ButtonLink>
+        </>
+      ))}
+      {regenerate.isError && (
+        <p role="alert" className="mt-2">
+          {regenerate.error instanceof ApiError ? regenerate.error.message : 'Could not create a fresh draft. Please try again.'}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** The single review UI for both entry paths. Never assumes a match exists. */
@@ -274,31 +302,55 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const nav = useNavigate();
   const toast = useToast();
   const cvs = useCvs();
+  const sourceQuery = useCv(draft.sourceCvId);
   const create = useCreateCv();
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [confirmed, setConfirmed] = useState<CvContent | null>(null);
+  const [sourceRejected, setSourceRejected] = useState(false);
   const [name, setName] = useState<string | null>(null);
   const [view, setView] = useState<'Tailored' | 'Original'>('Tailored');
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [downloadError, setDownloadError] = useState('');
   const downloadRequest = useRef<AbortController | null>(null);
   const saving = useRef(false);
 
-  const source = cvs.data?.find((cv) => cv.id === draft.sourceCvId);
+  // The detail query refreshes on mount. Don't apply against cached CV data before it returns.
+  const checkingSource = !sourceQuery.isFetchedAfterMount && sourceQuery.isFetching;
+  const source = !checkingSource && sourceQuery.data?.id === draft.sourceCvId && !sourceQuery.isError
+    ? sourceQuery.data
+    : undefined;
+  const incompatible = (draft.sourceCvRevision !== null
+    && (typeof draft.sourceCvRevision !== 'string' || !draft.sourceCvRevision.trim()))
+    || (!!source && !source.contentRevision);
+  const sourceIsCurrent = !incompatible && !sourceRejected && !!draft.sourceCvRevision && source?.contentRevision === draft.sourceCvRevision;
+  const refetchSource = sourceQuery.refetch;
+  const rejectSource = useCallback(() => {
+    setSourceRejected(true);
+    setConfirmed(null);
+    void refetchSource();
+  }, [refetchSource]);
   const defaultName = `${draft.company || draft.jobTitle} v${(cvs.data?.filter((cv) => cv.company === draft.company).length ?? 0) + 1}`;
   const versionName = name?.trim() || defaultName;
   const suggestions = useMemo(
     () => source ? draft.suggestions.map((suggestion) =>
-      reviewSuggestion(suggestion, source.content, edits[suggestion.id] ?? suggestion.suggested, decisions[suggestion.id]),
+      reviewSuggestion(suggestion, source.content, sourceIsCurrent, edits[suggestion.id] ?? suggestion.suggested, decisions[suggestion.id]),
     ) : [],
-    [source, draft.suggestions, edits, decisions],
+    [source, sourceIsCurrent, draft.suggestions, edits, decisions],
   );
-  const result = useMemo(() => source ? apply(source.content, suggestions) : null, [source, suggestions]);
+  const result = useMemo(
+    () => sourceIsCurrent && source ? applySuggestions(source.content, suggestions) : null,
+    [sourceIsCurrent, source, suggestions],
+  );
+  const tailoredPreview = view === 'Tailored' ? result : null;
   const appliedCount = suggestions.filter((suggestion) => suggestion.applied).length;
   // Confirm the exact reviewed version, so an edit never inherits an earlier confirmation.
   const agree = !!result && result === confirmed;
 
-  useEffect(() => () => downloadRequest.current?.abort(), []);
+  useEffect(() => {
+    if (!sourceIsCurrent) setDownloadStatus('idle');
+    return () => downloadRequest.current?.abort();
+  }, [sourceIsCurrent]);
 
   const download = async () => {
     if (!agree || !result || downloadRequest.current) return;
@@ -307,13 +359,19 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
     setDownloadStatus('loading');
     try {
       // Render the content reviewed at click time, independently of the visible preview.
-      const blob = await fetchCvPreviewPdf(result, controller.signal);
+      const blob = await fetchCvPreviewPdf(result, controller.signal, draft.id);
       if (controller.signal.aborted) return;
       const filename = versionName.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'Tailored_CV';
       downloadBlob(blob, `${filename}.pdf`);
       setDownloadStatus('idle');
-    } catch {
-      if (!controller.signal.aborted) setDownloadStatus('error');
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        if (error instanceof ApiError && error.status === 409) rejectSource();
+        else {
+          setDownloadError(error instanceof ApiError ? error.message : 'Could not download the tailored PDF. Try again.');
+          setDownloadStatus('error');
+        }
+      }
     } finally {
       downloadRequest.current = null;
     }
@@ -330,6 +388,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
         company: draft.company,
         matchId: draft.matchId,
         sourceCvId: draft.sourceCvId,
+        tailorDraftId: draft.id,
         content: result,
       },
       {
@@ -337,7 +396,10 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
           toast({ text: `${cv.name} saved to My CVs.` });
           nav('/app/cvs');
         },
-        onError: () => toast({ text: 'Could not save your CV.', tone: 'error' }),
+        onError: (error) => {
+          if (error instanceof ApiError && error.status === 409) rejectSource();
+          else toast({ text: error instanceof ApiError ? error.message : 'Could not save your CV.', tone: 'error' });
+        },
         onSettled: () => { saving.current = false; },
       },
     );
@@ -351,18 +413,20 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
         subtitle={`${draft.jobTitle} · based on ${source?.name ?? 'your CV'}`}
       />
 
-      {!source || !result ? (
-        cvs.isLoading || !cvs.data ? (
-          <TailorLoading />
+      {!source ? (
+        sourceQuery.isLoading || checkingSource ? (
+          <TailorLoading message="Checking the original CV…" />
         ) : (
           <EmptyState
-            title="Original CV not found"
-            text="The CV this draft was based on is no longer available."
+            title={sourceQuery.error instanceof ApiError && sourceQuery.error.status === 404
+              ? 'Original CV not found' : 'Could not verify the source CV'}
+            text="Return to My CVs to check that the source is available."
             action={<ButtonLink to="/app/cvs">Go to My CVs</ButtonLink>}
           />
         )
       ) : (
         <>
+          {!sourceIsCurrent && <DraftRecovery draft={draft} incompatible={incompatible} />}
           <div className="grid min-w-0 grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
             <div className="min-w-0">
               <header className="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -401,12 +465,18 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
               <div className="order-2 ml-auto shrink-0">
                 <Segmented
                   label="Preview"
-                  options={['Tailored', 'Original'] as const}
-                  value={view}
+                  options={sourceIsCurrent ? ['Tailored', 'Original'] : ['Original']}
+                  value={sourceIsCurrent ? view : 'Original'}
                   onChange={setView}
                 />
               </div>
-              <TailorPreview key={view} content={view === 'Tailored' ? result : source.content} />
+              <TailorPreview
+                key={tailoredPreview ? draft.id : `original:${source.contentRevision}`}
+                content={tailoredPreview ?? source.content}
+                draftId={tailoredPreview ? draft.id : undefined}
+                cvId={tailoredPreview ? undefined : source.id}
+                onSourceRejected={rejectSource}
+              />
             </div>
           </div>
 
@@ -425,10 +495,10 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
                 <Button
                   variant="secondary"
                   disabled={!agree}
-                  loading={downloadStatus === 'loading'}
+                  loading={sourceIsCurrent && downloadStatus === 'loading'}
                   onClick={() => void download()}
                 >
-                  {downloadStatus === 'loading' ? 'Preparing PDF…' : 'Download tailored PDF'}
+                  {sourceIsCurrent && downloadStatus === 'loading' ? 'Preparing PDF…' : 'Download tailored PDF'}
                 </Button>
                 <Button disabled={!agree} loading={create.isPending} onClick={save}>
                   Save as new CV
@@ -439,13 +509,14 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
               <input
                 type="checkbox"
                 checked={agree}
+                disabled={!result}
                 onChange={(event) => setConfirmed(event.target.checked ? result : null)}
                 className="mt-0.5 size-[18px] shrink-0 accent-primary"
               />
               I checked this CV and everything in it is true
             </label>
-            {downloadStatus === 'loading' && <p role="status" className="sr-only">Preparing tailored PDF</p>}
-            {downloadStatus === 'error' && <p role="alert" className="text-sm text-danger">Could not download the tailored PDF. Try again.</p>}
+            {sourceIsCurrent && downloadStatus === 'loading' && <p role="status" className="sr-only">Preparing tailored PDF</p>}
+            {sourceIsCurrent && downloadStatus === 'error' && <p role="alert" className="text-sm text-danger">{downloadError}</p>}
           </div>
         </>
       )}
