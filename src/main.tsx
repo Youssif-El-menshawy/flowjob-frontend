@@ -1,12 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { USE_MOCKS } from '@/shared/api/client';
 import { ThemeProvider } from '@/shared/lib/theme';
 import { ToastProvider } from '@/shared/ui/Overlay';
 import { AuthProvider } from '@/features/auth/AuthProvider';
-import { App } from '@/app/App';
+import { appRoutes } from '@/app/App';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -18,17 +18,16 @@ async function start() {
     const { worker } = await import('./mocks/browser');
     await worker.start({ onUnhandledRequest: 'bypass', quiet: true });
   }
+  const router = createBrowserRouter(appRoutes);
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ThemeProvider>
         <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
-            <ToastProvider>
-              <AuthProvider>
-                <App />
-              </AuthProvider>
-            </ToastProvider>
-          </BrowserRouter>
+          <ToastProvider>
+            <AuthProvider>
+              <RouterProvider router={router} />
+            </AuthProvider>
+          </ToastProvider>
         </QueryClientProvider>
       </ThemeProvider>
     </StrictMode>,

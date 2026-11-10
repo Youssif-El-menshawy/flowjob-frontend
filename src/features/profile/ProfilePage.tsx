@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { matchPath, useBlocker, type BlockerFunction } from 'react-router-dom';
 import { z } from 'zod';
 import { useProfile, useSaveProfile } from '@/shared/api/queries';
 import type { Education, Experience, Profile, Project } from '@/shared/api/types';
@@ -20,7 +20,6 @@ const TABS = ['Personal details', 'Summary', 'Experience', 'Education', 'Project
 type Tab = (typeof TABS)[number];
 
 const EMAIL = z.string().email();
-const CV_BUILDER = '/app/cv-builder';
 
 export default function ProfilePage() {
   useDocumentTitle('Profile');
@@ -58,14 +57,12 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
   reset: (saved: Profile) => void;
 }) {
   const toast = useToast();
-  const navigate = useNavigate();
   const save = useSaveProfile();
   const saving = useRef(false);
   const seenQuery = useRef(latest);
   const [p, setP] = useState(() => structuredClone(saved));
   const [validateEmail, setValidateEmail] = useState(false);
   const [skillInput, setSkillInput] = useState('');
-  const [leaving, setLeaving] = useState(false);
   const [editing, setEditing] = useState<{
     kind: Kind;
     item: Experience | Education | Project;
@@ -80,6 +77,10 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
   const phoneField = usePhoneField(saved.phone);
   const location = useLocationField(p.location, (value) => set('location', value));
   const dirty = contact.isDirty || phoneField.isDirty || !!skillInput.trim() || JSON.stringify(p) !== JSON.stringify(saved);
+  const blocker = useBlocker(useCallback<BlockerFunction>(
+    ({ nextLocation }) => dirty && !matchPath('/app/profile', nextLocation.pathname),
+    [dirty],
+  ));
   const strength = profileStrength(p);
   const invalidEmail = p.email !== saved.email && !!p.email.trim() && !EMAIL.safeParse(p.email.trim()).success;
 
@@ -204,15 +205,7 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
         title="Profile"
         subtitle="Your details in one place. New CVs and job matches start from here."
         actions={
-          <ButtonLink
-            to={CV_BUILDER}
-            variant="secondary"
-            onClick={(event) => {
-              if (!dirty || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-              event.preventDefault();
-              if (!saving.current) setLeaving(true);
-            }}
-          >
+          <ButtonLink to="/app/cv-builder" variant="secondary">
             Open CV builder
           </ButtonLink>
         }
@@ -304,9 +297,14 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
       </div>
 
       <ConfirmDialog
-        open={leaving}
-        onClose={() => setLeaving(false)}
-        onConfirm={() => navigate(CV_BUILDER)}
+        open={blocker.state === 'blocked'}
+        onClose={() => {
+          if (blocker.state === 'blocked') blocker.reset();
+        }}
+        onConfirm={() => {
+          if (!saving.current && blocker.state === 'blocked') blocker.proceed();
+        }}
+        loading={save.isPending}
         title="Leave profile?"
         text="Your unsaved profile changes will be lost if you leave."
         confirmLabel="Discard and leave"

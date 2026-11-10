@@ -1,8 +1,10 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useSyncExternalStore } from 'react';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Profile } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
+import { AppLayout } from '@/app/AppLayout';
 import ProfilePage from './ProfilePage';
 
 const mocks = vi.hoisted(() => ({
@@ -11,10 +13,29 @@ const mocks = vi.hoisted(() => ({
   isPending: false,
   save: vi.fn(),
   refetch: vi.fn(),
+  profileListeners: new Set<() => void>(),
+}));
+
+function subscribeProfile(listener: () => void) {
+  mocks.profileListeners.add(listener);
+  return () => { mocks.profileListeners.delete(listener); };
+}
+
+function refreshProfile() {
+  act(() => mocks.profileListeners.forEach((listener) => listener()));
+}
+
+vi.mock('@/features/auth/AuthProvider', () => ({
+  useAuth: () => ({ user: { name: 'Profile Name', email: 'profile@example.test' }, logout: vi.fn() }),
 }));
 
 vi.mock('@/shared/api/queries', () => ({
-  useProfile: () => ({ data: mocks.profile, isError: mocks.isError, refetch: mocks.refetch }),
+  useApplications: () => ({ data: [] }),
+  useProfile: () => ({
+    data: useSyncExternalStore(subscribeProfile, () => mocks.profile),
+    isError: mocks.isError,
+    refetch: mocks.refetch,
+  }),
   useSaveProfile: () => ({ mutate: mocks.save, isPending: mocks.isPending }),
 }));
 
@@ -35,24 +56,25 @@ function fixture(overrides: Partial<Profile> = {}): Profile {
   };
 }
 
-function profileTree() {
-  return (
-    <MemoryRouter initialEntries={['/app/profile']}>
-      <ToastProvider>
-        <Routes>
-          <Route path="/app/profile" element={<ProfilePage />} />
-          <Route path="/app/cv-builder" element={<h1>CV Builder destination</h1>} />
-        </Routes>
-      </ToastProvider>
-    </MemoryRouter>
-  );
+function renderProfile(entries = ['/app/profile'], initialIndex?: number) {
+  const router = createMemoryRouter([{
+    path: '/app',
+    element: <AppLayout />,
+    children: [
+      { path: 'profile', element: <ProfilePage /> },
+      { path: 'cv-builder', element: <h1>CV Builder destination</h1> },
+      { path: 'cvs', element: <h1>My CVs destination</h1> },
+      { path: 'applications', element: <h1>Applications destination</h1> },
+    ],
+  }], { initialEntries: entries, initialIndex });
+  render(<ToastProvider><RouterProvider router={router} /></ToastProvider>);
+  return router;
 }
 
 function renderPersonalDetails(location: string, languages = '', overrides: Partial<Profile> = {}) {
   mocks.profile = fixture({ location, languages, ...overrides });
-  const view = render(profileTree());
+  renderProfile();
   tab('Personal details');
-  return view;
 }
 
 const city = () => screen.getByRole('textbox', { name: /^City/ });
@@ -66,9 +88,14 @@ const edit = (element: HTMLElement, value: string) => fireEvent.change(element, 
 const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 const discard = () => fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
+beforeEach(() => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+});
+
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  vi.restoreAllMocks();
   mocks.profile = undefined;
   mocks.isError = false;
   mocks.isPending = false;
@@ -287,12 +314,12 @@ describe('Profile persistence and navigation', () => {
 
   it('shows an initial load error and opens the Profile after Retry succeeds', () => {
     mocks.isError = true;
-    const view = render(profileTree());
+    renderProfile();
     expect(screen.getByText('Could not load your profile')).toBeVisible();
     mocks.refetch.mockImplementation(() => {
       mocks.profile = fixture();
       mocks.isError = false;
-      view.rerender(profileTree());
+      refreshProfile();
     });
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(mocks.refetch).toHaveBeenCalledTimes(1);
@@ -319,14 +346,14 @@ describe('Profile persistence and navigation', () => {
   });
 
   it('adopts a fresh query result while clean and retains edits through a later refresh', () => {
-    const view = renderPersonalDetails('');
+    renderPersonalDetails('');
     mocks.profile = fixture({ fullName: 'Fresh name' });
-    view.rerender(profileTree());
+    refreshProfile();
     expect(screen.getByLabelText('Full name')).toHaveValue('Fresh name');
 
     edit(screen.getByLabelText('Full name'), 'Unsaved name');
     mocks.profile = fixture({ fullName: 'Another server value' });
-    view.rerender(profileTree());
+    refreshProfile();
     expect(screen.getByLabelText('Full name')).toHaveValue('Unsaved name');
     expect(screen.getByText('You have unsaved changes')).toBeVisible();
   });
@@ -352,5 +379,95 @@ describe('Profile persistence and navigation', () => {
     expect(screen.getByRole('heading', { name: 'CV Builder destination' })).toBeVisible();
     expect(unload()).toBe(true);
     expect(mocks.save).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('Profile sidebar and history navigation', () => {
+  const leaveDialog = () => within(screen.getByRole('dialog', { name: 'Leave profile?' }));
+  const sidebarLink = (name: string) => within(screen.getByRole('navigation', { name: 'Main' }))
+    .getByRole('link', { name });
+  const leave = () => fireEvent.click(leaveDialog().getByRole('button', { name: 'Discard and leave' }));
+
+  function draftSummary() {
+    tab('Summary');
+    edit(screen.getByLabelText('Summary'), 'Unsaved sidebar draft');
+  }
+
+  it('keeps the current URL and edits on cancel, then follows the selected sidebar destination', async () => {
+    mocks.profile = fixture();
+    const router = renderProfile(['/app/profile?from=settings#details']);
+    const original = router.state.location;
+    draftSummary();
+
+    fireEvent.click(sidebarLink('My CVs'));
+    expect(leaveDialog().getByText(/unsaved profile changes/)).toBeVisible();
+    fireEvent.click(leaveDialog().getByRole('button', { name: 'Cancel' }));
+    expect(router.state.location).toEqual(original);
+    expect(screen.getByLabelText('Summary')).toHaveValue('Unsaved sidebar draft');
+
+    fireEvent.click(sidebarLink('Applications'));
+    leave();
+    expect(await screen.findByRole('heading', { name: 'Applications destination' })).toBeVisible();
+    expect(router.state.location.pathname).toBe('/app/applications');
+    expect(mocks.save).not.toHaveBeenCalled();
+    await act(() => router.navigate(-1));
+    tab('Summary');
+    expect(screen.getByLabelText('Summary')).toHaveValue('');
+  });
+
+  it('protects the mobile sidebar and continues to the clicked destination on discard', async () => {
+    mocks.profile = fixture();
+    const router = renderProfile();
+    draftSummary();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    const mobileNav = screen.getAllByRole('navigation', { name: 'Main' })[1];
+    fireEvent.click(within(mobileNav).getByRole('link', { name: 'My CVs' }));
+    expect(router.state.location.pathname).toBe('/app/profile');
+    leave();
+    expect(await screen.findByRole('heading', { name: 'My CVs destination' })).toBeVisible();
+  });
+
+  it('allows clean sidebar navigation directly', async () => {
+    mocks.profile = fixture();
+    renderProfile();
+    fireEvent.click(sidebarLink('My CVs'));
+    expect(await screen.findByRole('heading', { name: 'My CVs destination' })).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'Leave profile?' })).not.toBeInTheDocument();
+  });
+
+  it('allows sidebar navigation directly after a successful save', async () => {
+    mocks.profile = fixture();
+    renderProfile();
+    draftSummary();
+    save();
+    const [payload, callbacks] = mocks.save.mock.calls[0];
+    act(() => callbacks.onSuccess(payload));
+
+    expect(screen.queryByText('You have unsaved changes')).not.toBeInTheDocument();
+    fireEvent.click(sidebarLink('My CVs'));
+    expect(await screen.findByRole('heading', { name: 'My CVs destination' })).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'Leave profile?' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { direction: 'Back', delta: -1, entries: ['/app/cvs?from=history#saved', '/app/profile'], initialIndex: 1 },
+    { direction: 'Forward', delta: 1, entries: ['/app/profile', '/app/cvs?from=history#saved'], initialIndex: 0 },
+  ])('protects $direction and resumes the original history entry after discard', async ({ delta, entries, initialIndex }) => {
+    mocks.profile = fixture();
+    const router = renderProfile(entries, initialIndex);
+    draftSummary();
+
+    await act(() => router.navigate(delta));
+    fireEvent.click(leaveDialog().getByRole('button', { name: 'Cancel' }));
+    expect(router.state.location.pathname).toBe('/app/profile');
+    expect(screen.getByLabelText('Summary')).toHaveValue('Unsaved sidebar draft');
+
+    await act(() => router.navigate(delta));
+    leave();
+    expect(await screen.findByRole('heading', { name: 'My CVs destination' })).toBeVisible();
+    expect(router.state.historyAction).toBe('POP');
+    expect(router.state.location).toMatchObject({ pathname: '/app/cvs', search: '?from=history', hash: '#saved' });
   });
 });
