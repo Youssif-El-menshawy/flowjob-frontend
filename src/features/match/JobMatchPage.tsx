@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import { useCvs, useRunMatch, useTailorDirect } from '@/shared/api/queries';
@@ -50,15 +50,21 @@ interface FormError {
  * /app/match/:id) and "Tailor my CV" (POST /tailor with the CV + job, no match record →
  * /app/tailor/:draftId). Nothing runs while typing — only an explicit click on one action.
  */
+type Recovery = Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company' | 'jobUrl'>;
+
 export default function JobMatchPage() {
   useDocumentTitle('Job match');
+  const location = useLocation();
+  const recovery = (location.state as { freshTailoringDraft?: Recovery } | null)?.freshTailoringDraft;
+  return <JobMatchForm key={recovery ? location.key : 'job-form'} recovery={recovery} />;
+}
+
+function JobMatchForm({ recovery }: { recovery?: Recovery }) {
   const nav = useNavigate();
-  const recovery = (useLocation().state as {
-    freshTailoringDraft?: Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company' | 'jobUrl'>;
-  } | null)?.freshTailoringDraft;
   const cvs = useCvs();
   const run = useRunMatch();
   const tailor = useTailorDirect();
+  const submitting = useRef(false);
   const [action, setAction] = useState<Action | null>(null);
   const [cvId, setCvId] = useState(recovery?.sourceCvId ?? '');
   const [jobTitle, setJobTitle] = useState(recovery?.jobTitle ?? '');
@@ -71,7 +77,15 @@ export default function JobMatchPage() {
     if (!cvId && cvs.data?.length) setCvId(cvs.data.find((c) => c.kind === 'original')?.id ?? cvs.data[0].id);
   }, [cvs.data, cvId]);
 
-  if (cvs.isLoading) return <PageLoader />;
+  if (cvs.isPending || cvs.isLoading) return <PageLoader />;
+  if (cvs.isError && !cvs.data?.length)
+    return (
+      <EmptyState
+        title="Could not load your CVs"
+        text="Check your connection and try again."
+        action={<Button loading={cvs.isFetching} onClick={() => void cvs.refetch()}>Try again</Button>}
+      />
+    );
   if (!cvs.data?.length)
     return (
       <>
@@ -90,7 +104,8 @@ export default function JobMatchPage() {
   const busy = run.isPending || tailor.isPending;
   const jobLen = text.trim().length;
   const textOk = jobLen >= MIN_JOB_CHARS && jobLen <= MAX_JOB_CHARS;
-  const canSubmit = !!cvId && !!jobTitle.trim() && textOk && !busy;
+  const cvAvailable = cvs.data.some((cv) => cv.id === cvId);
+  const canSubmit = cvAvailable && !!jobTitle.trim() && textOk && !busy;
   const textHint =
     jobLen > 0 && jobLen < MIN_JOB_CHARS
       ? `Add a bit more — at least ${MIN_JOB_CHARS} characters of the job post (${jobLen} so far).`
@@ -108,7 +123,8 @@ export default function JobMatchPage() {
   };
 
   const tailorSubmit = () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
     setError(null);
     setAction('tailor');
     tailor.mutate(
@@ -126,13 +142,17 @@ export default function JobMatchPage() {
           nav(`/app/tailor/${d.id}`);
         },
         // Tailoring 422s can be about the CV itself (e.g. empty), so show them as an alert.
-        onError: (e) => onError(e, false),
+        onError: (e) => {
+          submitting.current = false;
+          onError(e, false);
+        },
       },
     );
   };
 
   const submit = () => {
-    if (!canSubmit) return; // also guards against duplicate submissions while pending
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
     setError(null);
     setAction('match');
     run.mutate(
@@ -149,7 +169,10 @@ export default function JobMatchPage() {
           // A normal (push) navigation, so the browser Back button returns to this form.
           nav(`/app/match/${m.id}`);
         },
-        onError: (e) => onError(e, true),
+        onError: (e) => {
+          submitting.current = false;
+          onError(e, true);
+        },
       },
     );
   };
@@ -165,7 +188,8 @@ export default function JobMatchPage() {
 
       <fieldset disabled={busy} className="m-0 flex min-w-0 flex-col gap-5 border-0 p-0">
         <legend className="sr-only">Job details</legend>
-        <Select label="CV to use" value={cvId} onChange={(e) => setCvId(e.target.value)}>
+        <Select label="CV to use" value={cvAvailable ? cvId : ''} onChange={(e) => setCvId(e.target.value)}>
+          {!cvAvailable && <option value="" disabled>Choose a CV</option>}
           {cvs.data.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}

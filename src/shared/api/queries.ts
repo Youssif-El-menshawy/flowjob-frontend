@@ -1,7 +1,8 @@
 // TanStack Query hooks for every resource. Screens only talk to the API through these.
+import { useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiBlob } from './client';
-import { requestTailorDraft } from './tailoring';
+import { fetchTailorDraft, requestTailorDraft } from './tailoring';
 import type {
   Application,
   ApplicationInput,
@@ -15,7 +16,6 @@ import type {
   Profile,
   SyncResult,
   TailorDirectInput,
-  TailorDraft,
   TailorMatchInput,
   User,
 } from './types';
@@ -127,32 +127,33 @@ export function useRunMatch() {
     },
   });
 }
-export function useTailor() {
+function useTailorMutation<Input extends TailorMatchInput | TailorDirectInput>() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: TailorMatchInput) => requestTailorDraft(input),
+  const pending = useRef(false);
+  const mutation = useMutation({
+    mutationFn: (input: Input) => requestTailorDraft(input),
+    retry: false,
     onSuccess: (draft) => qc.setQueryData(qk.tailorDraft(draft.id), draft),
+    onSettled: () => { pending.current = false; },
   });
+  const mutate: typeof mutation.mutate = (...args) => {
+    // Lock immediately, before React has rendered the pending button state.
+    if (pending.current || mutation.isPending) return;
+    pending.current = true;
+    mutation.mutate(...args);
+  };
+  return { mutate, isPending: mutation.isPending, isError: mutation.isError, error: mutation.error };
 }
 
-/**
- * Direct tailoring: a CV + job details, no match record. Same endpoint and quota as the
- * match-linked path; the backend reuses an identical cached draft without a new AI call.
- */
-export function useTailorDirect() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: TailorDirectInput) => requestTailorDraft(input),
-    // Seed the draft query so the review route doesn't need a second request.
-    onSuccess: (d) => qc.setQueryData(qk.tailorDraft(d.id), d),
-  });
-}
-/** Reads a saved draft (GET only — never starts AI work); makes /app/tailor/:draftId refresh-safe. */
-export const useTailorDraft = (id?: string) =>
+export const useTailor = () => useTailorMutation<TailorMatchInput>();
+export const useTailorDirect = () => useTailorMutation<TailorDirectInput>();
+
+/** Opening a draft only reads it. Recheck cached drafts on entry in case they were removed. */
+export const useTailorDraft = (id: string) =>
   useQuery({
-    queryKey: qk.tailorDraft(id ?? ''),
-    queryFn: () => api<TailorDraft>(`/tailor/${id}`),
-    enabled: !!id,
+    queryKey: qk.tailorDraft(id),
+    queryFn: ({ signal }) => fetchTailorDraft(id, signal),
+    refetchOnMount: 'always',
     retry: false,
   });
 

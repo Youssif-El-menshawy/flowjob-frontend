@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import { fetchCvPreviewPdf, useCreateCv, useCv, useCvs, useTailor, useTailorDraft } from '@/shared/api/queries';
@@ -171,11 +171,11 @@ interface Back {
   label: string;
 }
 
-function TailorLoading() {
+function TailorLoading({ message = 'Writing truthful, focused suggestions for this job…' }: { message?: string }) {
   return (
     <div className="grid gap-6 lg:grid-cols-2" aria-live="polite">
       <Card className="flex flex-col gap-4">
-        <p className="font-medium">Writing truthful, focused suggestions for this job…</p>
+        <p className="font-medium">{message}</p>
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
@@ -185,7 +185,9 @@ function TailorLoading() {
   );
 }
 
-function TailorError({ error, back, missing }: { error: unknown; back: Back; missing?: boolean }) {
+function TailorError({ error, back, missing, title = 'Could not tailor this CV', retry }: {
+  error: unknown; back: Back; missing?: boolean; title?: string; retry?: ReactNode;
+}) {
   // Backend messages (quota, provider unavailable…) are already user-safe; anything else is generic.
   const text = missing
     ? 'This draft was not found. It may have expired or been removed — start again from the job form.'
@@ -194,9 +196,14 @@ function TailorError({ error, back, missing }: { error: unknown; back: Back; mis
       : 'Please check your connection and try again.';
   return (
     <EmptyState
-      title={missing ? 'Draft not found' : 'Could not tailor this CV'}
+      title={missing ? 'Draft not found' : title}
       text={text}
-      action={<ButtonLink to={back.to}>{back.label}</ButtonLink>}
+      action={
+        <div className="flex flex-wrap justify-center gap-2.5">
+          {retry}
+          <ButtonLink to={back.to} variant={retry ? 'secondary' : 'primary'}>{back.label}</ButtonLink>
+        </div>
+      }
     />
   );
 }
@@ -207,17 +214,17 @@ function MatchTailor({ matchId }: { matchId: string }) {
   const tailor = useTailor();
   const back = { to: `/app/match/${matchId}`, label: 'Back to match' };
 
-  if (tailor.isError) return <TailorError error={tailor.error} back={back} />;
+  const start = () => tailor.mutate({ matchId }, {
+    onSuccess: (draft) => nav(`/app/tailor/${draft.id}`, { replace: true }),
+  });
+  if (tailor.isError) {
+    return <TailorError error={tailor.error} back={back}
+      retry={<Button onClick={start}>Retry tailoring</Button>} />;
+  }
   return (
     <>
       <PageHeader back={back} title="Tailor your CV" />
-      {tailor.isPending ? <TailorLoading /> : (
-        <Button onClick={() => tailor.mutate({ matchId }, {
-          onSuccess: (draft) => nav(`/app/tailor/${draft.id}`, { replace: true }),
-        })}>
-          Start tailoring
-        </Button>
-      )}
+      {tailor.isPending ? <TailorLoading /> : <Button onClick={start}>Start tailoring</Button>}
     </>
   );
 }
@@ -229,8 +236,15 @@ function DraftTailor({ draftId }: { draftId: string }) {
   const back = matchId
     ? { to: `/app/match/${matchId}`, label: 'Back to match result' }
     : { to: '/app/match', label: 'Back to Job Match' };
-  if (q.isError) return <TailorError error={q.error} back={back} missing={q.error instanceof ApiError && q.error.status === 404} />;
-  if (!q.data) return <><PageHeader back={back} title="Tailor your CV" /><TailorLoading /></>;
+  const checkingDraft = !q.isFetchedAfterMount && q.isFetching;
+  if (q.isPending || checkingDraft) {
+    return <><PageHeader back={back} title="Tailor your CV" /><TailorLoading message="Loading your saved draft…" /></>;
+  }
+  if (q.isError || !q.data) {
+    const missing = q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 410);
+    return <TailorError error={q.error} back={back} missing={missing} title="Could not load this draft"
+      retry={!missing && <Button loading={q.isFetching} onClick={() => void q.refetch()}>Try again</Button>} />;
+  }
   // The focused layout's top bar already offers "Back to Job Match", so don't repeat it here.
   return <TailorReview key={q.data.id} draft={q.data} back={back} hideHeaderBack={!matchId} />;
 }
@@ -238,8 +252,9 @@ function DraftTailor({ draftId }: { draftId: string }) {
 export default function TailorPage() {
   useDocumentTitle('Tailor CV');
   const { matchId, draftId } = useParams();
-  if (matchId) return <MatchTailor matchId={matchId} />;
-  return <DraftTailor draftId={draftId ?? ''} />;
+  if (matchId) return <MatchTailor key={matchId} matchId={matchId} />;
+  if (draftId) return <DraftTailor key={draftId} draftId={draftId} />;
+  return <TailorError error={null} back={{ to: '/app/match', label: 'Back to Job Match' }} missing />;
 }
 
 function DraftRecovery({ draft, incompatible }: { draft: TailorDraft; incompatible: boolean }) {
@@ -305,7 +320,8 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const source = !checkingSource && sourceQuery.data?.id === draft.sourceCvId && !sourceQuery.isError
     ? sourceQuery.data
     : undefined;
-  const incompatible = (draft.sourceCvRevision !== null && !draft.sourceCvRevision)
+  const incompatible = (draft.sourceCvRevision !== null
+    && (typeof draft.sourceCvRevision !== 'string' || !draft.sourceCvRevision.trim()))
     || (!!source && !source.contentRevision);
   const sourceIsCurrent = !incompatible && !sourceRejected && !!draft.sourceCvRevision && source?.contentRevision === draft.sourceCvRevision;
   const refetchSource = sourceQuery.refetch;
@@ -399,7 +415,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
 
       {!source ? (
         sourceQuery.isLoading || checkingSource ? (
-          <TailorLoading />
+          <TailorLoading message="Checking the original CV…" />
         ) : (
           <EmptyState
             title={sourceQuery.error instanceof ApiError && sourceQuery.error.status === 404
