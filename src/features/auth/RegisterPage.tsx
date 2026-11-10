@@ -12,11 +12,12 @@ import { Icon } from '@/shared/ui/Icons';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { useAuth } from './AuthProvider';
 import { AuthShell, passwordScore } from './AuthShell';
+import { newPassword } from './passwordValidation';
 
 export const registerSchema = z.object({
-  name: z.string().trim().min(2, 'Please enter your name.'),
+  name: z.string().trim().min(2, 'Please enter your name.').refine((name) => [...name].length <= 200, 'Use at most 200 characters.'),
   email: z.string().trim().email('Please enter a valid email address.'),
-  password: z.string().min(8, 'Use at least 8 characters.'),
+  password: newPassword,
   terms: z.literal(true, { errorMap: () => ({ message: 'Please accept the terms to continue.' }) }),
 });
 type Form = z.infer<typeof registerSchema>;

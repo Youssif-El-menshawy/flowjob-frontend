@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { loginPassword, newPassword } from '@/features/auth/passwordValidation';
 import { ApiError } from '@/shared/api/client';
 import {
   exportData,
@@ -70,7 +71,15 @@ function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }
           <Button
             loading={change.isPending}
             onClick={() => {
-              if (next.length < 8) return setErr({ next: 'Use at least 8 characters.' });
+              const current = loginPassword.safeParse(cur);
+              const updated = newPassword.safeParse(next);
+              if (!current.success || !updated.success) {
+                return setErr({
+                  current: current.success ? '' : current.error.issues[0].message,
+                  next: updated.success ? '' : updated.error.issues[0].message,
+                });
+              }
+              setErr({});
               change.mutate(
                 { current: cur, next },
                 {
