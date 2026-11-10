@@ -242,8 +242,8 @@ export default function TailorPage() {
 function DraftRecovery({ draft, incompatible }: { draft: TailorDraft; incompatible: boolean }) {
   const nav = useNavigate();
   const regenerate = useTailor();
-  const { matchId, sourceCvId, jobTitle, company } = draft;
-  const recoveryState = { freshTailoringDraft: { sourceCvId, jobTitle, company } };
+  const { matchId, sourceCvId, jobTitle, company, jobUrl } = draft;
+  const recoveryState = { freshTailoringDraft: { sourceCvId, jobTitle, company, jobUrl } };
 
   return (
     <div className="mb-4 rounded-xl bg-accent/15 p-3 text-sm text-accent-ink">

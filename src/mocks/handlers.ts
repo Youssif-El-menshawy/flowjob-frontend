@@ -316,6 +316,7 @@ export const handlers = [
         jobTitle?: string;
         jobDescription?: string;
         company?: string;
+        jobUrl?: string;
       };
       let m: MatchResult | undefined = body.matchId ? u.data.matches.find((x) => x.id === body.matchId) : undefined;
       if (body.matchId && !m) return err(404, 'Match not found.');
@@ -337,6 +338,7 @@ export const handlers = [
         sourceCvRevision: cv.updatedAt,
         jobTitle: body.matchId ? m!.jobTitle : (body.jobTitle ?? ''),
         company: body.matchId ? m!.company : (body.company ?? ''),
+        jobUrl: (body.matchId ? m.jobUrl : body.jobUrl) ?? null,
         suggestions: tailorSuggestions(cv.content, m!)
           .filter((s) => s.original.trim())
           .map((s) => ({ ...s, id: uid(), reviewRequired: s.section !== 'skills' })),

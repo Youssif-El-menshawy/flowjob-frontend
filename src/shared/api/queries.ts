@@ -135,7 +135,6 @@ export function useTailor() {
 /**
  * Direct tailoring: a CV + job details, no match record. Same endpoint and quota as the
  * match-linked path; the backend reuses an identical cached draft without a new AI call.
- * (`jobUrl` is not part of the tailoring contract, so it is intentionally not sent.)
  */
 export function useTailorDirect() {
   const qc = useQueryClient();

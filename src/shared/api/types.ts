@@ -143,6 +143,7 @@ export interface TailorDirectInput {
   jobTitle: string;
   jobDescription: string;
   company?: string;
+  jobUrl?: string;
   fresh?: boolean;
 }
 
@@ -166,6 +167,7 @@ export interface TailorDraft {
   sourceCvRevision?: string | null;
   jobTitle: string;
   company: string;
+  jobUrl?: string | null;
   suggestions: TailorSuggestion[];
   missingQualifications?: string[];
   questions?: string[];

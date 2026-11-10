@@ -54,7 +54,7 @@ export default function JobMatchPage() {
   useDocumentTitle('Job match');
   const nav = useNavigate();
   const recovery = (useLocation().state as {
-    freshTailoringDraft?: Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company'>;
+    freshTailoringDraft?: Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company' | 'jobUrl'>;
   } | null)?.freshTailoringDraft;
   const cvs = useCvs();
   const run = useRunMatch();
@@ -63,7 +63,7 @@ export default function JobMatchPage() {
   const [cvId, setCvId] = useState(recovery?.sourceCvId ?? '');
   const [jobTitle, setJobTitle] = useState(recovery?.jobTitle ?? '');
   const [company, setCompany] = useState(recovery?.company ?? '');
-  const [jobUrl, setJobUrl] = useState('');
+  const [jobUrl, setJobUrl] = useState(recovery?.jobUrl ?? '');
   const [text, setText] = useState(() => recovery ? '' : pendingJob.get());
   const [error, setError] = useState<FormError | null>(null);
 
@@ -117,6 +117,7 @@ export default function JobMatchPage() {
         jobTitle: jobTitle.trim(),
         jobDescription: text.trim(),
         company: company.trim() || undefined,
+        jobUrl: jobUrl.trim() || undefined,
         ...(recovery && { fresh: true }),
       },
       {
