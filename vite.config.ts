@@ -12,7 +12,7 @@ export default defineConfig({
   server: {
     port: 5173,
     allowedHosts: ['.devtunnels.ms'],
-    // FLOWJOB_API lets an isolated test instance point at an experimental backend port.
+    // Optional: set FLOWJOB_API to point the dev proxy at a backend on another port. Defaults to localhost:8000.
     proxy: { '/api/v1': { target: process.env.FLOWJOB_API ?? 'http://localhost:8000', changeOrigin: true } },
   },
   test: {
