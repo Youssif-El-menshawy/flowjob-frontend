@@ -123,7 +123,9 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
         className="flex w-full flex-col gap-1.5 rounded-2xl px-4 py-3.5 text-left hover:bg-tint/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
       >
         <span className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <span className="font-semibold">{opLabel(suggestion)}</span>
+          <span className="min-w-0 font-semibold break-words">
+            {[opLabel(suggestion), suggestion.target.title].filter(Boolean).join(' · ')}
+          </span>
           <span className="flex items-center gap-2">
             <span className={cn(
               'rounded-full px-2 py-0.5 text-xs font-medium',
@@ -135,6 +137,9 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
             <span aria-hidden className="text-soft">{expanded ? '▴' : '▾'}</span>
           </span>
         </span>
+        {suggestion.target.excerpt && (
+          <span className="line-clamp-1 text-[13px] break-words text-soft italic">“{suggestion.target.excerpt}”</span>
+        )}
         <span className="line-clamp-2 text-sm break-words text-soft">
           {suggestion.explanation || 'Compare the suggested wording with your original CV.'}
         </span>

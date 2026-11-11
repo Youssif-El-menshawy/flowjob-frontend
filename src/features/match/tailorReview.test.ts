@@ -31,6 +31,24 @@ const addSkill: TailorSuggestion = {
 const review = (list: TailorSuggestion[], decisions: Record<string, Decision> = {}, edits: Record<string, string> = {}, current = true) =>
   list.map((s) => reviewSuggestion(s, source, current, edits[s.id] ?? defaultText(s), decisions[s.id]));
 
+describe('suggestion targets', () => {
+  it('names the role and bullet, the project, or the skill, with a short excerpt of the original', () => {
+    const bullet = reviewSuggestion(
+      { id: 'b', op: 'rewrite', section: 'experience', experienceId: 'e1', bulletIndex: 1, original: 'Second', suggested: 'Second, clearer' },
+      source, true, 'x',
+    );
+    expect(bullet.target).toEqual({ title: 'Dev, bullet 2', excerpt: 'Second' });
+    const project = reviewSuggestion({ id: 'p', op: 'rewrite', section: 'project', projectId: 'p1', original: 'A REST service', suggested: 'A REST API service' }, source, true, 'x');
+    expect(project.target).toEqual({ title: 'API, description', excerpt: 'A REST service' });
+    expect(reviewSuggestion(rewrite, source, true, 'x').target).toEqual({ title: '', excerpt: 'Engineer who builds APIs.' });
+    expect(reviewSuggestion(addSkill, source, true, 'FastAPI').target).toEqual({ title: 'FastAPI', excerpt: '' });
+    expect(reviewSuggestion(reorderBullets, source, true, 'x').target).toEqual({ title: 'Dev', excerpt: '' });
+    const long = reviewSuggestion({ ...rewrite, original: `${'word '.repeat(30)}end` }, source, true, 'x');
+    expect(long.target.excerpt.length).toBeLessThanOrEqual(71);
+    expect(long.target.excerpt.endsWith('…')).toBe(true);
+  });
+});
+
 describe('typed tailoring review', () => {
   it('previews verified reorders automatically and Undo restores the original order', () => {
     const auto = review([reorderSkills, reorderBullets]);

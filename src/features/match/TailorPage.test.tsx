@@ -130,6 +130,9 @@ describe('TailorPage review', () => {
     expect(card('Summary').getByText('Lead with relevant experience.')).toBeInTheDocument();
     expect(card('Experience').getByText('Needs review')).toBeInTheDocument();
     expect(card('Experience').getByText(/Verify against your original CV/)).toBeVisible();
+    // The card names its target (role and bullet) and shows a short excerpt of the original text.
+    expect(toggle('Experience')).toHaveTextContent('Experience · Dev, bullet 1');
+    expect(card('Experience').getByText('“Old bullet”')).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Suggested wording' })).toBeNull();
     expect(screen.queryByText('Draft', { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText('Original CV protected')).not.toBeInTheDocument();

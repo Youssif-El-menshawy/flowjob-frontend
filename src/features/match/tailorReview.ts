@@ -52,6 +52,27 @@ export const defaultText = (s: TailorSuggestion) => (opOf(s) === 'add_skill' && 
 /** Only wording (rewrite) and the added skill's name can be edited. */
 export const isEditable = (s: TailorSuggestion) => opOf(s) === 'rewrite' || opOf(s) === 'add_skill';
 
+const excerpt = (text: string, max = 70) => {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max).replace(/\s+\S*$/, '')}…`;
+};
+
+/** Which part of the CV a suggestion is about: the role and bullet, the project, or the skill, plus a short original excerpt. */
+function describeTarget(source: CvContent, s: TailorSuggestion): { title: string; excerpt: string } {
+  const op = opOf(s);
+  let title = '';
+  if (s.section === 'experience') {
+    const role = uniqueItem(source.experience ?? [], s.experienceId ?? '');
+    title = `${role?.title || role?.company || 'Role'}${typeof s.bulletIndex === 'number' ? `, bullet ${s.bulletIndex + 1}` : ''}`;
+  } else if (s.section === 'project') {
+    title = `${uniqueItem(source.projects ?? [], s.projectId ?? '')?.name || 'Project'}, description`;
+  } else if (s.section === 'skills' && (op === 'add_skill' || op === 'delete')) {
+    title = s.skill ?? '';
+  }
+  const showOriginal = (op === 'rewrite' || (op === 'delete' && s.section !== 'skills')) && !!s.original;
+  return { title, excerpt: showOriginal ? excerpt(s.original) : '' };
+}
+
 export type Decision = 'original' | { acceptedText: string };
 
 /** Is the suggestion still valid against the verified source revision? Never trusts the draft's own claims. */
@@ -104,7 +125,7 @@ export function reviewSuggestion(
   const status = applied
     ? (auto ? 'Auto-applied' : 'Applied')
     : blocked || (needsReview && decision !== 'original') ? 'Needs review' : 'Original kept';
-  return { ...suggestion, text, skillChanges, blocked, needsReview, applied, auto, status };
+  return { ...suggestion, text, skillChanges, blocked, needsReview, applied, auto, status, target: describeTarget(source, suggestion) };
 }
 
 export type ReviewedSuggestion = ReturnType<typeof reviewSuggestion>;

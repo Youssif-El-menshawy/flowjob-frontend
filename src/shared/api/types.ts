@@ -107,7 +107,7 @@ export interface QualificationCategoryCount {
   count: number;
   demonstrated: number;
   partial: number;
-  notShown: number;
+  not_shown: number; // as sent by the backend (snake_case)
 }
 export interface SuggestedWording {
   section: string;
@@ -139,7 +139,7 @@ export interface MatchResult {
   suggestedWording?: SuggestedWording[];
   questions?: string[];
   /** AI-first reports only. */
-  qualificationCounts?: { total: number } & Record<RequirementCategory, QualificationCategoryCount>;
+  qualificationCounts?: Record<RequirementCategory, QualificationCategoryCount>;
   model?: string;
   analysisVersion?: string;
   jobUrl?: string;
