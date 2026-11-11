@@ -13,7 +13,7 @@ import { useToast } from '@/shared/ui/Overlay';
 import { Skeleton } from '@/shared/ui/Spinner';
 import { HarvardPdfViewer } from '@/features/cv/HarvardPdfViewer';
 import { createPreviewEngine, type PreviewState } from '@/features/cv/cvPreview';
-import { applySuggestions, reviewSuggestion, type Decision, type ReviewedSuggestion } from './tailorReview';
+import { applySuggestions, defaultText, isEditable, reviewSuggestion, type Decision, type ReviewedSuggestion } from './tailorReview';
 
 const SECTION: Record<string, string> = {
   summary: 'Summary',
@@ -21,6 +21,90 @@ const SECTION: Record<string, string> = {
   skills: 'Skills',
   project: 'Project',
 };
+
+const lines = (text: string) => text.split('\n').filter(Boolean);
+
+function opLabel(s: ReviewedSuggestion) {
+  switch (s.op) {
+    case 'reorder': return s.section === 'skills' ? 'Reorder skills' : 'Reorder bullets';
+    case 'delete': return s.section === 'skills' ? 'Remove skill' : 'Remove bullet';
+    case 'add_skill': return 'Add skill';
+    default: return SECTION[s.section] ?? s.section;
+  }
+}
+
+/** What a suggestion shows when expanded: wording to edit, an order change, a removal, or a skill with its evidence. */
+function SuggestionBody({ suggestion, onEdit }: { suggestion: ReviewedSuggestion; onEdit: (text: string) => void }) {
+  const op = suggestion.op ?? 'rewrite';
+  if (op === 'reorder') {
+    const bullets = suggestion.section !== 'skills';
+    const before = bullets ? lines(suggestion.original) : suggestion.original.split(',').map((x) => x.trim());
+    const after = bullets ? lines(suggestion.suggested) : suggestion.suggested.split(',').map((x) => x.trim());
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {[['Current order', before], ['Suggested order', after]].map(([title, items]) => (
+          <div key={title as string}>
+            <p className="mb-1 text-sm font-medium">{title as string}</p>
+            <ol className="list-decimal space-y-1 pl-5 text-sm break-words text-soft">
+              {(items as string[]).map((item, i) => <li key={i}>{item}</li>)}
+            </ol>
+          </div>
+        ))}
+        <p className="text-sm text-soft sm:col-span-2">Nothing is added or removed, only the order changes.</p>
+      </div>
+    );
+  }
+  if (op === 'delete') {
+    return (
+      <div>
+        <p className="mb-1 text-sm font-medium">{suggestion.section === 'skills' ? 'Skill to remove' : 'Bullet to remove'}</p>
+        <p className="text-sm break-words whitespace-pre-wrap text-soft">{suggestion.section === 'skills' ? suggestion.skill : suggestion.original}</p>
+      </div>
+    );
+  }
+  if (op === 'add_skill') {
+    return (
+      <div className="grid gap-3">
+        {suggestion.evidence && (
+          <div>
+            <p className="mb-1 text-sm font-medium">Where your CV already names it</p>
+            <p className="text-sm break-words text-soft">“{suggestion.evidence.quote}”</p>
+          </div>
+        )}
+        <Textarea label="Skill to add" rows={1} value={suggestion.text} disabled={suggestion.blocked} onChange={(event) => onEdit(event.target.value)} />
+        <p className="text-sm text-accent-ink">Add it only if it is true. It is shown in your Skills section once you apply it.</p>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div>
+        <p className="mb-1 text-sm font-medium">Original wording</p>
+        <p className="text-sm break-words whitespace-pre-wrap text-soft">{suggestion.original || '(empty)'}</p>
+      </div>
+      <Textarea
+        label="Suggested wording"
+        rows={3}
+        value={suggestion.text}
+        disabled={suggestion.blocked}
+        onChange={(event) => onEdit(event.target.value)}
+      />
+      {suggestion.skillChanges && (
+        <div className="rounded-xl bg-bg p-3 text-sm">
+          <p className="mb-2 font-medium">Changes to the original skills list</p>
+          <dl className="grid gap-1 break-words text-soft">
+            <div><dt className="inline font-medium">Retained: </dt><dd className="inline">{suggestion.skillChanges.retained.join(', ') || 'None'}</dd></div>
+            <div><dt className="inline font-medium">Added if applied: </dt><dd className="inline">{suggestion.skillChanges.added.join(', ') || 'None'}</dd></div>
+            <div><dt className="inline font-medium">Removed if applied: </dt><dd className="inline">{suggestion.skillChanges.removed.join(', ') || 'None'}</dd></div>
+          </dl>
+          {suggestion.skillChanges.added.length > 0 && (
+            <p className="mt-2 text-accent-ink">New to this list. Apply only skills your original CV supports.</p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
 
 function SuggestionCard({ suggestion, onEdit, onDecide }: {
   suggestion: ReviewedSuggestion;
@@ -39,7 +123,9 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
         className="flex w-full flex-col gap-1.5 rounded-2xl px-4 py-3.5 text-left hover:bg-tint/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
       >
         <span className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <span className="font-semibold">{SECTION[suggestion.section] ?? suggestion.section}</span>
+          <span className="min-w-0 font-semibold break-words">
+            {[opLabel(suggestion), suggestion.target.title].filter(Boolean).join(' · ')}
+          </span>
           <span className="flex items-center gap-2">
             <span className={cn(
               'rounded-full px-2 py-0.5 text-xs font-medium',
@@ -51,6 +137,9 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
             <span aria-hidden className="text-soft">{expanded ? '▴' : '▾'}</span>
           </span>
         </span>
+        {suggestion.target.excerpt && (
+          <span className="line-clamp-1 text-[13px] break-words text-soft italic">“{suggestion.target.excerpt}”</span>
+        )}
         <span className="line-clamp-2 text-sm break-words text-soft">
           {suggestion.explanation || 'Compare the suggested wording with your original CV.'}
         </span>
@@ -61,49 +150,40 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
       <div id={detailsId} hidden={!expanded}>
         {expanded && (
           <div className="grid gap-3 border-t border-line px-4 py-4">
-            <div>
-              <p className="mb-1 text-sm font-medium">Original wording</p>
-              <p className="text-sm break-words whitespace-pre-wrap text-soft">{suggestion.original || '(empty)'}</p>
-            </div>
-            <Textarea
-              label="Suggested wording"
-              rows={3}
-              value={suggestion.text}
-              disabled={suggestion.blocked}
-              onChange={(event) => onEdit(event.target.value)}
-            />
-            {suggestion.skillChanges && (
-              <div className="rounded-xl bg-bg p-3 text-sm">
-                <p className="mb-2 font-medium">Changes to the original skills list</p>
-                <dl className="grid gap-1 break-words text-soft">
-                  <div><dt className="inline font-medium">Retained: </dt><dd className="inline">{suggestion.skillChanges.retained.join(', ') || 'None'}</dd></div>
-                  <div><dt className="inline font-medium">Added if applied: </dt><dd className="inline">{suggestion.skillChanges.added.join(', ') || 'None'}</dd></div>
-                  <div><dt className="inline font-medium">Removed if applied: </dt><dd className="inline">{suggestion.skillChanges.removed.join(', ') || 'None'}</dd></div>
-                </dl>
-                {suggestion.skillChanges.added.length > 0 && (
-                  <p className="mt-2 text-accent-ink">New to this list. Apply only skills your original CV supports.</p>
-                )}
-              </div>
-            )}
+            <SuggestionBody suggestion={suggestion} onEdit={onEdit} />
             <div className="flex flex-wrap gap-2" role="group" aria-label="Suggestion decision">
-              <Button
-                size="sm"
-                variant={suggestion.applied ? 'primary' : 'secondary'}
-                aria-pressed={suggestion.applied}
-                disabled={suggestion.blocked || !suggestion.text.trim()}
-                onClick={() => onDecide({ acceptedText: suggestion.text })}
-              >
-                Apply suggestion
-              </Button>
-              <Button
-                size="sm"
-                variant={suggestion.status === 'Original kept' ? 'primary' : 'secondary'}
-                aria-pressed={suggestion.status === 'Original kept'}
-                disabled={suggestion.blocked}
-                onClick={() => onDecide('original')}
-              >
-                Keep original
-              </Button>
+              {suggestion.auto ? (
+                suggestion.applied ? (
+                  <Button size="sm" variant="secondary" onClick={() => onDecide('original')}>
+                    Undo
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="primary" onClick={() => onDecide({ acceptedText: suggestion.text })}>
+                    Redo
+                  </Button>
+                )
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    variant={suggestion.applied ? 'primary' : 'secondary'}
+                    aria-pressed={suggestion.applied}
+                    disabled={suggestion.blocked || (isEditable(suggestion) && !suggestion.text.trim())}
+                    onClick={() => onDecide({ acceptedText: suggestion.text })}
+                  >
+                    Apply suggestion
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={suggestion.status === 'Original kept' ? 'primary' : 'secondary'}
+                    aria-pressed={suggestion.status === 'Original kept'}
+                    disabled={suggestion.blocked}
+                    onClick={() => onDecide('original')}
+                  >
+                    Keep original
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -137,6 +217,13 @@ function TailorPreview({ content, draftId, cvId, onSourceRejected }: {
     void engine.request(initialContent.current);
     return () => engine.dispose();
   }, [engine]);
+
+  // Live preview: re-render shortly after the last decision. A newer request aborts an older one, so at most one
+  // render is in flight; the manual button below stays as a fallback.
+  useEffect(() => {
+    const timer = setTimeout(() => void engine.request(content), 700);
+    return () => clearTimeout(timer);
+  }, [engine, content]);
 
   const stale = engine.isStale(content);
   const loading = state.status === 'loading' || state.status === 'idle';
@@ -334,7 +421,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const versionName = name?.trim() || defaultName;
   const suggestions = useMemo(
     () => source ? draft.suggestions.map((suggestion) =>
-      reviewSuggestion(suggestion, source.content, sourceIsCurrent, edits[suggestion.id] ?? suggestion.suggested, decisions[suggestion.id]),
+      reviewSuggestion(suggestion, source.content, sourceIsCurrent, edits[suggestion.id] ?? defaultText(suggestion), decisions[suggestion.id]),
     ) : [],
     [source, sourceIsCurrent, draft.suggestions, edits, decisions],
   );
@@ -344,6 +431,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   );
   const tailoredPreview = view === 'Tailored' ? result : null;
   const appliedCount = suggestions.filter((suggestion) => suggestion.applied).length;
+  const skippedCount = Object.values(draft.proposalStats?.rejected ?? {}).reduce((sum, n) => sum + n, 0);
   // Confirm the exact reviewed version, so an edit never inherits an earlier confirmation.
   const agree = !!result && result === confirmed;
 
@@ -438,8 +526,16 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
               <div className="flex min-w-0 flex-col gap-3">
                 {suggestions.length === 0 && (
                   <Card>
-                    <p className="text-soft">There are no suggested changes for this draft.</p>
+                    <p role="status" className="font-medium">No meaningful improvements found.</p>
+                    <p className="mt-1 text-sm text-soft">
+                      Your CV already reads well for this job. You can still preview, download or save it below.
+                    </p>
                   </Card>
+                )}
+                {skippedCount > 0 && (
+                  <p className="text-[13px] text-soft">
+                    Some proposed changes couldn’t be verified against your CV and were skipped.
+                  </p>
                 )}
                 {suggestions.map((suggestion) => (
                   <SuggestionCard

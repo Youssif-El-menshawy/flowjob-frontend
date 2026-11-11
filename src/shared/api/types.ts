@@ -93,11 +93,21 @@ export interface MatchGap {
 }
 
 export type RequirementImportance = 'required' | 'preferred';
+export type RequirementCategory = 'required' | 'standard' | 'preferred';
 export interface RequirementMatch {
   requirement: string;
   importance: RequirementImportance;
+  /** AI-first reports: the scored category (Standard items carry no legacy importance). */
+  category?: RequirementCategory;
   status?: string;
   evidence: string;
+}
+
+export interface QualificationCategoryCount {
+  count: number;
+  demonstrated: number;
+  partial: number;
+  not_shown: number; // as sent by the backend (snake_case)
 }
 export interface SuggestedWording {
   section: string;
@@ -128,6 +138,8 @@ export interface MatchResult {
   recommendations?: string[];
   suggestedWording?: SuggestedWording[];
   questions?: string[];
+  /** AI-first reports only. */
+  qualificationCounts?: Record<RequirementCategory, QualificationCategoryCount>;
   model?: string;
   analysisVersion?: string;
   jobUrl?: string;
@@ -169,6 +181,13 @@ export interface TailorSuggestion {
   explanation?: string;
   jobRequirement?: string;
   reviewRequired?: boolean;
+  /** Typed changes (absent on drafts created before the AI-first contract: treated as a rewrite). */
+  op?: 'rewrite' | 'reorder' | 'delete' | 'add_skill';
+  /** "auto": a verified reorder previewed without approval (Undo available). Everything else needs approval. */
+  risk?: 'auto' | 'review';
+  skill?: string;
+  order?: number[];
+  evidence?: { path: string; quote: string };
 }
 
 export interface TailorDraft {
@@ -184,6 +203,8 @@ export interface TailorDraft {
   questions?: string[];
   tokens?: { input: number; output: number };
   estimatedCostUsd?: number;
+  /** Counts of proposals the backend made, kept and rejected (by reason). */
+  proposalStats?: { proposed: number; kept: number; rejected: Record<string, number> } | null;
 }
 
 export const STATUSES = ['Saved', 'Applied', 'Interview', 'Offer', 'Rejected', 'Withdrawn'] as const;

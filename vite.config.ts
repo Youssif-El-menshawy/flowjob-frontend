@@ -12,7 +12,8 @@ export default defineConfig({
   server: {
     port: 5173,
     allowedHosts: ['.devtunnels.ms'],
-    proxy: { '/api/v1': { target: 'http://localhost:8000', changeOrigin: true } },
+    // Optional: set FLOWJOB_API to point the dev proxy at a backend on another port. Defaults to localhost:8000.
+    proxy: { '/api/v1': { target: process.env.FLOWJOB_API ?? 'http://localhost:8000', changeOrigin: true } },
   },
   test: {
     globals: true,

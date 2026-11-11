@@ -107,7 +107,7 @@ it('generates once from a match report and reopens the same draft through Back, 
   const generated = deferred<Response>();
   const backend = mockBackend({ generate: () => generated.promise });
   const { router } = renderAt(['/app/match/m1']);
-  const tailor = await screen.findByRole('button', { name: 'Tailor my CV for this job' });
+  const tailor = await screen.findByRole('button', { name: 'Tailor my CV' });
   expect(backend.generations()).toHaveLength(0);
 
   act(() => { tailor.click(); tailor.click(); });
@@ -119,7 +119,7 @@ it('generates once from a match report and reopens the same draft through Back, 
   expect(router.state.location.pathname).toBe('/app/tailor/match-draft');
 
   await act(() => router.navigate(-1));
-  expect(await screen.findByRole('button', { name: 'Tailor my CV for this job' })).toBeVisible();
+  expect(await screen.findByRole('button', { name: 'Tailor my CV' })).toBeVisible();
   await act(() => router.navigate(1));
   await showDraft('Acme');
   expect(backend.reads(matchDraft.id)).toHaveLength(2);
@@ -227,12 +227,12 @@ it('separates a failed read from an empty verified draft and retries with GET on
   });
   renderAt(['/app/tailor/direct-draft']);
   expect(await screen.findByText('Could not load this draft')).toBeVisible();
-  expect(screen.queryByText('There are no suggested changes for this draft.')).not.toBeInTheDocument();
+  expect(screen.queryByText('No meaningful improvements found.')).not.toBeInTheDocument();
   expect(backend.reads(directDraft.id)).toHaveLength(1);
 
   fail = false;
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-  expect(await screen.findByText('There are no suggested changes for this draft.')).toBeVisible();
+  expect(await screen.findByText('No meaningful improvements found.')).toBeVisible();
   expect(backend.reads(directDraft.id)).toHaveLength(2);
   expect(backend.generations()).toHaveLength(0);
 });
