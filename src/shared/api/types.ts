@@ -181,6 +181,13 @@ export interface TailorSuggestion {
   explanation?: string;
   jobRequirement?: string;
   reviewRequired?: boolean;
+  /** Typed changes (absent on drafts created before the AI-first contract: treated as a rewrite). */
+  op?: 'rewrite' | 'reorder' | 'delete' | 'add_skill';
+  /** "auto": a verified reorder previewed without approval (Undo available). Everything else needs approval. */
+  risk?: 'auto' | 'review';
+  skill?: string;
+  order?: number[];
+  evidence?: { path: string; quote: string };
 }
 
 export interface TailorDraft {
@@ -196,6 +203,8 @@ export interface TailorDraft {
   questions?: string[];
   tokens?: { input: number; output: number };
   estimatedCostUsd?: number;
+  /** Counts of proposals the backend made, kept and rejected (by reason). */
+  proposalStats?: { proposed: number; kept: number; rejected: Record<string, number> } | null;
 }
 
 export const STATUSES = ['Saved', 'Applied', 'Interview', 'Offer', 'Rejected', 'Withdrawn'] as const;

@@ -227,12 +227,12 @@ it('separates a failed read from an empty verified draft and retries with GET on
   });
   renderAt(['/app/tailor/direct-draft']);
   expect(await screen.findByText('Could not load this draft')).toBeVisible();
-  expect(screen.queryByText('There are no suggested changes for this draft.')).not.toBeInTheDocument();
+  expect(screen.queryByText('No meaningful improvements found.')).not.toBeInTheDocument();
   expect(backend.reads(directDraft.id)).toHaveLength(1);
 
   fail = false;
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-  expect(await screen.findByText('There are no suggested changes for this draft.')).toBeVisible();
+  expect(await screen.findByText('No meaningful improvements found.')).toBeVisible();
   expect(backend.reads(directDraft.id)).toHaveLength(2);
   expect(backend.generations()).toHaveLength(0);
 });
