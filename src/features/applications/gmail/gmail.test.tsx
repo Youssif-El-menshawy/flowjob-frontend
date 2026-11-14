@@ -7,7 +7,7 @@ import ApplicationsPage from '@/features/applications/ApplicationsPage';
 import type { Application, GmailReview, GmailStatus } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
 import { goTo } from './GmailPanel';
-import { fromLocalInput, safeGmailUrl } from './gmailLabels';
+import { fromLocalInput, reviewReason, safeGmailUrl } from './gmailLabels';
 
 const GMAIL_URL = 'https://mail.google.com/mail/?authuser=student@gmail.example#all/18c2f0a1b2c3d4e5';
 
@@ -358,5 +358,15 @@ describe('helpers', () => {
     expect(iso).toMatch(/^2026-12-03T10:00:00[+-]\d{2}:\d{2}$/);
     expect(new Date(iso!).getTime()).toBe(new Date('2026-12-03T10:00').getTime());
     expect(fromLocalInput('')).toBeNull();
+  });
+});
+
+describe('review reasons from the grounding policy', () => {
+  it.each([
+    ['ungrounded_employer', 'The employer named for this role does not appear in the email.'],
+    ['ungrounded_title', 'The job title does not appear in the email.'],
+    ['possible_advertisement', 'This looks like an invitation to apply rather than an application you sent.'],
+  ])('explains %s', (reason, text) => {
+    expect(reviewReason({ ...reviews[0], proposal: { ...reviews[0].proposal, reason } })).toBe(text);
   });
 });

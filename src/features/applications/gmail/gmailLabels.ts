@@ -28,6 +28,9 @@ const REASON: Record<string, string> = {
   possible_reapplication: 'This may be a new application to a role you applied to before.',
   previously_deleted: 'You deleted a similar application earlier.',
   ambiguous_match: 'It could belong to more than one of your applications.',
+  ungrounded_employer: 'The employer named for this role does not appear in the email.',
+  ungrounded_title: 'The job title does not appear in the email.',
+  possible_advertisement: 'This looks like an invitation to apply rather than an application you sent.',
 };
 
 export const reviewReason = (r: GmailReview) => REASON[r.proposal.reason ?? ''] ?? null;
