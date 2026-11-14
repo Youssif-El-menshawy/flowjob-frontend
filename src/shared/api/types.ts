@@ -311,7 +311,8 @@ export type ApplicationInput = Pick<Application, 'company' | 'jobTitle' | 'statu
 
 export type ApplicationPatch = Partial<ApplicationInput>;
 
-export type GmailConnectionState = 'not_connected' | 'active' | 'reauth_required';
+/** disconnecting = Gmail data is being erased (or an interrupted disconnect awaits a retry). */
+export type GmailConnectionState = 'not_connected' | 'active' | 'reauth_required' | 'disconnecting';
 
 export interface GmailRunSummary {
   trigger: string;
@@ -337,6 +338,8 @@ export interface GmailSync {
   needsAttention?: string | null;
   error?: { code: string; message: string } | null;
   lastRun?: GmailRunSummary | null;
+  /** Next automatic retry after a temporary Gmail failure (scheduler enabled only). */
+  retryAt?: string | null;
 }
 
 export interface GmailStatus {
@@ -374,6 +377,10 @@ export interface GmailReview {
     signals?: Record<string, string | boolean>;
     scheduledAt?: string | null;
     previousScheduledAt?: string | null;
+    /** The email's date-time could not be converted safely; the user sets it. */
+    timeIssue?: 'unsupported_timezone' | 'conflicting_timezone' | 'nonexistent_time' | 'ambiguous_time' | null;
+    /** The date-time as the email states it (short; plain text). */
+    statedTime?: string | null;
     from?: ApplicationStatus;
     to?: ApplicationStatus;
   };
@@ -390,6 +397,8 @@ export interface ReviewEdits {
   status?: ApplicationStatus;
   dateApplied?: string;
   applicationId?: string;
+  /** Schedule suggestion: the user's date-time, ISO 8601 with offset. */
+  scheduledAt?: string;
 }
 
 export interface ApiErrorBody {

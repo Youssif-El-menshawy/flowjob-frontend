@@ -91,6 +91,42 @@ export function GmailPanel() {
       },
     });
 
+  const finishDisconnect = (onDone?: () => void) =>
+    disconnect.mutate(undefined, {
+      onSuccess: () => {
+        onDone?.();
+        toast({ text: 'Gmail disconnected.' });
+      },
+      onError: (e) => {
+        onDone?.();
+        toast({ text: e instanceof ApiError ? e.message : 'Could not disconnect Gmail. Try again.', tone: 'error' });
+      },
+    });
+
+  if (state === 'disconnecting') {
+    return (
+      <Card className="mb-6 animate-in" aria-labelledby="gmail-panel-title">
+        <div className="flex flex-wrap items-start gap-4">
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-tint text-primary">
+            <Icon.mail />
+          </span>
+          <div className="min-w-[220px] flex-1">
+            <h2 id="gmail-panel-title" className="text-[17px] font-semibold">
+              Gmail
+            </h2>
+            <p role="status" className="mt-1 text-sm leading-relaxed text-soft">
+              Disconnecting… FlowJob is erasing its Gmail data. If this does not finish, try again; it is safe to
+              repeat.
+            </p>
+          </div>
+          <Button variant="secondary" loading={disconnect.isPending} onClick={() => finishDisconnect()}>
+            Finish disconnecting
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
   const s = g.sync;
   return (
     <Card className="mb-6 animate-in" aria-labelledby="gmail-panel-title">
@@ -157,6 +193,7 @@ export function GmailPanel() {
           {s.error && (
             <p role="alert" className="text-danger">
               {s.error.message}
+              {s.retryAt && !running && ` Next try ${fmtRelative(s.retryAt)}.`}
             </p>
           )}
           {s.failed > 0 && !running && (
@@ -181,19 +218,11 @@ export function GmailPanel() {
         open={confirmDisconnect}
         onClose={() => setConfirmDisconnect(false)}
         title="Disconnect Gmail?"
-        text="FlowJob will stop reading Gmail and erase its Gmail data: access, excerpts, suggestions and sync progress. Applications you already have, and statuses you approved, stay."
+        text="FlowJob will stop reading Gmail and erase its Gmail data: access, excerpts, suggestions, dismissed suggestions and sync progress. Applications you already have, and statuses you approved, stay. If you connect Gmail again later, FlowJob checks the last 30 days again, so suggestions you dismissed may reappear."
         confirmLabel="Disconnect"
         danger
         loading={disconnect.isPending}
-        onConfirm={() =>
-          disconnect.mutate(undefined, {
-            onSuccess: () => {
-              setConfirmDisconnect(false);
-              toast({ text: 'Gmail disconnected.' });
-            },
-            onError: () => toast({ text: 'Could not disconnect Gmail. Try again.', tone: 'error' }),
-          })
-        }
+        onConfirm={() => finishDisconnect(() => setConfirmDisconnect(false))}
       />
     </Card>
   );

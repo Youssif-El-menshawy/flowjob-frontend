@@ -44,7 +44,10 @@ export function GmailConnectDialog({
           </li>
           <li>Clear applications are added for you. Anything uncertain, and every status change, waits for your review.</li>
           <li>FlowJob keeps only short excerpts and dates, never whole emails.</li>
-          <li>Disconnect at any time to erase the Gmail data. Your applications stay.</li>
+          <li>
+            Disconnect at any time to erase the Gmail data, including suggestions you dismissed. Your applications
+            stay. If you connected before, dismissed suggestions may appear again.
+          </li>
         </ul>
       </div>
     </Modal>

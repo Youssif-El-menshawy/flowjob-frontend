@@ -377,3 +377,90 @@ describe('review reasons from the grounding policy', () => {
     expect(reviewReason({ ...reviews[0], proposal: { ...reviews[0].proposal, reason } })).toBe(text);
   });
 });
+
+describe('pre-merge hardening', () => {
+  const disconnecting: GmailStatus = {
+    available: true, pendingReviewCount: 0, connection: { state: 'disconnecting' }, sync: null,
+  };
+
+  it('shows an interrupted disconnect and lets the user finish it safely', async () => {
+    let state: GmailStatus = disconnecting;
+    backend(() => state, (path, method) => {
+      if (path === '/gmail' && method === 'DELETE') {
+        state = disconnected;
+        return new Response(null, { status: 204 });
+      }
+    });
+    renderAt('/app/applications');
+    expect(await screen.findByText(/Disconnecting… FlowJob is erasing its Gmail data/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Connect Gmail' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Finish disconnecting' }));
+    expect(await screen.findByText('Gmail disconnected.')).toBeVisible();
+    expect(sent('DELETE', '/gmail')).toHaveLength(1);
+    expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeVisible();
+  });
+
+  it('shows the disconnecting state after a disconnect fails midway', async () => {
+    let state: GmailStatus = active();
+    backend(() => state, (path, method) => {
+      if (path === '/gmail' && method === 'DELETE') {
+        state = disconnecting;
+        return Response.json({ detail: 'Gmail could not be fully disconnected. Try again.' }, { status: 503 });
+      }
+    });
+    renderAt('/app/applications');
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Disconnect Gmail?' })).getByRole('button', { name: 'Disconnect' }));
+    expect(await screen.findByText('Gmail could not be fully disconnected. Try again.')).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Finish disconnecting' })).toBeVisible();
+  });
+
+  it('discloses that dismissed suggestions may reappear after reconnecting', async () => {
+    backend(active());
+    renderAt('/app/applications');
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+    const dialog = screen.getByRole('dialog', { name: 'Disconnect Gmail?' });
+    expect(within(dialog).getByText(/suggestions you dismissed may reappear/)).toBeVisible();
+    cleanup();
+    backend(disconnected);
+    renderAt('/app/applications');
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+    expect(within(screen.getByRole('dialog', { name: 'Connect Gmail' })).getByText(/dismissed suggestions may appear again/)).toBeVisible();
+  });
+
+  it('says a temporary Gmail failure is retried automatically, without asking to reconnect', async () => {
+    backend(active({
+      error: { code: 'gmail_rate_limited', message: 'Gmail asked FlowJob to slow down. FlowJob retries automatically after a pause.' },
+      retryAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+    }));
+    renderAt('/app/applications');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/retries automatically after a pause\. Next try/);
+    expect(screen.queryByRole('button', { name: 'Reconnect Gmail' })).toBeNull();
+  });
+
+  it('asks the user to enter a time the email gave in an unconvertible time zone', async () => {
+    const schedule: GmailReview = {
+      id: 'r-time', kind: 'schedule_change', state: 'pending', excerpt: 'Interview on 19 November at 11:00 PST',
+      receivedAt: '2026-11-12T08:00:00Z', gmailUrl: GMAIL_URL, candidates: [],
+      application: { id: 'a3', company: 'Beta', jobTitle: 'Backend Intern', status: 'Interview' },
+      proposal: { scheduledAt: null, eventType: 'interview_invitation', timeIssue: 'unsupported_timezone',
+        statedTime: '2026-11-19T11:00 PST' },
+    };
+    backend(active({}, 1), (path) => {
+      if (path === '/gmail/reviews') return Response.json([schedule]);
+      if (path === '/gmail/reviews/r-time/approve') return Response.json({ review: 'approved', applicationId: 'a3' });
+    });
+    renderAt('/app/applications');
+    const card = (await screen.findByText('Update the date for Beta?')).closest('li')!;
+    expect(within(card).getByText('The email says: 2026-11-19T11:00 PST')).toBeVisible();
+    expect(within(card).getByText(/time zone FlowJob cannot convert reliably/)).toBeVisible();
+    const save = within(card).getByRole('button', { name: 'Save date' });
+    expect(save).toBeDisabled();
+    fireEvent.change(within(card).getByLabelText('Date and time (your time zone)'), { target: { value: '2026-11-19T20:00' } });
+    fireEvent.click(save);
+    expect(await screen.findByText('Date saved.')).toBeVisible();
+    const body = sent('POST', '/gmail/reviews/r-time/approve')[0].body as { scheduledAt: string };
+    expect(body.scheduledAt).toMatch(/^2026-11-19T20:00:00[+-]\d{2}:\d{2}$/);
+  });
+});

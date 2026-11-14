@@ -241,7 +241,8 @@ export function useDisconnectGmail() {
   const refresh = useRefreshGmailData();
   return useMutation({
     mutationFn: () => api<void>('/gmail', { method: 'DELETE' }),
-    onSuccess: refresh,
+    // Also after a failure: an interrupted disconnect is then shown as "disconnecting" with a retry.
+    onSettled: refresh,
   });
 }
 

@@ -210,7 +210,8 @@ export default function DashboardPage() {
   const matches = useMatches();
   const profile = useProfile();
   const gmail = useGmail();
-  const gmailConnected = !!gmail.data && gmail.data.connection.state !== 'not_connected';
+  const gmailState = gmail.data?.connection.state;
+  const gmailConnected = gmailState === 'active' || gmailState === 'reauth_required';
   const profileComplete = isProfileComplete(profile.data);
   const last = matches.data?.[0];
   const score = useCountUp(last?.score ?? 0);

@@ -8,7 +8,7 @@ import { fmtDate } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { Input, Select } from '@/shared/ui/Field';
 import { useToast } from '@/shared/ui/Overlay';
-import { activityLabel, fmtDateTime, reviewReason, safeGmailUrl } from './gmailLabels';
+import { activityLabel, fmtDateTime, fromLocalInput, reviewReason, safeGmailUrl, toLocalInput } from './gmailLabels';
 
 const NEW = '__new__';
 
@@ -48,6 +48,9 @@ export function ReviewCard({ r }: { r: GmailReview }) {
     (r.kind === 'status_change' ? p.to : p.status) ?? 'Applied',
   );
   const [target, setTarget] = useState<string>('');
+  // Schedule suggestion: the user enters the time when the email's time could not be converted safely.
+  const needsTime = r.kind === 'schedule_change' && !p.scheduledAt;
+  const [when, setWhen] = useState(toLocalInput(p.scheduledAt));
   const busy = approve.isPending || dismiss.isPending;
   // Synchronous guard: a fast double click must not send a second decision before React re-renders.
   const inFlight = useRef(false);
@@ -98,7 +101,7 @@ export function ReviewCard({ r }: { r: GmailReview }) {
             · now {p.from} → suggested {p.to}
           </p>
         )}
-        {r.kind === 'schedule_change' && (
+        {r.kind === 'schedule_change' && !needsTime && (
           <p className="text-sm text-soft">
             New: {fmtDateTime(p.scheduledAt)}
             {p.previousScheduledAt && (
@@ -108,6 +111,10 @@ export function ReviewCard({ r }: { r: GmailReview }) {
               </>
             )}
           </p>
+        )}
+        {needsTime && p.statedTime && (
+          // Plain text as the email states it; never converted or guessed.
+          <p className="text-sm text-soft break-words">The email says: {p.statedTime}</p>
         )}
         {r.kind === 'new_application' && p.dateApplied && (
           <p className="text-sm text-soft">
@@ -147,6 +154,14 @@ export function ReviewCard({ r }: { r: GmailReview }) {
           </Select>
         </div>
       )}
+      {needsTime && (
+        <Input
+          label="Date and time (your time zone)"
+          type="datetime-local"
+          value={when}
+          onChange={(e) => setWhen(e.target.value)}
+        />
+      )}
       {editing && r.kind === 'status_change' && (
         <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value as ApplicationStatus)}>
           {STATUSES.map((s) => <option key={s}>{s}</option>)}
@@ -159,6 +174,11 @@ export function ReviewCard({ r }: { r: GmailReview }) {
             onClick={() => doApprove(target === NEW ? {} : { applicationId: target },
               target === NEW ? 'Application added.' : 'Linked to your application.')}>
             Approve
+          </Button>
+        ) : needsTime ? (
+          <Button size="sm" disabled={!fromLocalInput(when) || busy} loading={approve.isPending}
+            onClick={() => doApprove({ scheduledAt: fromLocalInput(when)! }, 'Date saved.')}>
+            Save date
           </Button>
         ) : editing ? (
           <Button size="sm" loading={approve.isPending} disabled={busy || (r.kind === 'new_application' && (!company.trim() || !jobTitle.trim()))}

@@ -39,7 +39,15 @@ const REASON: Record<string, string> = {
   possible_advertisement: 'This looks like an invitation to apply rather than an application you sent.',
 };
 
-export const reviewReason = (r: GmailReview) => REASON[r.proposal.reason ?? ''] ?? null;
+const TIME_ISSUE: Record<string, string> = {
+  unsupported_timezone: 'The email uses a time zone FlowJob cannot convert reliably. Enter the time yourself.',
+  conflicting_timezone: 'The email gives conflicting time zones. Enter the time yourself.',
+  nonexistent_time: 'That time does not exist on that day (clocks changed). Enter the time yourself.',
+  ambiguous_time: 'That time occurs twice on that day (clocks changed). Enter the time yourself.',
+};
+
+export const reviewReason = (r: GmailReview) =>
+  (r.proposal.timeIssue ? TIME_ISSUE[r.proposal.timeIssue] : null) ?? REASON[r.proposal.reason ?? ''] ?? null;
 
 const CALLBACK_ERRORS: Record<string, string> = {
   denied: 'Google access was not granted.',
