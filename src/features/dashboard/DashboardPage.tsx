@@ -1,13 +1,12 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { USE_MOCKS } from '@/shared/api/client';
-import { useApplications, useCvs, useGmail, useMatches, useProfile, useReviewSuggestion } from '@/shared/api/queries';
+import { useApplications, useCvs, useGmail, useMatches, useProfile } from '@/shared/api/queries';
 import { isProfileComplete } from '@/shared/lib/profile';
 import type { Application } from '@/shared/api/types';
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { cn, firstName, fmtDate, greeting, suggestionPhrase } from '@/shared/lib/utils';
-import { Button, ButtonLink } from '@/shared/ui/Button';
+import { ButtonLink } from '@/shared/ui/Button';
 import {
   Card,
   CardTitle,
@@ -18,7 +17,6 @@ import {
   StatusPill,
 } from '@/shared/ui/Display';
 import { Icon } from '@/shared/ui/Icons';
-import { useToast } from '@/shared/ui/Overlay';
 import { Skeleton } from '@/shared/ui/Spinner';
 
 const STAIRS = ['Saved', 'Applied', 'Interview', 'Offer'] as const;
@@ -58,60 +56,38 @@ function Staircase({ apps }: { apps: Application[] }) {
   );
 }
 
-function ReviewCard({ apps }: { apps: Application[] }) {
-  const toast = useToast();
-  const review = useReviewSuggestion();
-  const pending = apps.filter((a) => a.suggestion);
-  const a = pending[0];
+function ReviewCard({ apps, pendingCount }: { apps: Application[]; pendingCount: number }) {
+  const a = apps.find((x) => x.suggestion);
   return (
     <Card className="flex flex-col animate-in" style={{ animationDelay: '.12s' }}>
       <div className="mb-4 flex items-center gap-2.5">
-        <span className={cn('size-2.5 rounded-full', a ? 'bg-accent animate-pulse-dot' : 'bg-st-offer')} />
-        <h2 className="text-[17px] font-semibold">{a ? 'Needs your review' : 'All caught up'}</h2>
-        {pending.length > 1 && <span className="ml-auto text-sm text-soft">{pending.length} waiting</span>}
+        <span className={cn('size-2.5 rounded-full', pendingCount ? 'bg-accent animate-pulse-dot' : 'bg-st-offer')} />
+        <h2 className="text-[17px] font-semibold">{pendingCount ? 'Needs your review' : 'All caught up'}</h2>
+        {pendingCount > 1 && <span className="ml-auto text-sm text-soft">{pendingCount} waiting</span>}
       </div>
-      {a?.suggestion ? (
-        <div key={a.id} className="flex flex-1 flex-col gap-3 animate-in">
-          <p className="leading-relaxed">
-            <strong className="font-semibold">{a.company}</strong> sent an email that looks like{' '}
-            <strong className="font-semibold">{suggestionPhrase(a.suggestion.proposedStatus)}</strong> for{' '}
-            {a.jobTitle}.
-          </p>
-          <p className="rounded-xl bg-accent-soft px-4 py-3 text-sm leading-relaxed">
-            {a.suggestion.snippet}
-          </p>
-          <p className="text-[13px] text-soft">We never change a status on our own when we are unsure.</p>
-          <div className="mt-auto flex flex-wrap gap-2 pt-2">
-            <Button
-              loading={review.isPending && review.variables?.action === 'confirm'}
-              onClick={() =>
-                review.mutate(
-                  { id: a.id, action: 'confirm' },
-                  {
-                    onSuccess: () =>
-                      toast({ text: `${a.company} moved to ${a.suggestion!.proposedStatus}.` }),
-                  },
-                )
-              }
-            >
-              Move to {a.suggestion.proposedStatus}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={review.isPending}
-              onClick={() => review.mutate({ id: a.id, action: 'reject' })}
-            >
-              Not right
-            </Button>
-          </div>
+      {pendingCount ? (
+        <div className="flex flex-1 flex-col gap-3 animate-in">
+          {a?.suggestion ? (
+            <p className="leading-relaxed">
+              <strong className="font-semibold">{a.company}</strong> sent an email that looks like{' '}
+              <strong className="font-semibold">{suggestionPhrase(a.suggestion.proposedStatus)}</strong> for{' '}
+              {a.jobTitle}.
+            </p>
+          ) : (
+            <p className="leading-relaxed">Gmail found recruitment emails that need a quick decision.</p>
+          )}
+          <p className="text-[13px] text-soft">We never change a status without your approval.</p>
+          <ButtonLink to="/app/applications" className="mt-auto self-start">
+            Review in Applications
+          </ButtonLink>
         </div>
       ) : (
         <div className="flex flex-1 flex-col gap-3">
           <p className="leading-relaxed text-soft">
-            Nothing from Gmail needs a decision right now. We will let you know when a reply is unclear.
+            Nothing from Gmail needs a decision right now. Unclear emails will wait here for you.
           </p>
-          <Link to="/app/settings" className="mt-auto text-sm font-medium text-primary hover:underline">
-            Gmail settings
+          <Link to="/app/applications" className="mt-auto text-sm font-medium text-primary hover:underline">
+            Gmail on Applications
           </Link>
         </div>
       )}
@@ -119,14 +95,14 @@ function ReviewCard({ apps }: { apps: Application[] }) {
   );
 }
 
-function DemoGmailConnectNote() {
+function GmailConnectNote() {
   const gmail = useGmail();
-  if (!gmail.data || gmail.data.connected) return null;
+  if (!gmail.data?.available || gmail.data.connection.state !== 'not_connected') return null;
 
   return (
     <Note className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
-      <span>Try Gmail in the demo to see how simulated replies can update your applications.</span>
-      <ButtonLink to="/app/settings" size="sm" variant="secondary">
+      <span>Connect Gmail to add applications from confirmation emails and track replies.</span>
+      <ButtonLink to="/app/applications" size="sm" variant="secondary">
         Connect Gmail
       </ButtonLink>
     </Note>
@@ -233,6 +209,8 @@ export default function DashboardPage() {
   const cvs = useCvs();
   const matches = useMatches();
   const profile = useProfile();
+  const gmail = useGmail();
+  const gmailConnected = !!gmail.data && gmail.data.connection.state !== 'not_connected';
   const profileComplete = isProfileComplete(profile.data);
   const last = matches.data?.[0];
   const score = useCountUp(last?.score ?? 0);
@@ -298,7 +276,7 @@ export default function DashboardPage() {
         </div>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-          <Card className={cn('animate-in', !USE_MOCKS && 'lg:col-span-2')}>
+          <Card className={cn('animate-in', !gmailConnected && 'lg:col-span-2')}>
             <CardTitle
               action={
                 <Link to="/app/applications" className="text-sm font-medium text-primary hover:underline">
@@ -310,7 +288,7 @@ export default function DashboardPage() {
             </CardTitle>
             <Staircase apps={list} />
           </Card>
-          {USE_MOCKS && <ReviewCard apps={list} />}
+          {gmailConnected && <ReviewCard apps={list} pendingCount={gmail.data?.pendingReviewCount ?? 0} />}
 
           <Card className="animate-in" style={{ animationDelay: '.2s' }}>
             <CardTitle
@@ -373,7 +351,7 @@ export default function DashboardPage() {
               </>
             )}
           </Card>
-          {USE_MOCKS && <DemoGmailConnectNote />}
+          <GmailConnectNote />
         </div>
       )}
     </>

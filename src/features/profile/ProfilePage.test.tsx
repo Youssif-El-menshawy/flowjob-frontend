@@ -31,6 +31,7 @@ vi.mock('@/features/auth/AuthProvider', () => ({
 
 vi.mock('@/shared/api/queries', () => ({
   useApplications: () => ({ data: [] }),
+  useGmail: () => ({ data: undefined }),
   useProfile: () => ({
     data: useSyncExternalStore(subscribeProfile, () => mocks.profile),
     isError: mocks.isError,

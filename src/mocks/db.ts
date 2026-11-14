@@ -1,5 +1,5 @@
 // A tiny in-browser "database" for the mock API, persisted in localStorage so accounts survive reloads.
-import type { Application, Cv, GmailConnection, MatchResult, Profile, TailorDraft } from '@/shared/api/types';
+import type { Application, Cv, GmailReview, MatchResult, Profile, TailorDraft } from '@/shared/api/types';
 import { DEMO_EMAIL, DEMO_PASSWORD, demoData, uid } from './seed';
 
 export interface UserRec {
@@ -17,7 +17,15 @@ export interface UserData {
   matches: MatchResult[];
   drafts: TailorDraft[];
   applications: Application[];
-  gmail: GmailConnection;
+  gmail: MockGmail;
+}
+
+/** Demo-only Gmail state. Status suggestions live on the applications, like the real API. */
+export interface MockGmail {
+  connected: boolean;
+  email?: string;
+  lastSyncAt?: string;
+  reviews: GmailReview[];
 }
 
 interface DB {
@@ -27,7 +35,8 @@ interface DB {
   data: Record<string, UserData>;
 }
 
-const KEY = 'flowjob.mockdb.v1';
+// v2: Gmail moved to the reviewed-suggestion contract (older demo data is reseeded).
+const KEY = 'flowjob.mockdb.v2';
 /** Stands in for the httpOnly refresh-token cookie the real API sets. */
 export const COOKIE_KEY = 'flowjob.mock.refreshCookie';
 

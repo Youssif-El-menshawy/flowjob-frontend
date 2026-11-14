@@ -23,6 +23,7 @@ vi.mock('@/features/auth/AuthProvider', () => ({
 }));
 vi.mock('@/shared/api/queries', () => ({
   useApplications: () => ({ data: [] }),
+  useGmail: () => ({ data: undefined }),
   useCvs: () => ({ data: [{ id: 'cv1', name: 'My CV', kind: 'original', updatedAt: '2026-01-01' }], isLoading: false }),
   useMatches: () => ({ data: [] }),
   useMatch: (id?: string) => {

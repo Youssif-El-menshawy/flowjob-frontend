@@ -1,57 +1,21 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { loginPassword, newPassword } from '@/features/auth/passwordValidation';
 import { ApiError, USE_MOCKS } from '@/shared/api/client';
 import {
   exportData,
   useChangePassword,
-  useConnectGmail,
   useDeleteAccount,
-  useDisconnectGmail,
-  useGmail,
-  useSetAutoSync,
-  useSyncGmail,
   useUpdateMe,
 } from '@/shared/api/queries';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { useTheme } from '@/shared/lib/theme';
-import { cn, downloadJson, fmtRelative } from '@/shared/lib/utils';
+import { downloadJson } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
-import { Card, Note, PageHeader, Segmented } from '@/shared/ui/Display';
+import { Card, PageHeader, Segmented } from '@/shared/ui/Display';
 import { Input } from '@/shared/ui/Field';
 import { ConfirmDialog, Modal, useToast } from '@/shared/ui/Overlay';
-import { Skeleton } from '@/shared/ui/Spinner';
-
-function Switch({
-  on, onChange, label, disabled,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-  disabled: boolean;
-}) {
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!on)}
-      className={cn(
-        'flex h-[30px] w-[52px] shrink-0 items-center rounded-full p-[3px] transition-colors duration-200',
-        on ? 'bg-primary' : 'bg-line',
-      )}
-    >
-      <span
-        className={cn(
-          'size-6 rounded-full bg-white shadow transition-transform duration-200',
-          on && 'translate-x-[22px]',
-        )}
-      />
-    </button>
-  );
-}
 
 function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useToast();
@@ -226,17 +190,15 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {USE_MOCKS ? (
-          <DemoGmailCard />
-        ) : (
-          <Card className="flex flex-col gap-5 animate-in" style={{ animationDelay: '.08s' }}>
-            <h2 className="text-[17px] font-semibold">Gmail</h2>
-            <p className="leading-relaxed text-soft">
-              Gmail integration is currently unavailable in connected mode. You can update application
-              statuses manually from Applications.
-            </p>
-          </Card>
-        )}
+        <Card className="flex flex-col gap-3 animate-in" style={{ animationDelay: '.08s' }}>
+          <h2 className="text-[17px] font-semibold">Gmail</h2>
+          <p className="leading-relaxed text-soft">
+            Connect, sync and review Gmail suggestions on the Applications page.
+          </p>
+          <Link to="/app/applications" className="self-start text-sm font-medium text-primary hover:underline">
+            Go to Applications
+          </Link>
+        </Card>
       </div>
 
       <PasswordModal open={pw} onClose={() => setPw(false)} />
@@ -297,129 +259,6 @@ function DemoDataCard() {
               nav('/', { replace: true });
             },
             onError: () => toast({ text: 'Could not delete your account. Try again.', tone: 'error' }),
-          })
-        }
-      />
-    </>
-  );
-}
-
-function DemoGmailCard() {
-  const toast = useToast();
-  const gmail = useGmail();
-  const connect = useConnectGmail();
-  const disconnect = useDisconnectGmail();
-  const autoSync = useSetAutoSync();
-  const sync = useSyncGmail();
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const g = gmail.data;
-
-  return (
-    <>
-      <Card className="flex flex-col gap-5 animate-in" style={{ animationDelay: '.08s' }}>
-        <h2 className="text-[17px] font-semibold">Gmail</h2>
-        {gmail.isLoading ? (
-          <div role="status" aria-label="Loading Gmail settings">
-            <Skeleton className="h-40" />
-          </div>
-        ) : gmail.isError || !g ? (
-          <div className="flex flex-col items-start gap-3">
-            <p role="alert" className="text-sm text-danger">Could not load Gmail settings.</p>
-            <Button variant="secondary" loading={gmail.isFetching} onClick={() => void gmail.refetch()}>
-              Retry
-            </Button>
-          </div>
-        ) : g.connected ? (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-success-bg px-5 py-4 text-success-ink">
-              <div>
-                <p className="font-medium">Connected · {g.email}</p>
-                <p className="text-[13px]">Simulated connection</p>
-              </div>
-              <p className="text-[13px] font-medium">Last checked {fmtRelative(g.lastSyncAt)}</p>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="font-medium">Check automatically</p>
-                <p className="text-[13px] text-soft">Demo auto-sync preference</p>
-              </div>
-              <Switch
-                label="Check automatically"
-                on={g.autoSync}
-                disabled={autoSync.isPending}
-                onChange={(v) =>
-                  autoSync.mutate(v, {
-                    onError: () => toast({ text: 'Could not update Gmail settings. Try again.', tone: 'error' }),
-                  })
-                }
-              />
-            </div>
-            <div className="flex justify-between border-t border-line pt-4 text-[15px]">
-              <span className="text-soft">This month</span>
-              <span>{g.updatesThisMonth} updates</span>
-            </div>
-            <div className="flex flex-wrap gap-2.5">
-              <Button
-                loading={sync.isPending}
-                onClick={() =>
-                  sync.mutate(undefined, {
-                    onSuccess: (r) =>
-                      toast({
-                        text: r.newSuggestions
-                          ? `Checked ${r.checked} emails. ${r.newSuggestions} reply needs your review.`
-                          : `Checked ${r.checked} emails. Nothing new.`,
-                      }),
-                    onError: () =>
-                      toast({ text: 'Could not reach Gmail. Try again later.', tone: 'error' }),
-                  })
-                }
-              >
-                {sync.isPending ? 'Checking…' : 'Check now'}
-              </Button>
-              <Button variant="secondary" onClick={() => setConfirmDisconnect(true)}>
-                Disconnect Gmail
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="leading-relaxed text-soft">
-              Connect Gmail and FlowJob can spot replies from companies, then update the matching
-              application or ask you first when it is unsure.
-            </p>
-            <Button
-              className="self-start"
-              loading={connect.isPending}
-              onClick={() =>
-                connect.mutate(undefined, {
-                  onSuccess: () => toast({ text: 'Gmail connected.' }),
-                  onError: () => toast({ text: 'Could not connect Gmail. Try again.', tone: 'error' }),
-                })
-              }
-            >
-              Connect Gmail
-            </Button>
-          </>
-        )}
-        <Note className="mt-1">
-          <p className="font-medium">Demo Gmail</p>
-          <p className="mt-1 text-soft">This demo uses simulated messages and does not access your inbox.</p>
-        </Note>
-      </Card>
-      <ConfirmDialog
-        open={confirmDisconnect}
-        onClose={() => setConfirmDisconnect(false)}
-        title="Disconnect Gmail?"
-        text="This disconnects the simulated Gmail account. Your applications stay as they are."
-        confirmLabel="Disconnect"
-        loading={disconnect.isPending}
-        onConfirm={() =>
-          disconnect.mutate(undefined, {
-            onSuccess: () => {
-              setConfirmDisconnect(false);
-              toast({ text: 'Gmail disconnected.' });
-            },
-            onError: () => toast({ text: 'Could not disconnect Gmail. Try again.', tone: 'error' }),
           })
         }
       />

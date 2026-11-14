@@ -16,8 +16,10 @@ vi.mock('@/shared/api/queries', () => ({
   useCvs: () => mocks.cvs,
   useUpdateApplication: () => ({ mutateAsync: mocks.mutateAsync }),
   useDeleteApplication: () => ({}),
-  useReviewSuggestion: () => ({}),
-  useUndoEvent: () => ({}),
+  useApproveReview: () => ({}),
+  useDismissReview: () => ({}),
+  useCorrectActivity: () => ({}),
+  useDismissActivity: () => ({}),
 }));
 
 beforeEach(() => {
