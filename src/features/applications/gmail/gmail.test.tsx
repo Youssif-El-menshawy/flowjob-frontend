@@ -238,7 +238,7 @@ describe('Needs Review', () => {
     expect(await screen.findByText('New application: Acme Polska · analyst')).toBeVisible();
     expect(screen.getByText('“Thanks for your interest in the analyst role”')).toBeVisible();
     expect(screen.getByText(/not a confirmed submission date/)).toBeVisible();
-    expect(screen.getByText('The email did not clearly show that you applied.')).toBeVisible();
+    expect(screen.getByText('FlowJob could not confirm this automatically. Please check the details.')).toBeVisible();
     expect(screen.getByText('Move Beta to Interview?')).toBeVisible();
     const links = screen.getAllByRole('link', { name: 'Open in Gmail' });
     expect(links).toHaveLength(2); // the ambiguous review's foreign link is not rendered
@@ -366,6 +366,13 @@ describe('review reasons from the grounding policy', () => {
     ['ungrounded_employer', 'The employer named for this role does not appear in the email.'],
     ['ungrounded_title', 'The job title does not appear in the email.'],
     ['possible_advertisement', 'This looks like an invitation to apply rather than an application you sent.'],
+    ['low_confidence', 'The analysis was not confident that this email is about an application you made.'],
+    ['medium_confidence', 'The analysis was only partly confident, and the email is not an explicit application confirmation.'],
+    ['invalid_match', 'The analysis referred to an application that could not be verified.'],
+    ['unverified_quote', 'The supporting excerpt could not be found in the email.'],
+    ['weak_quote', 'The supporting excerpt is too short to rely on.'],
+    ['weak_evidence', 'The email does not clearly show that you applied.'],
+    ['uncertain', 'FlowJob could not confirm this automatically. Please check the details.'],
   ])('explains %s', (reason, text) => {
     expect(reviewReason({ ...reviews[0], proposal: { ...reviews[0].proposal, reason } })).toBe(text);
   });

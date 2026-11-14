@@ -370,6 +370,8 @@ export interface GmailReview {
     eventType?: ActivityType | 'other' | null;
     references?: string[];
     reason?: string;
+    /** Diagnostic decision signals (enums and booleans only), for newer reviews. */
+    signals?: Record<string, string | boolean>;
     scheduledAt?: string | null;
     previousScheduledAt?: string | null;
     from?: ApplicationStatus;

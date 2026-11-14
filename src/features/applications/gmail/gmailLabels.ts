@@ -21,8 +21,14 @@ export const activityLabel = (t?: string | null) =>
 export const isDeadline = (t?: string | null) => t === 'assessment' || t === 'deadline_extension';
 
 const REASON: Record<string, string> = {
-  uncertain: 'The email did not clearly show that you applied.',
-  weak_evidence: 'The email did not clearly show that you applied.',
+  // Stored by earlier versions for several different checks, so it stays deliberately general.
+  uncertain: 'FlowJob could not confirm this automatically. Please check the details.',
+  weak_evidence: 'The email does not clearly show that you applied.',
+  low_confidence: 'The analysis was not confident that this email is about an application you made.',
+  medium_confidence: 'The analysis was only partly confident, and the email is not an explicit application confirmation.',
+  invalid_match: 'The analysis referred to an application that could not be verified.',
+  unverified_quote: 'The supporting excerpt could not be found in the email.',
+  weak_quote: 'The supporting excerpt is too short to rely on.',
   missing_details: 'The employer or job title was unclear.',
   contradictory: 'The email contained conflicting details.',
   possible_reapplication: 'This may be a new application to a role you applied to before.',
