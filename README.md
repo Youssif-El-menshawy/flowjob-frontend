@@ -66,7 +66,7 @@ Landing · Log in · Register · Forgot password · Dashboard · Profile · CV b
 - Word (.docx) export. PDF export uses the browser's print dialog on the CV preview.
 - Reset-password link screen (the email step exists).
 - CV upload and parsing (waiting for the team decision).
-- Real Gmail OAuth and the real LLM (mocked by `src/mocks/matcher.ts`).
+- In demo mode (`VITE_USE_MOCKS=true`), Gmail and the LLM are simulated (`src/mocks`). Connected mode uses the backend's Gmail integration, which needs a Google OAuth client (see the backend README).
 
 ## Git workflow
 
