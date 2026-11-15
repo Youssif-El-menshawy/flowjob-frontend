@@ -290,11 +290,11 @@ describe('Dashboard header Gmail action', () => {
     expect(mocks.sync).toHaveBeenCalledWith(false, expect.anything());
   });
 
-  it('shows a disabled Syncing… button and small progress text while syncing', () => {
+  it('shows only a disabled Syncing… button while syncing, with no progress line under the greeting', () => {
     mocks.gmail = { data: gmailStatus({ pendingReviewCount: 4 }, { running: true, phase: 'backfill', caughtUp: false, remaining: 12 }) };
     renderDashboard();
     expect(within(header()).getByRole('button', { name: 'Syncing…' })).toBeDisabled();
-    expect(within(header()).getByText(/Checking the last 30 days of email… 12 emails to go\./)).toBeVisible();
+    expect(header()).not.toHaveTextContent(/Checking|to go/);
   });
 
   it('links Review emails (N) to Applications when reviews are pending', () => {

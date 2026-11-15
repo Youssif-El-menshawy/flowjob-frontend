@@ -7,7 +7,7 @@ import { GmailConnectDialog } from '@/features/applications/gmail/GmailConnectDi
 import { useGmailOAuth } from '@/features/applications/gmail/useGmailOAuth';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { useToast } from '@/shared/ui/Overlay';
-import { Skeleton, Spinner } from '@/shared/ui/Spinner';
+import { Skeleton } from '@/shared/ui/Spinner';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -122,7 +122,10 @@ export function GmailHeaderAction({ fallback }: { fallback?: ReactNode }) {
   }
 }
 
-/** Small, unobtrusive Gmail line inside the header subtitle: sync progress, or why Gmail needs managing. */
+/**
+ * Small, unobtrusive Gmail line inside the header subtitle: why Gmail needs managing. Sync progress is not shown
+ * here; the header button's disabled "Syncing…" state covers it.
+ */
 export function GmailHeaderStatus() {
   const gmail = useGmail();
   const g = gmail.data;
@@ -136,14 +139,6 @@ export function GmailHeaderStatus() {
   let text: ReactNode = null;
   if (state === 'disconnecting') text = 'Gmail is disconnecting. Finish it on Applications.';
   else if (state === 'reauth_required') text = 'Gmail access expired. Reconnect to keep tracking.';
-  else if (state === 'active' && s?.running)
-    text = (
-      <span className="inline-flex items-center gap-1.5">
-        <Spinner className="size-3.5" />
-        {s.phase === 'backfill' ? 'Checking the last 30 days of email…' : 'Checking for new email…'}
-        {s.remaining > 0 && ` ${plural(s.remaining, 'email')} to go.`}
-      </span>
-    );
   else if (state === 'active' && syncProblem(s))
     text = s?.error?.message || (s?.needsAttention ? 'Gmail sync needs attention.' : `${plural(s!.failed, 'email')} could not be analysed.`);
 
