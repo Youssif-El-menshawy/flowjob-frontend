@@ -59,6 +59,37 @@ describe('AppLayout sidebar + account menu', () => {
     expect(screen.queryByLabelText(/to review/)).toBeNull();
   });
 
+  it('turns the badge into a button that opens the review dialog when already on Applications', () => {
+    mocks.gmail = { pendingReviewCount: 2 };
+    render(
+      <MemoryRouter initialEntries={['/app/applications?status=Applied']}>
+        <ToastProvider>
+          <Routes>
+            <Route path="/app" element={<AppLayout />}>
+              <Route path="applications" element={<div>applications</div>} />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    const badge = within(nav).getByRole('button', { name: 'Review 2 Gmail suggestions' });
+    expect(within(nav).getByRole('link', { name: 'Applications' })).not.toContainElement(badge);
+    fireEvent.click(badge);
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      { pathname: '/app/applications', search: '?status=Applied&review=1' },
+      { replace: true },
+    );
+  });
+
+  it('keeps the badge inside the Applications link on other pages', () => {
+    mocks.gmail = { pendingReviewCount: 2 };
+    renderLayout();
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(nav).queryByRole('button', { name: /Review .* Gmail/ })).toBeNull();
+    expect(within(nav).getByRole('link', { name: /Applications/ })).toHaveAttribute('href', '/app/applications');
+  });
+
   it('shows exactly the five core nav links and not Profile/Settings in the main nav', () => {
     renderLayout();
     const nav = screen.getByRole('navigation', { name: 'Main' });

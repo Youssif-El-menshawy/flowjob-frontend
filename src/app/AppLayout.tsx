@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useGmail } from '@/shared/api/queries';
 import { useSidebarCollapsed } from '@/shared/lib/sidebar';
 import { cn } from '@/shared/lib/utils';
@@ -74,6 +74,21 @@ function Sidebar({
   // Pending Gmail suggestions come from the authenticated status endpoint (also in the demo).
   const { data: gmail } = useGmail();
   const pending = gmail?.pendingReviewCount ?? 0;
+  const location = useLocation();
+  const navigate = useNavigate();
+  // On Applications the badge is its own button that opens the review dialog; elsewhere it is part of the link.
+  const onApplications = location.pathname === '/app/applications';
+  const openReview = () => {
+    onNavigate?.();
+    const search = new URLSearchParams(location.search);
+    search.set('review', '1');
+    navigate({ pathname: '/app/applications', search: `?${search}` }, { replace: true });
+  };
+  const badgeClass = (isCollapsed: boolean) =>
+    cn(
+      'grid place-items-center rounded-full bg-accent text-xs font-bold text-[#1c2b22]',
+      isCollapsed ? 'absolute -top-0.5 -right-0.5 min-w-[18px] px-1 text-[10px]' : 'min-w-[22px] px-1.5',
+    );
 
   return (
     <div className={cn('flex h-full flex-col gap-1 pb-5', collapsed ? 'px-3 pt-6' : 'px-4 pt-7')}>
@@ -91,47 +106,64 @@ function Sidebar({
         </div>
       )}
       <nav aria-label="Main" className="flex flex-col gap-1">
-        {NAV.map(({ to, label, icon: Ico, end, badge }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            onClick={onNavigate}
-            title={collapsed ? label : undefined}
-            className={({ isActive }) =>
-              cn(
-                'group relative flex min-h-11 items-center rounded-full text-[15px] transition-colors',
-                collapsed ? 'mx-auto size-11 justify-center' : 'gap-3 px-3',
-                isActive
-                  ? 'bg-surface font-semibold text-ink shadow-[0_1px_2px_rgb(var(--shadow)/0.08)]'
-                  : 'font-medium text-soft hover:bg-surface/60 hover:text-ink',
-              )
-            }
-          >
-            <Ico />
-            {collapsed ? <span className="sr-only">{label}</span> : <span className="flex-1">{label}</span>}
-            {badge && pending > 0 && (
-              <span
+        {NAV.map(({ to, label, icon: Ico, end, badge }) => {
+          const showBadge = !!badge && pending > 0;
+          const badgeButton = showBadge && onApplications;
+          const link = (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              onClick={onNavigate}
+              title={collapsed ? label : undefined}
+              className={({ isActive }) =>
+                cn(
+                  'group relative flex min-h-11 items-center rounded-full text-[15px] transition-colors',
+                  collapsed ? 'mx-auto size-11 justify-center' : 'gap-3 px-3',
+                  isActive
+                    ? 'bg-surface font-semibold text-ink shadow-[0_1px_2px_rgb(var(--shadow)/0.08)]'
+                    : 'font-medium text-soft hover:bg-surface/60 hover:text-ink',
+                )
+              }
+            >
+              <Ico />
+              {collapsed ? <span className="sr-only">{label}</span> : <span className="flex-1">{label}</span>}
+              {showBadge && !badgeButton && (
+                <span className={badgeClass(collapsed)} aria-label={`${pending} to review`}>
+                  {pending}
+                </span>
+              )}
+              {badgeButton && !collapsed && <span aria-hidden className="min-w-[22px]" />}
+              {collapsed && (
+                // Visual tooltip for hover and keyboard focus; the sr-only label is the accessible name.
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-1/2 left-full z-30 ml-3 -translate-y-1/2 rounded-lg bg-ink px-2.5 py-1 text-xs font-medium whitespace-nowrap text-bg opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                >
+                  {label}
+                </span>
+              )}
+            </NavLink>
+          );
+          if (!badgeButton) return link;
+          return (
+            <div key={to} className={cn('relative', collapsed && 'mx-auto size-11')}>
+              {link}
+              <button
+                type="button"
+                onClick={openReview}
+                aria-label={`Review ${pending} Gmail ${pending === 1 ? 'suggestion' : 'suggestions'}`}
                 className={cn(
-                  'grid place-items-center rounded-full bg-accent text-xs font-bold text-[#1c2b22]',
-                  collapsed ? 'absolute -top-0.5 -right-0.5 min-w-[18px] px-1 text-[10px]' : 'min-w-[22px] px-1.5',
+                  badgeClass(collapsed),
+                  !collapsed && 'absolute top-1/2 right-3 -translate-y-1/2',
+                  'transition-transform hover:scale-110',
                 )}
-                aria-label={`${pending} to review`}
               >
                 {pending}
-              </span>
-            )}
-            {collapsed && (
-              // Visual tooltip for hover and keyboard focus; the sr-only label is the accessible name.
-              <span
-                aria-hidden
-                className="pointer-events-none absolute top-1/2 left-full z-30 ml-3 -translate-y-1/2 rounded-lg bg-ink px-2.5 py-1 text-xs font-medium whitespace-nowrap text-bg opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
-              >
-                {label}
-              </span>
-            )}
-          </NavLink>
-        ))}
+              </button>
+            </div>
+          );
+        })}
       </nav>
       <div className="flex-1" />
       <AccountMenu onNavigate={onNavigate} collapsed={collapsed} />
