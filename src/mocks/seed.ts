@@ -3,11 +3,11 @@ import type {
   ApplicationStatus,
   Cv,
   CvContent,
-  GmailConnection,
   MatchResult,
   Profile,
   StatusEvent,
 } from '@/shared/api/types';
+import type { MockGmail } from './db';
 import { analyseMatch } from './matcher';
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -214,13 +214,35 @@ export function demoData() {
         cvId: 'cv-allegro',
         jobUrl: 'allegro.pl/kariera/junior-frontend',
         notes: 'Referred by Kasia from the meetup.',
+        source: 'gmail',
         suggestion: {
           id: uid(),
           proposedStatus: 'Offer',
-          from: 'careers@allegro.pl',
-          snippet: '“We are happy to share the next steps of your offer…”',
+          currentStatus: 'Interview',
+          eventType: 'offer',
+          excerpt: 'We are happy to share the next steps of your offer…',
           receivedAt: now,
+          gmailUrl: null,
         },
+        activity: [
+          {
+            id: uid(),
+            eventType: 'interview_invitation',
+            occurredAt: d('2026-10-14'),
+            excerpt: 'We would like to invite you to a technical interview on 20 Oct at 10:00.',
+            scheduledAt: '2026-10-20T08:00:00.000Z',
+            corrected: false,
+            gmailUrl: null,
+          },
+          {
+            id: uid(),
+            eventType: 'offer',
+            occurredAt: now,
+            excerpt: 'We are happy to share the next steps of your offer…',
+            corrected: false,
+            gmailUrl: null,
+          },
+        ],
       },
     ),
     app('Comarch', 'Web Developer', '2026-09-29', [
@@ -247,12 +269,6 @@ export function demoData() {
       ev('Withdrawn', '2026-09-10', 'manual', 'Took the Tooploox internship instead.'),
     ]),
   ];
-  const gmail: GmailConnection = {
-    connected: true,
-    email: 'sara.nowak@gmail.com',
-    lastSyncAt: now,
-    autoSync: true,
-    updatesThisMonth: 9,
-  };
+  const gmail: MockGmail = { connected: true, email: 'sara.nowak@gmail.com', lastSyncAt: now, reviews: [] };
   return { profile, cvs, matches, drafts: [], applications, gmail };
 }

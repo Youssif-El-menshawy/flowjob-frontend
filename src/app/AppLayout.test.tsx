@@ -7,9 +7,11 @@ const mocks = vi.hoisted(() => ({
   toggle: vi.fn(),
   theme: 'light' as 'light' | 'dark',
   navigate: vi.fn(),
+  gmail: undefined as { pendingReviewCount: number } | undefined,
 }));
 
-vi.mock('@/shared/api/queries', () => ({ useApplications: () => ({ data: [] }) }));
+vi.mock('@/shared/api/queries', () => ({ useApplications: () => ({ data: [] }),
+  useGmail: () => ({ data: mocks.gmail }) }));
 vi.mock('@/features/auth/AuthProvider', () => ({
   useAuth: () => ({ user: { name: 'Jordan Verylongname Example', email: 'jordan.verylong@example.com' }, logout: mocks.logout }),
 }));
@@ -42,9 +44,21 @@ afterEach(() => {
   mocks.toggle = vi.fn();
   mocks.navigate = vi.fn();
   mocks.theme = 'light';
+  mocks.gmail = undefined;
 });
 
 describe('AppLayout sidebar + account menu', () => {
+  it('shows the number of pending Gmail suggestions beside Applications', () => {
+    mocks.gmail = { pendingReviewCount: 3 };
+    renderLayout();
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByLabelText('3 to review')).toHaveTextContent('3');
+    cleanup();
+    mocks.gmail = { pendingReviewCount: 0 };
+    renderLayout();
+    expect(screen.queryByLabelText(/to review/)).toBeNull();
+  });
+
   it('shows exactly the five core nav links and not Profile/Settings in the main nav', () => {
     renderLayout();
     const nav = screen.getByRole('navigation', { name: 'Main' });

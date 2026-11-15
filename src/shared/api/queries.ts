@@ -10,11 +10,12 @@ import type {
   Cv,
   CvContentInput,
   CvWriteInput,
-  GmailConnection,
+  GmailReview,
+  GmailStatus,
   MatchResult,
   RunMatchInput,
   Profile,
-  SyncResult,
+  ReviewEdits,
   TailorDirectInput,
   TailorMatchInput,
   User,
@@ -30,6 +31,7 @@ export const qk = {
   apps: ['applications'] as const,
   app: (id: string) => ['applications', id] as const,
   gmail: ['gmail'] as const,
+  gmailReviews: ['gmail', 'reviews'] as const,
 };
 
 // Profile
@@ -185,43 +187,105 @@ export const useUpdateApplication = () =>
   );
 export const useDeleteApplication = () =>
   useAppMutation((id: string) => api<void>(`/applications/${id}`, { method: 'DELETE' }));
-export const useReviewSuggestion = () =>
-  useAppMutation(({ id, action }: { id: string; action: 'confirm' | 'reject' }) =>
-    api<Application>(`/applications/${id}/suggestion/${action}`, { method: 'POST' }),
-  );
-export const useUndoEvent = () =>
-  useAppMutation(({ id, eventId }: { id: string; eventId: string }) =>
-    api<Application>(`/applications/${id}/history/${eventId}/undo`, { method: 'POST' }),
-  );
+// Gmail (connection, sync, Needs Review, recruitment activity)
+function useRefreshGmailData() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: qk.gmail });
+    void qc.invalidateQueries({ queryKey: qk.apps });
+  };
+}
 
-// Gmail
-export const useGmail = () =>
+/** Polls only while a sync is running. */
+export const useGmail = (enabled = true) =>
   useQuery({
     queryKey: qk.gmail,
-    queryFn: ({ signal }) => api<GmailConnection>('/gmail', { signal }),
+    queryFn: ({ signal }) => api<GmailStatus>('/gmail', { signal }),
+    enabled,
+    refetchInterval: (q) => (q.state.data?.sync?.running ? 2500 : false),
   });
-function useGmailMutation<V>(fn: (v: V) => Promise<GmailConnection>) {
-  const qc = useQueryClient();
-  return useMutation({ mutationFn: fn, onSuccess: (g) => qc.setQueryData(qk.gmail, g) });
-}
-export const useConnectGmail = () =>
-  useGmailMutation(() => api<GmailConnection>('/gmail/connect', { method: 'POST' }));
-export const useDisconnectGmail = () =>
-  useGmailMutation(() => api<GmailConnection>('/gmail/disconnect', { method: 'POST' }));
-export const useSetAutoSync = () =>
-  useGmailMutation((autoSync: boolean) =>
-    api<GmailConnection>('/gmail', { method: 'PATCH', json: { autoSync } }),
-  );
+
+export const useGmailReviews = (enabled: boolean) =>
+  useQuery({
+    queryKey: qk.gmailReviews,
+    queryFn: ({ signal }) => api<GmailReview[]>('/gmail/reviews', { signal }),
+    enabled,
+  });
+
+export const useStartGmailOAuth = () =>
+  useMutation({
+    mutationFn: (mode: 'connect' | 'reconnect') => {
+      let timezone: string | undefined;
+      try {
+        timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        timezone = undefined; // the server falls back to UTC
+      }
+      return api<{ authorizationUrl: string }>('/gmail/oauth/start', {
+        method: 'POST',
+        json: { mode, timezone },
+      });
+    },
+  });
+
 export function useSyncGmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api<SyncResult>('/gmail/sync', { method: 'POST' }),
-    onSuccess: (r) => {
-      qc.setQueryData(qk.gmail, r.connection);
-      qc.invalidateQueries({ queryKey: qk.apps });
+    mutationFn: (retryFailed: boolean) =>
+      api<GmailStatus>('/gmail/sync', { method: 'POST', json: { retryFailed } }),
+    onSuccess: (status) => qc.setQueryData(qk.gmail, status),
+  });
+}
+
+export function useDisconnectGmail() {
+  const refresh = useRefreshGmailData();
+  return useMutation({
+    mutationFn: () => api<void>('/gmail', { method: 'DELETE' }),
+    // Also after a failure: an interrupted disconnect is then shown as "disconnecting" with a retry.
+    onSettled: refresh,
+  });
+}
+
+export function useApproveReview() {
+  const refresh = useRefreshGmailData();
+  return useMutation({
+    mutationFn: ({ id, edits }: { id: string; edits?: ReviewEdits }) =>
+      api<{ review: string; applicationId?: string }>(`/gmail/reviews/${id}/approve`, {
+        method: 'POST',
+        json: edits ?? {},
+      }),
+    onSettled: refresh,
+  });
+}
+
+export function useDismissReview() {
+  const refresh = useRefreshGmailData();
+  return useMutation({
+    mutationFn: (id: string) => api<{ review: string }>(`/gmail/reviews/${id}/dismiss`, { method: 'POST' }),
+    onSettled: refresh,
+  });
+}
+
+function useActivityMutation<V>(fn: (v: V) => Promise<Application>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (a) => {
+      qc.setQueryData(qk.app(a.id), a);
+      void qc.invalidateQueries({ queryKey: qk.apps });
+      void qc.invalidateQueries({ queryKey: qk.gmail });
     },
   });
 }
+export const useCorrectActivity = () =>
+  useActivityMutation(
+    ({ appId, eventId, ...b }: { appId: string; eventId: string; eventType?: string; scheduledAt?: string | null }) =>
+      api<Application>(`/applications/${appId}/activity/${eventId}`, { method: 'PATCH', json: b }),
+  );
+export const useDismissActivity = () =>
+  useActivityMutation(({ appId, eventId }: { appId: string; eventId: string }) =>
+    api<Application>(`/applications/${appId}/activity/${eventId}/dismiss`, { method: 'POST' }),
+  );
 
 // Account
 export const useUpdateMe = () =>

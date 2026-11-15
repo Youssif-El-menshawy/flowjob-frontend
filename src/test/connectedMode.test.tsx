@@ -9,7 +9,7 @@ import LoginPage from '@/features/auth/LoginPage';
 import DashboardPage from '@/features/dashboard/DashboardPage';
 import LandingPage from '@/features/landing/LandingPage';
 import SettingsPage from '@/features/settings/SettingsPage';
-import type { Application, GmailConnection } from '@/shared/api/types';
+import type { Application, GmailStatus } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
 
 const mocks = vi.hoisted(() => ({
@@ -46,14 +46,15 @@ const application: Application = {
   suggestion: {
     id: 's1',
     proposedStatus: 'Interview',
-    from: 'careers@example.test',
+    currentStatus: 'Applied',
     receivedAt: '2026-02-01',
-    snippet: 'Can we set up an interview?',
+    excerpt: 'Can we set up an interview?',
   },
 };
 
-const disconnected: GmailConnection = { connected: false, autoSync: true, updatesThisMonth: 0 };
-const connected: GmailConnection = { ...disconnected, connected: true, email: 'fixture@example.test' };
+const disconnected: GmailStatus = {
+  available: true, pendingReviewCount: 0, connection: { state: 'not_connected' }, sync: null,
+};
 const unavailable = () => Response.json({ message: 'Service unavailable' }, { status: 503 });
 
 function stubBackend(override?: (path: string, method: string) => Response | Promise<Response> | undefined) {
@@ -64,6 +65,7 @@ function stubBackend(override?: (path: string, method: string) => Response | Pro
     requests.push(`${method} ${path}`);
     const response = override?.(path, method);
     if (response) return response;
+    if (path === '/gmail') return Response.json(disconnected);
     if (path === '/applications') return Response.json([application]);
     if (path === '/applications/app1') return Response.json(application);
     if (path === '/cvs') return Response.json([{ id: 'cv1', name: 'My CV' }]);
@@ -117,15 +119,14 @@ it('keeps the connected reset URL navigable without offering or requesting a res
   expect(requests).toEqual([]);
 });
 
-it('shows connected settings notices without fetching Gmail, and still saves account details', async () => {
+it('shows connected settings notices, points Gmail to Applications without fetching it, and saves account details', async () => {
   const requests = stubBackend((path, method) => path === '/me' && method === 'PATCH'
     ? Response.json({ id: 'u1', name: 'Updated User', email: 'fixture@example.test' })
     : undefined);
   renderAt('/app/settings');
 
   expect(screen.getByText(/data export and account deletion are currently unavailable/i)).toBeVisible();
-  expect(screen.getByText(/gmail integration is currently unavailable/i)).toBeVisible();
-  expect(screen.queryByRole('status', { name: 'Loading Gmail settings' })).not.toBeInTheDocument();
+  expect(screen.getByText(/review gmail suggestions on the applications page/i)).toBeVisible();
   for (const name of ['Download my data', 'Delete account', 'Connect Gmail']) {
     expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
   }
@@ -136,21 +137,27 @@ it('shows connected settings notices without fetching Gmail, and still saves acc
   expect(requests).toEqual(['PATCH /me']);
 });
 
-it('keeps connected application actions available without offering demo Gmail review or undo', async () => {
-  const requests = stubBackend();
+it('shows a real Gmail suggestion for approval in connected mode, without the old demo undo', async () => {
+  const requests = stubBackend((path, method) =>
+    path === '/gmail/reviews/s1/approve' && method === 'POST'
+      ? Response.json({ review: 'approved', applicationId: 'app1' })
+      : undefined);
   const dashboard = renderAt('/app');
   const app = await screen.findByRole('link', { name: /Acme/ });
-  expect(screen.queryByRole('link', { name: 'Gmail settings' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Move to Interview' })).not.toBeInTheDocument();
+  // Gmail is not connected: the dashboard offers to connect it from Applications instead of a review card.
+  expect(await screen.findByRole('link', { name: 'Connect Gmail' })).toHaveAttribute('href', '/app/applications');
 
   fireEvent.click(app);
   expect(await screen.findByRole('heading', { name: /Acme/ })).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Not right' })).not.toBeInTheDocument();
+  expect(screen.getByText('“Can we set up an interview?”')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Change status' })).toBeEnabled();
   expect(screen.getByRole('heading', { name: 'History' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Move to Interview' }));
+  expect(await screen.findByText('Moved to Interview.')).toBeVisible();
   expect(requests).toContain('GET /applications/app1');
-  expect(requests.filter((request) => /gmail|suggestion|undo/.test(request))).toEqual([]);
+  expect(requests).toContain('POST /gmail/reviews/s1/approve');
+  expect(requests.filter((request) => /suggestion|undo/.test(request))).toEqual([]);
 
   dashboard.unmount();
   renderAt('/app/applications/new');
@@ -166,31 +173,6 @@ it('advertises only supported application tracking on the connected landing page
   expect(screen.queryByText(/gmail/i)).not.toBeInTheDocument();
   expect(screen.getAllByRole('link', { name: 'Open dashboard' })[0]).toHaveAttribute('href', '/app');
   expect(requests).toEqual([]);
-});
-
-it('replaces the demo Gmail loader with an error, retries and still supports connecting', async () => {
-  mocks.demo = true;
-  let resolveLoad!: (response: Response) => void;
-  const initialLoad = new Promise<Response>((resolve) => { resolveLoad = resolve; });
-  const loads = vi.fn().mockReturnValueOnce(initialLoad).mockImplementation(() => Response.json(disconnected));
-  const connects = vi.fn().mockImplementationOnce(unavailable).mockImplementation(() => Response.json(connected));
-  const requests = stubBackend((path, method) => {
-    if (path === '/gmail' && method === 'GET') return loads();
-    if (path === '/gmail/connect' && method === 'POST') return connects();
-  });
-  renderAt('/app/settings');
-
-  expect(screen.getByRole('status', { name: 'Loading Gmail settings' })).toBeVisible();
-  resolveLoad(unavailable());
-  expect(await screen.findByRole('alert')).toHaveTextContent('Could not load Gmail settings.');
-  expect(screen.queryByRole('status', { name: 'Loading Gmail settings' })).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
-  expect(await screen.findByText('Could not connect Gmail. Try again.')).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Connect Gmail' }));
-  expect(await screen.findByText('Connected · fixture@example.test')).toBeVisible();
-  expect(requests).toEqual(['GET /gmail', 'GET /gmail', 'POST /gmail/connect', 'POST /gmail/connect']);
 });
 
 it('keeps demo password recovery available and handles a failed request without claiming an email was sent', async () => {

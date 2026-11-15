@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
 }));
 
-vi.mock('@/shared/api/queries', () => ({ useApplications: () => ({ data: [] }) }));
+vi.mock('@/shared/api/queries', () => ({ useApplications: () => ({ data: [] }),
+  useGmail: () => ({ data: undefined }) }));
 vi.mock('@/features/auth/AuthProvider', () => ({
   useAuth: () => ({
     user: { name: 'Jordan Verylongname Example', email: 'jordan.verylong@example.com' },

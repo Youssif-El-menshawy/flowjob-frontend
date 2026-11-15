@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { USE_MOCKS } from '@/shared/api/client';
+import { ApiError } from '@/shared/api/client';
 import {
   useApplication,
+  useApproveReview,
   useCvs,
   useDeleteApplication,
-  useReviewSuggestion,
-  useUndoEvent,
+  useDismissReview,
   useUpdateApplication,
 } from '@/shared/api/queries';
 import type { ApplicationStatus } from '@/shared/api/types';
@@ -18,11 +18,13 @@ import { Card, EmptyState, PageHeader, STATUS_STYLE, StatusPill } from '@/shared
 import { ConfirmDialog, Modal, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { ApplicationForm } from './ApplicationForm';
+import { ActivityTimeline } from './gmail/ActivityTimeline';
+import { safeGmailUrl } from './gmail/gmailLabels';
 
 const SOURCE = {
   manual: 'Changed by you',
   gmail_auto: 'From Gmail · applied automatically',
-  gmail_confirmed: 'From Gmail · you confirmed',
+  gmail_confirmed: 'From Gmail · you approved',
 };
 
 export default function ApplicationDetailPage() {
@@ -32,12 +34,13 @@ export default function ApplicationDetailPage() {
   const { data: a, isLoading } = useApplication(id);
   const cvs = useCvs();
   const update = useUpdateApplication();
-  const review = useReviewSuggestion();
-  const undo = useUndoEvent();
+  const approve = useApproveReview();
+  const dismiss = useDismissReview();
   const del = useDeleteApplication();
   const [editing, setEditing] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const deciding = useRef(false); // blocks a second decision before React re-renders the disabled buttons
   useDocumentTitle(a ? a.company : 'Application');
 
   if (isLoading) return <PageLoader />;
@@ -52,8 +55,17 @@ export default function ApplicationDetailPage() {
   const cv = cvs.data?.find((c) => c.id === a.cvId);
   const missingCvLabel = cvs.isError ? 'Could not load attached CV'
     : cvs.data ? 'CV no longer available' : 'Loading attached CV…';
-  // The real backend does not store a per-event timeline (Gmail/history is a deferred
-  // feature); show the current status as a single entry. Demo (MSW) data has full history.
+  const decide = (run: (release: () => void) => void) => {
+    if (deciding.current) return;
+    deciding.current = true;
+    run(() => {
+      deciding.current = false;
+    });
+  };
+  const reviewFailed = (e: unknown) =>
+    toast({ text: e instanceof ApiError ? e.message : 'Could not save your decision. Try again.', tone: 'error' });
+  const addedLabel = a.source === 'gmail' ? 'Imported from Gmail' : 'Added by you';
+  // Status history is recorded from manual and approved changes; older applications show their current status.
   const history =
     a.history && a.history.length
       ? [...a.history].reverse()
@@ -74,7 +86,9 @@ export default function ApplicationDetailPage() {
             {a.company} <StatusPill key={a.status} status={a.status} className="animate-pop text-sm" />
           </span>
         }
-        subtitle={`${a.jobTitle}${a.dateApplied ? ` · applied ${fmtDate(a.dateApplied, true)}` : ''}`}
+        subtitle={`${a.jobTitle}${a.dateApplied ? ` · applied ${fmtDate(a.dateApplied, true)}` : ''}${
+          a.source === 'gmail' ? ' · imported from Gmail' : ''
+        }`}
         actions={
           <>
             <Button variant="secondary" onClick={() => setEditing(true)}>
@@ -85,35 +99,54 @@ export default function ApplicationDetailPage() {
         }
       />
 
-      {USE_MOCKS && a.suggestion && (
+      {a.suggestion && (
         <div className="mb-6 flex flex-wrap items-center gap-4 rounded-3xl border border-accent/60 bg-accent-soft p-5 animate-in">
           <div className="min-w-[260px] flex-1">
             <p className="font-display text-lg font-semibold">
               Gmail found what looks like {suggestionPhrase(a.suggestion.proposedStatus)}
             </p>
-            <p className="mt-1 text-sm text-soft">
-              {a.suggestion.snippet} · {fmtDate(a.suggestion.receivedAt)}, {a.suggestion.from}
-            </p>
-            <p className="mt-1 text-[13px] text-accent-ink">
-              We never change a status on our own when we are unsure.
+            {a.suggestion.excerpt && (
+              <p className="mt-1 text-sm break-words text-soft">“{a.suggestion.excerpt}”</p>
+            )}
+            <p className="mt-1 flex flex-wrap gap-x-3 text-[13px] text-accent-ink">
+              <span>Email from {fmtDate(a.suggestion.receivedAt, true)}. Nothing changes until you approve.</span>
+              {safeGmailUrl(a.suggestion.gmailUrl) && (
+                <a href={safeGmailUrl(a.suggestion.gmailUrl)!} target="_blank" rel="noopener noreferrer"
+                  className="font-medium text-primary hover:underline">
+                  Open in Gmail
+                </a>
+              )}
             </p>
           </div>
           <div className="flex gap-2">
             <Button
               variant="secondary"
-              disabled={review.isPending}
+              disabled={approve.isPending || dismiss.isPending}
+              loading={dismiss.isPending}
               onClick={() =>
-                review.mutate(
-                  { id: a.id, action: 'reject' },
-                  { onSuccess: () => toast({ text: 'Got it. Status unchanged.' }) },
+                decide((release) =>
+                  dismiss.mutate(a.suggestion!.id, {
+                    onSuccess: () => toast({ text: 'Got it. Status unchanged.' }),
+                    onError: reviewFailed,
+                    onSettled: release,
+                  }),
                 )
               }
             >
               Not right
             </Button>
             <Button
-              loading={review.isPending && review.variables?.action === 'confirm'}
-              onClick={() => review.mutate({ id: a.id, action: 'confirm' })}
+              disabled={approve.isPending || dismiss.isPending}
+              loading={approve.isPending}
+              onClick={() => {
+                const to = a.suggestion!.proposedStatus;
+                decide((release) =>
+                  approve.mutate(
+                    { id: a.suggestion!.id },
+                    { onSuccess: () => toast({ text: `Moved to ${to}.` }), onError: reviewFailed, onSettled: release },
+                  ),
+                );
+              }}
             >
               Move to {a.suggestion.proposedStatus}
             </Button>
@@ -129,7 +162,12 @@ export default function ApplicationDetailPage() {
               {[
                 ['Company', a.company],
                 ['Job title', a.jobTitle],
-                ['Date applied', a.dateApplied ? fmtDate(a.dateApplied, true) : '—'],
+                [
+                  'Date applied',
+                  a.dateApplied
+                    ? `${fmtDate(a.dateApplied, true)}${a.dateAppliedProvisional ? ' (from a Gmail message, please check)' : ''}`
+                    : '—',
+                ],
                 ['Location', a.location || '—'],
                 ['Work arrangement', a.workArrangement || '—'],
                 ['Employment type', a.employmentType || '—'],
@@ -188,6 +226,7 @@ export default function ApplicationDetailPage() {
           </button>
         </div>
 
+        <div className="flex flex-col gap-5">
         <Card className="animate-in" style={{ animationDelay: '.1s' }}>
           <h2 className="mb-5 text-[17px] font-semibold">History</h2>
           <ol className="flex flex-col">
@@ -206,28 +245,17 @@ export default function ApplicationDetailPage() {
                   <div className="flex flex-wrap items-center gap-2.5">
                     <StatusPill status={e.status} />
                     <span className="text-[13px] text-soft">
-                      {i === history.length - 1 ? 'Added by you' : SOURCE[e.source]}
+                      {i === history.length - 1 ? addedLabel : SOURCE[e.source]}
                     </span>
                   </div>
                   {e.note && <p className="mt-1.5 text-[15px] leading-relaxed text-soft">{e.note}</p>}
-                  {USE_MOCKS && i === 0 && history.length > 1 && (
-                    <button
-                      className="mt-1.5 text-[13px] font-semibold text-accent-ink hover:underline"
-                      onClick={() =>
-                        undo.mutate(
-                          { id: a.id, eventId: e.id },
-                          { onSuccess: () => toast({ text: 'Change undone.' }) },
-                        )
-                      }
-                    >
-                      Undo
-                    </button>
-                  )}
                 </div>
               </li>
             ))}
           </ol>
         </Card>
+        <ActivityTimeline appId={a.id} events={a.activity ?? []} />
+        </div>
       </div>
 
       <Modal open={editing} onClose={() => setEditing(false)} title="Edit details" size="lg">

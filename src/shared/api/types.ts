@@ -226,16 +226,48 @@ export interface StatusEvent {
   id: ID;
   status: ApplicationStatus;
   at: string;
+  /** gmail_confirmed = an approved Gmail suggestion. gmail_auto only appears in older demo data. */
   source: 'manual' | 'gmail_auto' | 'gmail_confirmed';
   note?: string;
 }
 
+/** English categories for recruitment activity. Excerpts and job titles keep the email's language. */
+export const ACTIVITY_TYPES = [
+  'application_confirmation',
+  'application_update',
+  'assessment',
+  'recruiter_follow_up',
+  'interview_invitation',
+  'interview_rescheduled',
+  'deadline_extension',
+  'offer',
+  'rejection',
+  'withdrawal_confirmation',
+] as const;
+export type ActivityType = (typeof ACTIVITY_TYPES)[number];
+
+export interface ActivityEvent {
+  id: ID;
+  eventType: ActivityType;
+  occurredAt: string;
+  excerpt?: string | null;
+  scheduledAt?: string | null;
+  scheduledTz?: string | null;
+  previousScheduledAt?: string | null;
+  corrected: boolean;
+  /** Built by the backend from a validated Gmail id; absent once disconnected. */
+  gmailUrl?: string | null;
+}
+
+/** The single pending Gmail status suggestion of an application (its id is the review id). */
 export interface GmailSuggestion {
   id: ID;
   proposedStatus: ApplicationStatus;
-  from: string;
-  snippet: string;
+  currentStatus?: ApplicationStatus;
+  eventType?: ActivityType | null;
+  excerpt?: string | null;
   receivedAt: string;
+  gmailUrl?: string | null;
 }
 
 export interface Application {
@@ -253,9 +285,12 @@ export interface Application {
   followUpDate?: string | null;
   createdAt?: string;
   updatedAt: string;
-  // Deferred Gmail/timeline features. The real API returns an empty history and null
-  // suggestion (the feature is not implemented yet); the demo (MSW) data populates them.
+  source?: 'manual' | 'gmail';
+  importedAt?: string | null;
+  /** The date came from a Gmail message that implied (but did not confirm) the application. */
+  dateAppliedProvisional?: boolean;
   history: StatusEvent[];
+  activity?: ActivityEvent[];
   suggestion: GmailSuggestion | null;
 }
 
@@ -276,19 +311,94 @@ export type ApplicationInput = Pick<Application, 'company' | 'jobTitle' | 'statu
 
 export type ApplicationPatch = Partial<ApplicationInput>;
 
-export interface GmailConnection {
-  connected: boolean;
-  email?: string;
-  lastSyncAt?: string;
-  autoSync: boolean;
-  updatesThisMonth: number;
+/** disconnecting = Gmail data is being erased (or an interrupted disconnect awaits a retry). */
+export type GmailConnectionState = 'not_connected' | 'active' | 'reauth_required' | 'disconnecting';
+
+export interface GmailRunSummary {
+  trigger: string;
+  processed: number;
+  imported: number;
+  linked: number;
+  activities: number;
+  reviews: number;
+  failed: number;
+  stoppedReason?: string | null;
+  finishedAt?: string | null;
 }
 
-export interface SyncResult {
-  checked: number;
-  autoUpdated: number;
-  newSuggestions: number;
-  connection: GmailConnection;
+export interface GmailSync {
+  running: boolean;
+  phase: 'backfill' | 'incremental';
+  caughtUp: boolean;
+  lastSyncAt?: string | null;
+  lastSuccessAt?: string | null;
+  remaining: number;
+  failed: number;
+  processed: number;
+  needsAttention?: string | null;
+  error?: { code: string; message: string } | null;
+  lastRun?: GmailRunSummary | null;
+  /** Next automatic retry after a temporary Gmail failure (scheduler enabled only). */
+  retryAt?: string | null;
+}
+
+export interface GmailStatus {
+  /** False when the server has no Google OAuth configuration. */
+  available: boolean;
+  pendingReviewCount: number;
+  connection: { state: GmailConnectionState; email?: string; connectedAt?: string; timezone?: string };
+  sync: GmailSync | null;
+}
+
+export type GmailReviewKind = 'new_application' | 'ambiguous_link' | 'status_change' | 'schedule_change';
+
+export interface ApplicationBrief {
+  id: ID;
+  company: string;
+  jobTitle: string;
+  status: ApplicationStatus;
+  dateApplied?: string | null;
+}
+
+export interface GmailReview {
+  id: ID;
+  kind: GmailReviewKind;
+  state: string;
+  proposal: {
+    company?: string | null;
+    jobTitle?: string | null;
+    status?: ApplicationStatus;
+    dateApplied?: string | null;
+    dateProvisional?: boolean;
+    eventType?: ActivityType | 'other' | null;
+    references?: string[];
+    reason?: string;
+    /** Diagnostic decision signals (enums and booleans only), for newer reviews. */
+    signals?: Record<string, string | boolean>;
+    scheduledAt?: string | null;
+    previousScheduledAt?: string | null;
+    /** The email's date-time could not be converted safely; the user sets it. */
+    timeIssue?: 'unsupported_timezone' | 'conflicting_timezone' | 'nonexistent_time' | 'ambiguous_time' | null;
+    /** The date-time as the email states it (short; plain text). */
+    statedTime?: string | null;
+    from?: ApplicationStatus;
+    to?: ApplicationStatus;
+  };
+  excerpt?: string | null;
+  receivedAt: string;
+  gmailUrl?: string | null;
+  application: ApplicationBrief | null;
+  candidates: ApplicationBrief[];
+}
+
+export interface ReviewEdits {
+  company?: string;
+  jobTitle?: string;
+  status?: ApplicationStatus;
+  dateApplied?: string;
+  applicationId?: string;
+  /** Schedule suggestion: the user's date-time, ISO 8601 with offset. */
+  scheduledAt?: string;
 }
 
 export interface ApiErrorBody {

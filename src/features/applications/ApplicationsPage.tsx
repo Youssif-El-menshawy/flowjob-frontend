@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { USE_MOCKS } from '@/shared/api/client';
-import { useApplications, useUpdateApplication } from '@/shared/api/queries';
+import { useQueryClient } from '@tanstack/react-query';
+import { qk, useApplications, useUpdateApplication } from '@/shared/api/queries';
 import type { Application, ApplicationStatus } from '@/shared/api/types';
 import { STATUSES } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
@@ -12,6 +12,9 @@ import { controlClass } from '@/shared/ui/Field';
 import { Icon } from '@/shared/ui/Icons';
 import { useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
+import { GmailPanel } from './gmail/GmailPanel';
+import { oauthErrorMessage } from './gmail/gmailLabels';
+import { NeedsReview } from './gmail/NeedsReview';
 
 const COLUMNS: { name: string; statuses: ApplicationStatus[]; slab: string; drop?: ApplicationStatus }[] = [
   { name: 'Saved', statuses: ['Saved'], slab: STATUS_STYLE.Saved.slab, drop: 'Saved' },
@@ -23,8 +26,8 @@ const COLUMNS: { name: string; statuses: ApplicationStatus[]; slab: string; drop
 
 function CardItem({ a, i }: { a: Application; i: number }) {
   const hist = a.history ?? [];
-  const lastGmail = hist.length > 0 && hist[hist.length - 1].source !== 'manual';
-  const needsReview = USE_MOCKS && !!a.suggestion;
+  const lastGmail = a.source === 'gmail' || (hist.length > 0 && hist[hist.length - 1].source !== 'manual');
+  const needsReview = !!a.suggestion;
   return (
     <Link
       to={`/app/applications/${a.id}`}
@@ -64,6 +67,23 @@ export default function ApplicationsPage() {
   const [q, setQ] = useState('');
   const [over, setOver] = useState<string | null>(null);
   const statusFilter = params.get('status') as ApplicationStatus | null;
+  const qc = useQueryClient();
+
+  // Return from Google OAuth: report the outcome once, then drop the query parameters.
+  const gmailResult = params.get('gmail');
+  const gmailReason = params.get('reason');
+  useEffect(() => {
+    if (!gmailResult) return;
+    if (gmailResult === 'connected') toast({ text: 'Gmail connected. Checking the last 30 days…' });
+    else if (gmailResult === 'reconnected') toast({ text: 'Gmail reconnected.' });
+    else toast({ text: oauthErrorMessage(gmailReason), tone: 'error' });
+    void qc.invalidateQueries({ queryKey: qk.gmail });
+    const next = new URLSearchParams(params);
+    next.delete('gmail');
+    next.delete('reason');
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gmailResult]);
 
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -100,6 +120,8 @@ export default function ApplicationsPage() {
         subtitle={`${data?.length ?? 0} ${(data?.length ?? 0) === 1 ? 'application' : 'applications'}`}
         actions={<ButtonLink to="/app/applications/new">Add application</ButtonLink>}
       />
+      <GmailPanel />
+      <NeedsReview />
       {!data?.length ? (
         <EmptyState
           title="No applications yet"

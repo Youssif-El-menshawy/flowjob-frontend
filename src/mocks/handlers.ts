@@ -5,8 +5,11 @@ import type {
   ApplicationPatch,
   ApplicationStatus,
   Cv,
+  ActivityEvent,
+  GmailReview,
+  GmailStatus,
   Profile,
-  StatusEvent,
+  ReviewEdits,
 } from '@/shared/api/types';
 import { STATUSES, type MatchResult } from '@/shared/api/types';
 import { clearCookie, db, issueTokens, publicUser, readCookie, save, type UserData } from './db';
@@ -82,7 +85,7 @@ export const handlers = [
       matches: [],
       drafts: [],
       applications: [],
-      gmail: { connected: false, autoSync: true, updatesThisMonth: 0 },
+      gmail: { connected: false, reviews: [] },
     };
     save();
     return HttpResponse.json({ accessToken: issueTokens(user.id), user: publicUser(user) }, { status: 201 });
@@ -438,103 +441,149 @@ export const handlers = [
       return new HttpResponse(null, { status: 204 });
     }),
   ),
-  http.post<{ id: string; action: string }>(
-    `${B}/applications/:id/suggestion/:action`,
-    authed<{ id: string; action: string }>(({ params, u }) => {
-      const a = u.data.applications.find((x) => x.id === params.id);
-      if (!a || !a.suggestion) return err(404, 'Nothing to review.');
-      if (params.action === 'confirm') {
-        const ev: StatusEvent = {
-          id: uid(),
-          status: a.suggestion.proposedStatus,
-          at: now(),
-          source: 'gmail_confirmed',
-          note: a.suggestion.snippet,
-        };
-        a.history.push(ev);
-        a.status = a.suggestion.proposedStatus;
-      }
-      a.suggestion = null;
-      a.updatedAt = now();
-      return HttpResponse.json(a);
-    }),
-  ),
-  http.post<{ id: string; eventId: string }>(
-    `${B}/applications/:id/history/:eventId/undo`,
-    authed<{ id: string; eventId: string }>(({ params, u }) => {
-      const a = u.data.applications.find((x) => x.id === params.id);
-      if (!a) return err(404, 'Application not found.');
-      const last = a.history[a.history.length - 1];
-      if (!last || last.id !== params.eventId || a.history.length < 2)
-        return err(409, 'Only the latest change can be undone.');
-      a.history.pop();
-      a.status = a.history[a.history.length - 1].status;
-      a.updatedAt = now();
-      return HttpResponse.json(a);
-    }),
-  ),
-
-  // ---------- Gmail (mock) ----------
-  http.get(
-    `${B}/gmail`,
-    authed(({ u }) => HttpResponse.json(u.data.gmail)),
-  ),
+  // ---------- Gmail (mock; same contract as the real API, no Google or OpenAI involved) ----------
+  http.get(`${B}/gmail`, authed(({ u }) => HttpResponse.json(gmailStatus(u.data)))),
   http.post(
-    `${B}/gmail/connect`,
+    `${B}/gmail/oauth/start`,
     authed(async ({ u }) => {
-      await delay(import.meta.env.MODE === 'test' ? 0 : 900);
+      await wait(600);
+      if (u.data.gmail.connected) return err(409, 'Gmail is already connected.');
       const email = u.data.profile.email || db().users.find((x) => x.id === u.id)!.email;
-      u.data.gmail = {
-        ...u.data.gmail,
-        connected: true,
-        email: email.replace(/@.*/, '@gmail.com'),
-        lastSyncAt: now(),
-      };
-      return HttpResponse.json(u.data.gmail);
-    }),
-  ),
-  http.post(
-    `${B}/gmail/disconnect`,
-    authed(({ u }) => {
-      u.data.gmail = { connected: false, autoSync: u.data.gmail.autoSync, updatesThisMonth: 0 };
-      return HttpResponse.json(u.data.gmail);
-    }),
-  ),
-  http.patch(
-    `${B}/gmail`,
-    authed(async ({ request, u }) => {
-      const b = (await request.json()) as { autoSync?: boolean };
-      if (typeof b.autoSync === 'boolean') u.data.gmail.autoSync = b.autoSync;
-      return HttpResponse.json(u.data.gmail);
+      // Simulated consent: the "Google" redirect returns straight to Applications.
+      u.data.gmail = { connected: true, email: email.replace(/@.*/, '@gmail.com'), lastSyncAt: now(), reviews: [] };
+      u.data.gmail.reviews.push({
+        id: uid(), kind: 'new_application', state: 'pending', excerpt: 'Thank you for applying to the Junior Developer role.',
+        receivedAt: now(), gmailUrl: null, application: null, candidates: [],
+        proposal: { company: 'Demo Company', jobTitle: 'Junior Developer', status: 'Applied',
+          dateApplied: now().slice(0, 10), dateProvisional: false, eventType: 'application_confirmation', reason: 'uncertain' },
+      });
+      return HttpResponse.json({ authorizationUrl: '/app/applications?gmail=connected' });
     }),
   ),
   http.post(
     `${B}/gmail/sync`,
     authed(async ({ u }) => {
-      if (!u.data.gmail.connected) return err(409, 'Connect Gmail first.');
-      await delay(import.meta.env.MODE === 'test' ? 0 : 1400);
-      let newSuggestions = 0;
-      // Mock classifier: proposes the next status for one active application and asks the user to confirm.
+      if (!u.data.gmail.connected) return err(404, 'Gmail is not connected.');
+      await wait(900);
+      let reviews = 0;
+      // Mock classifier: proposes the next status for one active application; the user decides.
       const target = u.data.applications.find((a) => !a.suggestion && nextStatus(a.status));
       if (target) {
         const to = nextStatus(target.status)!;
         target.suggestion = {
-          id: uid(),
-          proposedStatus: to,
-          from: `careers@${target.company.toLowerCase().replace(/[^a-z]/g, '')}.com`,
-          snippet:
-            to === 'Interview'
-              ? '“We would like to invite you to a short call…”'
-              : to === 'Offer'
-                ? '“We are happy to share the next steps of your offer…”'
-                : '“Thanks for applying. We are reviewing your application.”',
-          receivedAt: now(),
+          id: uid(), proposedStatus: to, currentStatus: target.status,
+          eventType: to === 'Interview' ? 'interview_invitation' : to === 'Offer' ? 'offer' : 'application_update',
+          excerpt: to === 'Interview' ? 'We would like to invite you to a short call…' : 'We are happy to share the next steps…',
+          receivedAt: now(), gmailUrl: null,
         };
-        newSuggestions = 1;
-        u.data.gmail.updatesThisMonth += 1;
+        reviews = 1;
       }
       u.data.gmail.lastSyncAt = now();
-      return HttpResponse.json({ checked: 12, autoUpdated: 0, newSuggestions, connection: u.data.gmail });
+      const status = gmailStatus(u.data);
+      status.sync!.lastRun = { trigger: 'manual', processed: 12, imported: 0, linked: 0, activities: 0, reviews, failed: 0 };
+      return HttpResponse.json(status, { status: 202 });
+    }),
+  ),
+  http.delete(
+    `${B}/gmail`,
+    authed(({ u }) => {
+      if (!u.data.gmail.connected) return err(404, 'Gmail is not connected.');
+      u.data.gmail = { connected: false, reviews: [] };
+      for (const a of u.data.applications) {
+        a.suggestion = null;
+        a.activity = [];
+      }
+      return new HttpResponse(null, { status: 204 });
+    }),
+  ),
+  http.get(`${B}/gmail/reviews`, authed(({ u }) => HttpResponse.json(pendingReviews(u.data)))),
+  http.post<{ id: string }>(
+    `${B}/gmail/reviews/:id/approve`,
+    authed<{ id: string }>(async ({ params, request, u }) => {
+      const edits = ((await request.json().catch(() => ({}))) ?? {}) as ReviewEdits;
+      const app = u.data.applications.find((a) => a.suggestion?.id === params.id);
+      if (app?.suggestion) {
+        const status = edits.status ?? app.suggestion.proposedStatus;
+        app.history.push({ id: uid(), status, at: now(), source: 'gmail_confirmed', note: app.suggestion.excerpt ?? undefined });
+        app.status = status;
+        app.suggestion = null;
+        app.updatedAt = now();
+        return HttpResponse.json({ review: 'approved', applicationId: app.id });
+      }
+      const r = u.data.gmail.reviews.find((x) => x.id === params.id && x.state === 'pending');
+      if (!r) return err(404, 'Review not found');
+      r.state = 'approved';
+      const created: Application = {
+        id: uid(), company: edits.company ?? r.proposal.company ?? 'Unknown', jobTitle: edits.jobTitle ?? r.proposal.jobTitle ?? 'Unknown',
+        status: edits.status ?? r.proposal.status ?? 'Applied', dateApplied: edits.dateApplied ?? r.proposal.dateApplied ?? null,
+        cvId: null, source: 'gmail', importedAt: now(), history: [], suggestion: null, updatedAt: now(),
+        activity: [{ id: uid(), eventType: 'application_confirmation', occurredAt: r.receivedAt, excerpt: r.excerpt, corrected: false }],
+      };
+      u.data.applications.unshift(created);
+      return HttpResponse.json({ review: 'approved', applicationId: created.id });
+    }),
+  ),
+  http.post<{ id: string }>(
+    `${B}/gmail/reviews/:id/dismiss`,
+    authed<{ id: string }>(({ params, u }) => {
+      const app = u.data.applications.find((a) => a.suggestion?.id === params.id);
+      if (app) app.suggestion = null;
+      const r = u.data.gmail.reviews.find((x) => x.id === params.id);
+      if (r) r.state = 'dismissed';
+      if (!app && !r) return err(404, 'Review not found');
+      return HttpResponse.json({ review: 'dismissed' });
+    }),
+  ),
+  http.patch<{ id: string; eventId: string }>(
+    `${B}/applications/:id/activity/:eventId`,
+    authed<{ id: string; eventId: string }>(async ({ params, request, u }) => {
+      const a = u.data.applications.find((x) => x.id === params.id);
+      const e = a?.activity?.find((x) => x.id === params.eventId);
+      if (!a || !e) return err(404, 'Activity not found');
+      const b = (await request.json()) as { eventType?: ActivityEvent['eventType']; scheduledAt?: string | null };
+      if (b.eventType) e.eventType = b.eventType;
+      if ('scheduledAt' in b) e.scheduledAt = b.scheduledAt;
+      e.corrected = true;
+      if (a.suggestion) a.suggestion = null; // the correction invalidates a dependent suggestion
+      return HttpResponse.json(a);
+    }),
+  ),
+  http.post<{ id: string; eventId: string }>(
+    `${B}/applications/:id/activity/:eventId/dismiss`,
+    authed<{ id: string; eventId: string }>(({ params, u }) => {
+      const a = u.data.applications.find((x) => x.id === params.id);
+      if (!a || !a.activity?.some((x) => x.id === params.eventId)) return err(404, 'Activity not found');
+      a.activity = a.activity.filter((x) => x.id !== params.eventId);
+      a.suggestion = null;
+      return HttpResponse.json(a);
     }),
   ),
 ];
+
+function pendingReviews(d: UserData): GmailReview[] {
+  const fromApps: GmailReview[] = d.applications
+    .filter((a) => a.suggestion)
+    .map((a) => ({
+      id: a.suggestion!.id, kind: 'status_change', state: 'pending', excerpt: a.suggestion!.excerpt,
+      receivedAt: a.suggestion!.receivedAt, gmailUrl: null,
+      application: { id: a.id, company: a.company, jobTitle: a.jobTitle, status: a.status, dateApplied: a.dateApplied },
+      candidates: [],
+      proposal: { from: a.status, to: a.suggestion!.proposedStatus, eventType: a.suggestion!.eventType ?? null },
+    }));
+  return [...fromApps, ...d.gmail.reviews.filter((r) => r.state === 'pending')];
+}
+
+function gmailStatus(d: UserData): GmailStatus {
+  const g = d.gmail;
+  const pendingReviewCount = pendingReviews(d).length;
+  if (!g.connected) return { available: true, pendingReviewCount, connection: { state: 'not_connected' }, sync: null };
+  return {
+    available: true,
+    pendingReviewCount,
+    connection: { state: 'active', email: g.email },
+    sync: {
+      running: false, phase: 'incremental', caughtUp: true, lastSyncAt: g.lastSyncAt, lastSuccessAt: g.lastSyncAt,
+      remaining: 0, failed: 0, processed: 0, needsAttention: null, error: null, lastRun: null,
+    },
+  };
+}

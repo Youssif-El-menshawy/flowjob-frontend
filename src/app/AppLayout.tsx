@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useApplications } from '@/shared/api/queries';
+import { useGmail } from '@/shared/api/queries';
 import { useSidebarCollapsed } from '@/shared/lib/sidebar';
 import { cn } from '@/shared/lib/utils';
 import { Logo, LogoMark } from '@/shared/ui/Display';
@@ -71,8 +71,9 @@ function Sidebar({
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
-  const { data: apps } = useApplications();
-  const pending = apps?.filter((a) => a.suggestion).length ?? 0;
+  // Pending Gmail suggestions come from the authenticated status endpoint (also in the demo).
+  const { data: gmail } = useGmail();
+  const pending = gmail?.pendingReviewCount ?? 0;
 
   return (
     <div className={cn('flex h-full flex-col gap-1 pb-5', collapsed ? 'px-3 pt-6' : 'px-4 pt-7')}>
