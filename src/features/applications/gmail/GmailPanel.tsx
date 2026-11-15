@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@/shared/api/client';
-import { qk, useDisconnectGmail, useGmail, useStartGmailOAuth, useSyncGmail } from '@/shared/api/queries';
+import { qk, useDisconnectGmail, useGmail, useSyncGmail } from '@/shared/api/queries';
 import type { GmailStatus } from '@/shared/api/types';
 import { fmtRelative } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
@@ -10,13 +10,11 @@ import { Icon } from '@/shared/ui/Icons';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { Spinner } from '@/shared/ui/Spinner';
 import { GmailConnectDialog } from './GmailConnectDialog';
+import { useGmailOAuth } from './useGmailOAuth';
+
+export { goTo } from './useGmailOAuth';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
-/** Navigation away to Google. Kept in one place so tests can observe it. */
-export const goTo = {
-  assign: (url: string) => window.location.assign(url),
-};
 
 function summaryText(s: NonNullable<GmailStatus['sync']>): string | null {
   const r = s.lastRun;
@@ -33,7 +31,7 @@ export function GmailPanel() {
   const toast = useToast();
   const qc = useQueryClient();
   const gmail = useGmail();
-  const start = useStartGmailOAuth();
+  const oauth = useGmailOAuth();
   const sync = useSyncGmail();
   const disconnect = useDisconnectGmail();
   const [dialog, setDialog] = useState<'connect' | 'reconnect' | null>(null);
@@ -74,13 +72,6 @@ export function GmailPanel() {
   const g = gmail.data;
   const state = g.connection.state;
   if (state === 'not_connected' && !g.available) return null; // not configured on this server
-
-  const beginOAuth = (mode: 'connect' | 'reconnect') =>
-    start.mutate(mode, {
-      onSuccess: ({ authorizationUrl }) => goTo.assign(authorizationUrl),
-      onError: (e) =>
-        toast({ text: e instanceof ApiError ? e.message : 'Could not start Google sign-in. Try again.', tone: 'error' }),
-    });
 
   const runSync = (retryFailed: boolean) =>
     sync.mutate(retryFailed, {
@@ -210,9 +201,9 @@ export function GmailPanel() {
       <GmailConnectDialog
         open={dialog !== null}
         reconnect={dialog === 'reconnect'}
-        loading={start.isPending}
+        loading={oauth.isPending}
         onClose={() => setDialog(null)}
-        onContinue={() => beginOAuth(dialog ?? 'connect')}
+        onContinue={() => oauth.begin(dialog ?? 'connect')}
       />
       <ConfirmDialog
         open={confirmDisconnect}

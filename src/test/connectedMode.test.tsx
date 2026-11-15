@@ -144,8 +144,10 @@ it('shows a real Gmail suggestion for approval in connected mode, without the ol
       : undefined);
   const dashboard = renderAt('/app');
   const app = await screen.findByRole('link', { name: /Acme/ });
-  // Gmail is not connected: the dashboard offers to connect it from Applications instead of a review card.
-  expect(await screen.findByRole('link', { name: 'Connect Gmail' })).toHaveAttribute('href', '/app/applications');
+  // Gmail is not connected: the dashboard offers to connect it (consent dialog first) and shows no review prompt.
+  expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Review applications' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Review Gmail update/)).not.toBeInTheDocument();
 
   fireEvent.click(app);
   expect(await screen.findByRole('heading', { name: /Acme/ })).toBeVisible();

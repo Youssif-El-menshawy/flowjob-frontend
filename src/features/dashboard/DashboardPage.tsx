@@ -1,111 +1,259 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { fmtDateTime } from '@/features/applications/gmail/gmailLabels';
+import { groupRequirements, overviewText } from '@/features/match/matchReport';
 import { useApplications, useCvs, useGmail, useMatches, useProfile } from '@/shared/api/queries';
 import { isProfileComplete } from '@/shared/lib/profile';
-import type { Application } from '@/shared/api/types';
+import type { Application, ApplicationStatus, MatchResult } from '@/shared/api/types';
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
-import { cn, firstName, fmtDate, greeting, suggestionPhrase } from '@/shared/lib/utils';
-import { ButtonLink } from '@/shared/ui/Button';
-import {
-  Card,
-  CardTitle,
-  Note,
-  PageHeader,
-  ProgressBar,
-  STATUS_STYLE,
-  StatusPill,
-} from '@/shared/ui/Display';
+import { cn, firstName, fmtDate, greeting } from '@/shared/lib/utils';
+import { Button, ButtonLink } from '@/shared/ui/Button';
+import { Card, CardTitle, Note, PageHeader, ProgressBar, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
 import { Icon } from '@/shared/ui/Icons';
 import { Skeleton } from '@/shared/ui/Spinner';
+import { DashboardGmail } from './DashboardGmail';
+import { buildNextActions, CLOSED, isClosed, whenChip, type NextAction } from './nextActions';
 
-const STAIRS = ['Saved', 'Applied', 'Interview', 'Offer'] as const;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const ACTIVE: ApplicationStatus[] = ['Saved', 'Applied', 'Interview', 'Offer'];
+const MAX_ACTIONS = 5;
 
-function Staircase({ apps }: { apps: Application[] }) {
-  const count = (s: string) => apps.filter((a) => a.status === s).length;
-  const heights = ['38%', '56%', '76%', '100%'];
+const linkClass = 'inline-flex shrink-0 items-center gap-1 text-sm font-medium whitespace-nowrap text-primary hover:underline';
+
+function StatusTile({ status, count }: { status: ApplicationStatus; count: number }) {
   return (
-    <div className="flex h-52 items-end gap-2.5 sm:gap-3">
-      {STAIRS.map((s, i) => (
-        <Link
-          key={s}
-          to={`/app/applications?status=${encodeURIComponent(s)}`}
-          className={cn(
-            STATUS_STYLE[s].slab,
-            'flex min-w-0 flex-1 flex-col justify-between rounded-t-2xl rounded-b-md p-3 text-[#1c2b22] animate-grow transition-transform hover:-translate-y-1 sm:p-3.5',
-          )}
-          style={{ height: heights[i], animationDelay: `${0.15 + i * 0.1}s` }}
-        >
-          <span className="font-display text-3xl leading-none font-semibold">{count(s)}</span>
-          <span className="text-[12px] leading-tight font-medium sm:text-[13px]">{s}</span>
-        </Link>
-      ))}
-      <div className="hidden w-32 shrink-0 flex-col gap-2 self-end sm:flex">
-        <span className="text-xs font-medium text-soft">Closed</span>
-        {(['Rejected', 'Withdrawn'] as const).map((s) => (
-          <div
-            key={s}
-            className={cn(STATUS_STYLE[s].pill, 'flex justify-between rounded-xl px-3 py-2.5 text-[13px]')}
-          >
-            <span>{s}</span>
-            <span className="font-bold">{count(s)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <Link
+      to={`/app/applications?status=${encodeURIComponent(status)}`}
+      aria-label={`${status}: ${plural(count, 'application')}`}
+      className={cn(
+        STATUS_STYLE[status].pill,
+        'flex min-h-[74px] min-w-0 flex-col justify-between gap-1.5 rounded-xl px-3.5 py-3 transition-transform hover:-translate-y-0.5',
+      )}
+    >
+      <span className="font-display text-[26px] leading-none font-semibold tabular-nums">{count}</span>
+      <span className="flex items-center gap-1.5 text-[13px] leading-tight font-semibold">
+        <span aria-hidden className={cn('size-2 shrink-0 rounded-full', STATUS_STYLE[status].slab)} />
+        <span className="truncate">{status}</span>
+      </span>
+    </Link>
   );
 }
 
-function ReviewCard({ apps, pendingCount }: { apps: Application[]; pendingCount: number }) {
-  const a = apps.find((x) => x.suggestion);
+function Overview({ apps }: { apps: Application[] }) {
+  const count = (s: ApplicationStatus) => apps.filter((a) => a.status === s).length;
+  const closed = apps.filter((a) => isClosed(a.status)).length;
   return (
-    <Card className="flex flex-col animate-in" style={{ animationDelay: '.12s' }}>
-      <div className="mb-4 flex items-center gap-2.5">
-        <span className={cn('size-2.5 rounded-full', pendingCount ? 'bg-accent animate-pulse-dot' : 'bg-st-offer')} />
-        <h2 className="text-[17px] font-semibold">{pendingCount ? 'Needs your review' : 'All caught up'}</h2>
-        {pendingCount > 1 && <span className="ml-auto text-sm text-soft">{pendingCount} waiting</span>}
-      </div>
-      {pendingCount ? (
-        <div className="flex flex-1 flex-col gap-3 animate-in">
-          {a?.suggestion ? (
-            <p className="leading-relaxed">
-              <strong className="font-semibold">{a.company}</strong> sent an email that looks like{' '}
-              <strong className="font-semibold">{suggestionPhrase(a.suggestion.proposedStatus)}</strong> for{' '}
-              {a.jobTitle}.
-            </p>
-          ) : (
-            <p className="leading-relaxed">Gmail found recruitment emails that need a quick decision.</p>
-          )}
-          <p className="text-[13px] text-soft">We never change a status without your approval.</p>
-          <ButtonLink to="/app/applications" className="mt-auto self-start">
-            Review in Applications
-          </ButtonLink>
-        </div>
-      ) : (
-        <div className="flex flex-1 flex-col gap-3">
-          <p className="leading-relaxed text-soft">
-            Nothing from Gmail needs a decision right now. Unclear emails will wait here for you.
-          </p>
-          <Link to="/app/applications" className="mt-auto text-sm font-medium text-primary hover:underline">
-            Gmail on Applications
+    <Card className="p-5 animate-in sm:p-6" style={{ animationDelay: '.06s' }}>
+      <CardTitle
+        action={
+          <Link to="/app/applications" className={linkClass}>
+            Open board <Icon.arrowRight />
           </Link>
+        }
+      >
+        Application overview
+        <span className="ml-2 hidden text-sm font-normal text-soft sm:inline">{plural(apps.length, 'application')}</span>
+      </CardTitle>
+      <div className="grid gap-4 xl:grid-cols-[2fr_1fr] xl:gap-5">
+        <div role="group" aria-labelledby="ov-active">
+          <p id="ov-active" className="mb-2 text-xs font-semibold tracking-wide text-soft uppercase">
+            In progress · {apps.length - closed}
+          </p>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {ACTIVE.map((s) => (
+              <StatusTile key={s} status={s} count={count(s)} />
+            ))}
+          </div>
         </div>
+        <div role="group" aria-labelledby="ov-closed">
+          <p id="ov-closed" className="mb-2 text-xs font-semibold tracking-wide text-soft uppercase">
+            Closed · {closed}
+          </p>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-2">
+            {CLOSED.map((s) => (
+              <StatusTile key={s} status={s} count={count(s)} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function ActionRow({ action }: { action: NextAction }) {
+  const { app } = action;
+  const chip = whenChip(action.days, action.kind);
+  const when =
+    action.kind === 'scheduled' ? fmtDateTime(action.at) : action.kind === 'followUp' ? fmtDate(action.at, true) : '';
+  return (
+    <li>
+      <Link
+        to={action.to}
+        className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg focus-visible:bg-bg"
+      >
+        <span
+          aria-hidden
+          className={cn(
+            'mt-1.5 size-2 shrink-0 rounded-full',
+            action.kind === 'review' ? 'bg-accent' : action.kind === 'scheduled' ? 'bg-st-interview' : 'bg-st-applied',
+          )}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-medium">{action.label}</span>
+            {chip && (
+              <span
+                className={cn(
+                  'rounded-full px-2 py-0.5 text-xs font-semibold',
+                  chip === 'Overdue' ? 'bg-danger-soft text-danger' : 'bg-tint text-ink',
+                )}
+              >
+                {chip}
+              </span>
+            )}
+          </span>
+          <span className="block truncate text-sm text-soft">
+            {app.company} · {app.jobTitle}
+          </span>
+          {(action.detail || when) && (
+            <span className="block text-sm text-soft">
+              {action.detail ?? (action.kind === 'followUp' ? `Your follow-up date: ${when}` : when)}
+            </span>
+          )}
+        </span>
+        <span aria-hidden className="mt-1 text-soft">
+          <Icon.arrowRight />
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+function NextActions({ actions }: { actions: NextAction[] }) {
+  const shown = actions.slice(0, MAX_ACTIONS);
+  const more = actions.length - shown.length;
+  return (
+    <Card className="h-full p-5 animate-in sm:p-6" style={{ animationDelay: '.12s' }}>
+      <h2 id="next-actions-title" className={cn('text-[17px] font-semibold', shown.length > 0 && 'mb-2')}>
+        Next actions
+      </h2>
+      {shown.length ? (
+        <>
+          <ul className="-mx-2 flex flex-col">
+            {shown.map((a) => (
+              <ActionRow key={a.key} action={a} />
+            ))}
+          </ul>
+          {more > 0 && <p className="mt-2 text-sm text-soft">and {more} more on your applications.</p>}
+        </>
+      ) : (
+        <p className="mt-1 flex items-center gap-2 text-sm text-soft">
+          <span aria-hidden className="size-2 rounded-full bg-st-offer" />
+          You’re all caught up. Nothing needs your attention right now.
+        </p>
       )}
     </Card>
   );
 }
 
-function GmailConnectNote() {
-  const gmail = useGmail();
-  if (!gmail.data?.available || gmail.data.connection.state !== 'not_connected') return null;
-
+function RecentApplications({ apps }: { apps: Application[] }) {
   return (
-    <Note className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
-      <span>Connect Gmail to add applications from confirmation emails and track replies.</span>
-      <ButtonLink to="/app/applications" size="sm" variant="secondary">
-        Connect Gmail
-      </ButtonLink>
-    </Note>
+    <Card className="p-5 animate-in sm:p-6" style={{ animationDelay: '.18s' }}>
+      <CardTitle
+        className="mb-2"
+        action={
+          <Link to="/app/applications" className={linkClass}>
+            See all <Icon.arrowRight />
+          </Link>
+        }
+      >
+        Recent applications
+      </CardTitle>
+      <ul className="-mx-2 divide-y divide-line @container">
+        {apps.slice(0, 5).map((a) => (
+          <li key={a.id}>
+            <Link
+              to={`/app/applications/${a.id}`}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 rounded-xl px-2 py-3 transition-colors hover:bg-bg focus-visible:bg-bg @lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_88px_auto]"
+            >
+              <span className="truncate font-medium">{a.company}</span>
+              <span className="row-start-2 truncate text-sm text-soft @lg:row-start-auto @lg:text-[15px]">
+                {a.jobTitle}
+              </span>
+              <span className="row-start-2 text-right text-[13px] whitespace-nowrap text-soft @lg:row-start-auto @lg:text-left @lg:text-sm">
+                {a.dateApplied ? (
+                  <>
+                    <span className="sr-only">Applied </span>
+                    {fmtDate(a.dateApplied)}
+                  </>
+                ) : (
+                  <span className="sr-only">No application date</span>
+                )}
+              </span>
+              <StatusPill
+                status={a.status}
+                className="col-start-2 row-start-1 justify-self-end @lg:col-start-auto @lg:row-start-auto"
+              />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function LatestMatch({ match, error, onRetry }: { match?: MatchResult; error: boolean; onRetry: () => void }) {
+  const scoreAvailable = match ? (match.scoreAvailable ?? true) : false;
+  const score = useCountUp(match && scoreAvailable ? match.score : 0);
+  const insight = match ? overviewText(match, groupRequirements(match)).text : '';
+  return (
+    <Card className="flex h-full flex-col p-5 animate-in sm:p-6" style={{ animationDelay: '.24s' }}>
+      <CardTitle className="mb-3">Latest AI match</CardTitle>
+      {match ? (
+        <>
+          <div className="flex items-center gap-4">
+            <p className="shrink-0 font-display text-[40px] leading-none font-semibold tracking-tight tabular-nums">
+              {scoreAvailable ? `${score}%` : '—'}
+              {!scoreAvailable && <span className="sr-only">Score unavailable</span>}
+            </p>
+            <div className="min-w-0">
+              <Link
+                to={`/app/match/${match.id}`}
+                className="line-clamp-2 font-medium break-words hover:underline"
+              >
+                {match.jobTitle}
+              </Link>
+              {match.company && <p className="truncate text-sm text-soft">{match.company}</p>}
+            </div>
+          </div>
+          {scoreAvailable && <ProgressBar value={match.score} className="mt-3" label="Match score" />}
+          {insight && <p className="mt-3 line-clamp-2 text-sm leading-relaxed break-words text-soft">{insight}</p>}
+          <Link
+            to={`/app/match/${match.id}/tailor`}
+            className="mt-auto inline-flex items-center gap-1.5 pt-4 text-sm font-medium text-accent-ink hover:underline"
+          >
+            Tailor my CV for this job <Icon.arrowRight />
+          </Link>
+        </>
+      ) : error ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p role="alert" className="text-sm text-danger">
+            Could not load your latest match.
+          </p>
+          <Button size="sm" variant="secondary" onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm leading-relaxed text-soft">Paste a job post to see how your CV fits before you apply.</p>
+          <ButtonLink to="/app/match" variant="secondary" size="sm" className="mt-4 self-start">
+            Check a job
+          </ButtonLink>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -214,26 +362,32 @@ export default function DashboardPage() {
   const gmailConnected = gmailState === 'active' || gmailState === 'reauth_required';
   const profileComplete = isProfileComplete(profile.data);
   const last = matches.data?.[0];
-  const score = useCountUp(last?.score ?? 0);
 
   const loading = apps.isLoading || cvs.isLoading || matches.isLoading;
+  // Without applications or CVs we cannot tell a new user from a failed request, so say so instead of guessing.
+  const failed = !loading && (apps.isError || cvs.isError);
   const list = apps.data ?? [];
-  const isNew = !loading && (list.length === 0 || !cvs.data?.length);
+  const isNew = !loading && !failed && (list.length === 0 || !cvs.data?.length);
 
-  const active = list.filter((a) => a.status !== 'Rejected' && a.status !== 'Withdrawn').length;
+  const active = list.filter((a) => !isClosed(a.status)).length;
   const interviews = list.filter((a) => a.status === 'Interview').length;
   const offers = list.filter((a) => a.status === 'Offer').length;
 
-  const sub = isNew
-    ? 'Three small steps and FlowJob starts working for you.'
-    : list.length
-      ? [
-          `${active} application${active === 1 ? '' : 's'} in progress`,
-          offers ? `${offers} offer${offers > 1 ? 's' : ''}` : interviews ? `${interviews} at interview` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ') + '.'
-      : 'Here is where things stand.';
+  const sub = loading
+    ? 'Loading your applications…'
+    : failed
+      ? 'Here is where things stand.'
+      : isNew
+        ? 'Three small steps and FlowJob starts working for you.'
+        : [
+            `${plural(active, 'active application')}`,
+            interviews && `${interviews} at interview`,
+            offers && plural(offers, 'offer'),
+          ]
+            .filter(Boolean)
+            .join(' · ') + '.';
+
+  const actions = buildNextActions(list, { gmailConnected });
 
   return (
     <>
@@ -252,11 +406,32 @@ export default function DashboardPage() {
         }
       />
 
+      <DashboardGmail />
+
       {loading ? (
-        <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-          <Skeleton className="h-72 rounded-2xl" />
-          <Skeleton className="h-72 rounded-2xl" />
+        <div className="flex flex-col gap-5" aria-busy="true">
+          <Skeleton className="h-40 rounded-2xl" />
+          <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
+            <Skeleton className="h-72 rounded-2xl" />
+            <Skeleton className="h-72 rounded-2xl" />
+          </div>
         </div>
+      ) : failed ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3">
+          <p role="alert" className="text-danger">
+            Could not load your applications and CVs.
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              void apps.refetch();
+              void cvs.refetch();
+            }}
+          >
+            Retry
+          </Button>
+        </Card>
       ) : isNew ? (
         <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
           <div className="flex flex-col gap-5">
@@ -276,83 +451,20 @@ export default function DashboardPage() {
           </Note>
         </div>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-          <Card className={cn('animate-in', !gmailConnected && 'lg:col-span-2')}>
-            <CardTitle
-              action={
-                <Link to="/app/applications" className="text-sm font-medium text-primary hover:underline">
-                  Open board
-                </Link>
-              }
-            >
-              Where your {list.length} applications stand
-            </CardTitle>
-            <Staircase apps={list} />
-          </Card>
-          {gmailConnected && <ReviewCard apps={list} pendingCount={gmail.data?.pendingReviewCount ?? 0} />}
-
-          <Card className="animate-in" style={{ animationDelay: '.2s' }}>
-            <CardTitle
-              action={
-                <Link to="/app/applications" className="text-sm font-medium text-primary hover:underline">
-                  See all
-                </Link>
-              }
-            >
-              Recent applications
-            </CardTitle>
-            <ul className="-mx-2">
-              {list.slice(0, 5).map((a) => (
-                <li key={a.id}>
-                  <Link
-                    to={`/app/applications/${a.id}`}
-                    className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-0.5 rounded-xl px-2 py-3 transition-colors hover:bg-bg sm:grid-cols-[150px_1fr_70px_auto]"
-                  >
-                    <span className="truncate font-medium">{a.company}</span>
-                    <span className="order-3 col-span-1 truncate text-sm text-soft sm:order-none sm:text-[15px]">
-                      {a.jobTitle}
-                    </span>
-                    <span className="hidden text-sm text-soft sm:block">{fmtDate(a.dateApplied)}</span>
-                    <StatusPill status={a.status} className="justify-self-end" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Card>
-
-          <Card className="flex flex-col animate-in" style={{ animationDelay: '.28s' }}>
-            <CardTitle>Your last match</CardTitle>
-            {last ? (
-              <>
-                <div className="flex flex-wrap items-baseline gap-x-3">
-                  <span className="font-display text-[52px] leading-none font-semibold tracking-tight">
-                    {score}%
-                  </span>
-                  <span className="text-[15px] text-soft">
-                    {last.jobTitle}, {last.company}
-                  </span>
-                </div>
-                <ProgressBar value={last.score} className="mt-4" label="Match score" />
-                <p className="mt-4 text-sm leading-relaxed text-soft">{last.summary}</p>
-                <Link
-                  to={`/app/match/${last.id}/tailor`}
-                  className="mt-auto inline-flex items-center gap-1.5 pt-4 font-medium text-accent-ink hover:underline"
-                >
-                  Tailor my CV for this job <Icon.arrowRight />
-                </Link>
-              </>
-            ) : (
-              <>
-                <p className="leading-relaxed text-soft">
-                  Paste a job post to see how your CV fits before you apply.
-                </p>
-                <ButtonLink to="/app/match" variant="secondary" className="mt-auto self-start">
-                  Check a job
-                </ButtonLink>
-              </>
-            )}
-          </Card>
-          <GmailConnectNote />
+        <div className="flex flex-col gap-5">
+          <Overview apps={list} />
+          {/* Phone: next actions, recent, match. Tablet: actions | match, then recent. Wide: recent | actions + match. */}
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:grid-rows-[auto_1fr] xl:items-start">
+            <div className="min-w-0 md:col-start-1 md:row-start-1 xl:col-start-2">
+              <NextActions actions={actions} />
+            </div>
+            <div className="min-w-0 md:col-span-2 md:row-start-2 xl:col-span-1 xl:col-start-1 xl:row-span-2 xl:row-start-1">
+              <RecentApplications apps={list} />
+            </div>
+            <div className="min-w-0 md:col-start-2 md:row-start-1 xl:row-start-2">
+              <LatestMatch match={last} error={matches.isError} onRetry={() => void matches.refetch()} />
+            </div>
+          </div>
         </div>
       )}
     </>
