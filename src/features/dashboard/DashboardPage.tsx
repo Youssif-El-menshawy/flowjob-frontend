@@ -483,13 +483,13 @@ export default function DashboardPage() {
           </Note>
         </div>
       ) : (
-        // Phone: one column in this order. Tablet and up: next actions beside the overview, then recent beside match.
+        // Phone: one column in this order. Tablet and up: the overview beside next actions, then recent beside match.
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
           <div className="min-w-0">
-            <NextActions actions={actions} gmailAvailable={!!gmail.data?.available || gmailConnected} />
+            <Overview apps={list} />
           </div>
           <div className="min-w-0">
-            <Overview apps={list} />
+            <NextActions actions={actions} gmailAvailable={!!gmail.data?.available || gmailConnected} />
           </div>
           <div className="min-w-0">
             <RecentApplications apps={list} />
