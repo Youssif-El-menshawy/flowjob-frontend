@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@/shared/api/client';
 import { qk, useGmail, useSyncGmail } from '@/shared/api/queries';
 import type { GmailStatus } from '@/shared/api/types';
-import { GmailConnectDialog } from '@/features/applications/gmail/GmailConnectDialog';
-import { useGmailOAuth } from '@/features/applications/gmail/useGmailOAuth';
+import { GmailConnectDialog } from './GmailConnectDialog';
+import { useGmailOAuth } from './useGmailOAuth';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { useToast } from '@/shared/ui/Overlay';
 import { Skeleton } from '@/shared/ui/Spinner';
@@ -13,12 +14,18 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 type GmailAction = 'connect' | 'reconnect' | 'sync' | 'syncing' | 'review' | 'manage' | 'none';
 
-/** The sync is stuck or failed in a way that needs the detailed panel on Applications. */
+/** Gmail connection management (disconnect, retrying failed emails) lives in Settings. */
+export const GMAIL_SETTINGS = '/app/settings';
+
+/** The sync is stuck or failed in a way that needs the detailed Gmail card in Settings. */
 const syncProblem = (s: GmailStatus['sync']) =>
   !s?.running && !!(s?.error?.message || s?.needsAttention || (s?.failed ?? 0) > 0);
 
-/** Which single Gmail action the Dashboard header offers. Detailed management stays on Applications. */
-export function gmailAction(g: GmailStatus | undefined, loadFailed: boolean): GmailAction {
+/**
+ * Which single Gmail action a page header offers. Detailed management stays in Settings. With `problemAsSync`
+ * a sync problem still offers Sync Gmail (the header status line explains the problem and links to Settings).
+ */
+export function gmailAction(g: GmailStatus | undefined, loadFailed: boolean, problemAsSync = false): GmailAction {
   if (loadFailed) return 'manage';
   if (!g) return 'none';
   const state = g.connection.state;
@@ -27,16 +34,30 @@ export function gmailAction(g: GmailStatus | undefined, loadFailed: boolean): Gm
   if (state === 'reauth_required') return 'reconnect';
   if (g.sync?.running) return 'syncing';
   if ((g.pendingReviewCount ?? 0) > 0) return 'review';
-  if (syncProblem(g.sync)) return 'manage';
+  if (syncProblem(g.sync) && !problemAsSync) return 'manage';
   return 'sync';
 }
 
 /**
- * The Dashboard header's Gmail button: Connect Gmail, Sync Gmail, Syncing…, Review emails (N), Reconnect Gmail
- * or Manage Gmail. Connecting reuses the Applications panel's consent dialog and OAuth start; syncing reuses
- * the same sync request. When Gmail is not configured on the server, `fallback` is shown instead.
+ * A page header's Gmail button: Connect Gmail, Sync Gmail, Syncing…, Review emails (N), Reconnect Gmail or
+ * Manage Gmail (to Settings). Connecting reuses the consent dialog and OAuth start; syncing reuses the same sync
+ * request. When Gmail is not configured on the server, `fallback` is shown instead.
+ *
+ * - `onReview`: what Review emails does on this page (default: go to Applications, where Needs review is).
+ * - `showRemaining`: put the real remaining email count in the Syncing… label when the backend reports one.
+ * - `problemAsSync`: on a sync problem keep offering Sync Gmail instead of Manage Gmail.
  */
-export function GmailHeaderAction({ fallback }: { fallback?: ReactNode }) {
+export function GmailHeaderAction({
+  fallback,
+  onReview,
+  showRemaining = false,
+  problemAsSync = false,
+}: {
+  fallback?: ReactNode;
+  onReview?: () => void;
+  showRemaining?: boolean;
+  problemAsSync?: boolean;
+}) {
   const toast = useToast();
   const qc = useQueryClient();
   const gmail = useGmail();
@@ -56,7 +77,7 @@ export function GmailHeaderAction({ fallback }: { fallback?: ReactNode }) {
   }, [running, qc]);
 
   if (gmail.isLoading) return <Skeleton className="h-11 w-36 rounded-full" />;
-  const action = gmailAction(gmail.data, gmail.isError || !gmail.data);
+  const action = gmailAction(gmail.data, gmail.isError || !gmail.data, problemAsSync);
 
   const dialogEl = (
     <GmailConnectDialog
@@ -97,23 +118,29 @@ export function GmailHeaderAction({ fallback }: { fallback?: ReactNode }) {
           Sync Gmail
         </Button>
       );
-    case 'syncing':
+    case 'syncing': {
+      const left = gmail.data?.sync?.remaining ?? 0;
       return (
         <Button variant="secondary" loading>
-          Syncing…
+          {showRemaining && left > 0 ? `Syncing… ${left} left` : 'Syncing…'}
         </Button>
       );
+    }
     case 'review': {
-      const n = gmail.data!.pendingReviewCount;
-      return (
+      const label = `Review emails (${gmail.data!.pendingReviewCount})`;
+      return onReview ? (
+        <Button variant="secondary" onClick={onReview}>
+          {label}
+        </Button>
+      ) : (
         <ButtonLink to="/app/applications" variant="secondary">
-          Review emails ({n})
+          {label}
         </ButtonLink>
       );
     }
     case 'manage':
       return (
-        <ButtonLink to="/app/applications" variant="secondary">
+        <ButtonLink to={GMAIL_SETTINGS} variant="secondary">
           Manage Gmail
         </ButtonLink>
       );
@@ -124,9 +151,10 @@ export function GmailHeaderAction({ fallback }: { fallback?: ReactNode }) {
 
 /**
  * Small, unobtrusive Gmail line inside the header subtitle: why Gmail needs managing. Sync progress is not shown
- * here; the header button's disabled "Syncing…" state covers it.
+ * here; the header button's disabled "Syncing…" state covers it. `settingsLink` adds a link to the Gmail card in
+ * Settings (for pages whose header button does not already lead there).
  */
-export function GmailHeaderStatus() {
+export function GmailHeaderStatus({ settingsLink = false }: { settingsLink?: boolean }) {
   const gmail = useGmail();
   const g = gmail.data;
   if (gmail.isError && !g) {
@@ -137,7 +165,7 @@ export function GmailHeaderStatus() {
   const s = g.sync;
 
   let text: ReactNode = null;
-  if (state === 'disconnecting') text = 'Gmail is disconnecting. Finish it on Applications.';
+  if (state === 'disconnecting') text = 'Gmail is disconnecting. Finish it in Settings.';
   else if (state === 'reauth_required') text = 'Gmail access expired. Reconnect to keep tracking.';
   else if (state === 'active' && syncProblem(s))
     text = s?.error?.message || (s?.needsAttention ? 'Gmail sync needs attention.' : `${plural(s!.failed, 'email')} could not be analysed.`);
@@ -146,6 +174,14 @@ export function GmailHeaderStatus() {
   return (
     <span className="mt-1 block text-[13px] text-soft empty:hidden" aria-live="polite">
       {text}
+      {text && settingsLink && state !== 'disconnecting' && (
+        <>
+          {' '}
+          <Link to={GMAIL_SETTINGS} className="font-medium text-primary hover:underline">
+            Gmail settings
+          </Link>
+        </>
+      )}
     </span>
   );
 }

@@ -308,7 +308,7 @@ describe('Dashboard header Gmail action', () => {
       data: gmailStatus({}, { error: { code: 'gmail_unavailable', message: 'Gmail is temporarily unavailable.' }, failed: 2 }),
     };
     renderDashboard();
-    expect(within(header()).getByRole('link', { name: 'Manage Gmail' })).toHaveAttribute('href', '/app/applications');
+    expect(within(header()).getByRole('link', { name: 'Manage Gmail' })).toHaveAttribute('href', '/app/settings');
     expect(within(header()).getByText('Gmail is temporarily unavailable.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Sync Gmail' })).not.toBeInTheDocument();
   });
@@ -329,11 +329,11 @@ describe('Dashboard header Gmail action', () => {
     expect(mocks.startOAuth).toHaveBeenCalledWith('reconnect', expect.anything());
   });
 
-  it('sends an interrupted disconnect to Applications to finish', () => {
+  it('sends an interrupted disconnect to Settings to finish', () => {
     mocks.gmail = { data: gmailStatus({ connection: { state: 'disconnecting' } }) };
     renderDashboard();
-    expect(within(header()).getByRole('link', { name: 'Manage Gmail' })).toHaveAttribute('href', '/app/applications');
-    expect(within(header()).getByText('Gmail is disconnecting. Finish it on Applications.')).toBeVisible();
+    expect(within(header()).getByRole('link', { name: 'Manage Gmail' })).toHaveAttribute('href', '/app/settings');
+    expect(within(header()).getByText('Gmail is disconnecting. Finish it in Settings.')).toBeVisible();
   });
 
   it('keeps the header quiet when Gmail is connected and idle', () => {

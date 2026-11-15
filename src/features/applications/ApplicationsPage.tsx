@@ -12,7 +12,7 @@ import { controlClass } from '@/shared/ui/Field';
 import { Icon } from '@/shared/ui/Icons';
 import { useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
-import { GmailPanel } from './gmail/GmailPanel';
+import { GmailHeaderAction, GmailHeaderStatus } from './gmail/GmailHeaderAction';
 import { oauthErrorMessage } from './gmail/gmailLabels';
 import { NeedsReview } from './gmail/NeedsReview';
 
@@ -117,10 +117,26 @@ export default function ApplicationsPage() {
     <>
       <PageHeader
         title="Applications"
-        subtitle={`${data?.length ?? 0} ${(data?.length ?? 0) === 1 ? 'application' : 'applications'}`}
-        actions={<ButtonLink to="/app/applications/new">Add application</ButtonLink>}
+        subtitle={
+          <>
+            {`${data?.length ?? 0} ${(data?.length ?? 0) === 1 ? 'application' : 'applications'}`}
+            <GmailHeaderStatus settingsLink />
+          </>
+        }
+        actions={
+          <>
+            {/* Gmail sync and reviews happen here; connection management (disconnect, retries) is in Settings. */}
+            <GmailHeaderAction
+              showRemaining
+              problemAsSync
+              onReview={() =>
+                document.getElementById('needs-review-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+            />
+            <ButtonLink to="/app/applications/new">Add application</ButtonLink>
+          </>
+        }
       />
-      <GmailPanel />
       <NeedsReview />
       {!data?.length ? (
         <EmptyState

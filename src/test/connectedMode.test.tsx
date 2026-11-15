@@ -119,22 +119,24 @@ it('keeps the connected reset URL navigable without offering or requesting a res
   expect(requests).toEqual([]);
 });
 
-it('shows connected settings notices, points Gmail to Applications without fetching it, and saves account details', async () => {
+it('shows connected settings notices, manages the Gmail connection there, and saves account details', async () => {
   const requests = stubBackend((path, method) => path === '/me' && method === 'PATCH'
     ? Response.json({ id: 'u1', name: 'Updated User', email: 'fixture@example.test' })
     : undefined);
   renderAt('/app/settings');
 
   expect(screen.getByText(/data export and account deletion are currently unavailable/i)).toBeVisible();
-  expect(screen.getByText(/review gmail suggestions on the applications page/i)).toBeVisible();
-  for (const name of ['Download my data', 'Delete account', 'Connect Gmail']) {
+  // Gmail is not connected in this fixture: Settings offers Connect Gmail (consent dialog first).
+  expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeVisible();
+  expect(within(screen.getByRole('region', { name: 'Gmail' })).getByText('Not connected')).toBeVisible();
+  for (const name of ['Download my data', 'Delete account']) {
     expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
   }
   expect(screen.getByRole('button', { name: 'Change password' })).toBeEnabled();
   fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Updated User' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
   expect(await screen.findByText('Account updated.')).toBeVisible();
-  expect(requests).toEqual(['PATCH /me']);
+  expect(requests.sort()).toEqual(['GET /gmail', 'PATCH /me']);
 });
 
 it('shows a real Gmail suggestion for approval in connected mode, without the old demo undo', async () => {

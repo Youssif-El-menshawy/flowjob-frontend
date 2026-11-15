@@ -4,9 +4,10 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ApplicationDetailPage from '@/features/applications/ApplicationDetailPage';
 import ApplicationsPage from '@/features/applications/ApplicationsPage';
+import { GmailSettingsCard } from '@/features/applications/gmail/GmailSettingsCard';
 import type { Application, GmailReview, GmailStatus } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
-import { goTo } from './GmailPanel';
+import { goTo } from './useGmailOAuth';
 import { fromLocalInput, reviewReason, safeGmailUrl } from './gmailLabels';
 
 const GMAIL_URL = 'https://mail.google.com/mail/?authuser=student@gmail.example#all/18c2f0a1b2c3d4e5';
@@ -102,6 +103,7 @@ function renderAt(path: string) {
           <Routes>
             <Route path="/app/applications" element={<><ApplicationsPage /><Where /></>} />
             <Route path="/app/applications/:id" element={<ApplicationDetailPage />} />
+            <Route path="/app/settings" element={<GmailSettingsCard />} />
           </Routes>
         </MemoryRouter>
       </ToastProvider>
@@ -121,7 +123,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Gmail connection panel', () => {
+describe('Gmail on Applications (header) and in Settings (connection card)', () => {
   it('explains access and AI analysis before sending the user to Google', async () => {
     backend(disconnected, (path, method) =>
       path === '/gmail/oauth/start' && method === 'POST'
@@ -144,99 +146,142 @@ describe('Gmail connection panel', () => {
     renderAt('/app/applications');
     expect(await screen.findByText('No applications yet')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Connect Gmail' })).toBeNull();
+    expect(screen.getByRole('banner')).not.toHaveTextContent(/Gmail/);
   });
 
-  it('shows the connection and last sync time in a compact bar and starts a sync', async () => {
-    const status = active({ lastRun: { trigger: 'scheduled', processed: 8, imported: 2, linked: 1, activities: 3, reviews: 1, failed: 0 } });
-    backend(status, (path, method) =>
-      path === '/gmail/sync' && method === 'POST' ? Response.json({ ...status, sync: { ...status.sync!, running: true } }, { status: 202 }) : undefined);
+  it('puts one Gmail action beside Add application, with no status bar and no Disconnect', async () => {
+    backend(active());
     renderAt('/app/applications');
-    expect(await screen.findByText(/^student@gmail\.example · synced /)).toBeVisible();
-    const bar = screen.getByRole('region', { name: 'Gmail' });
-    expect(within(bar).getByText('Connected')).toBeVisible();
-    // The compact bar drops the redundant lines.
-    expect(screen.queryByText(/Up to date|Last sync/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }));
+    const header = await screen.findByRole('banner');
+    expect(await within(header).findByRole('button', { name: 'Sync Gmail' })).toBeVisible();
+    expect(within(header).getByRole('link', { name: 'Add application' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Gmail' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Disconnect/ })).toBeNull();
+  });
+
+  it('starts a sync from Applications and shows the real remaining count while syncing', async () => {
+    const status = active();
+    let current: GmailStatus = status;
+    backend(() => current, (path, method) => {
+      if (path === '/gmail/sync' && method === 'POST') {
+        current = { ...status, sync: { ...status.sync!, running: true, caughtUp: false, remaining: 42 } };
+        return Response.json(current, { status: 202 });
+      }
+    });
+    renderAt('/app/applications');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Gmail' }));
     expect(await screen.findByText('Sync started.')).toBeVisible();
     expect(sent('POST', '/gmail/sync')[0].body).toEqual({ retryFailed: false });
+    expect(await screen.findByRole('button', { name: 'Syncing… 42 left' })).toBeDisabled();
+  });
+
+  it('says Syncing… without a count when the backend reports none', async () => {
+    backend(active({ running: true, remaining: 0 }));
+    renderAt('/app/applications');
     expect(await screen.findByRole('button', { name: 'Syncing…' })).toBeDisabled();
   });
 
-  it('shows progress, partial completion and errors, and retries failed emails manually', async () => {
-    backend(active({ running: true, phase: 'backfill', caughtUp: false, remaining: 42 }));
+  it('offers Review emails (N) that jumps to the pending suggestions below the header', async () => {
+    backend(active({}, 2));
     renderAt('/app/applications');
-    expect(await screen.findByText(/Checking the last 30 days of email… 42 emails to go./)).toBeVisible();
-    cleanup();
-
-    const partial = active({ caughtUp: false, remaining: 30, failed: 2,
-      error: { code: 'quota_reached', message: "Today's email analysis limit was reached." } });
-    backend(partial, (path, method) => path === '/gmail/sync' && method === 'POST' ? Response.json(partial, { status: 202 }) : undefined);
-    renderAt('/app/applications');
-    expect(await screen.findByText(/30 emails left for the next sync/)).toBeVisible();
-    expect(screen.getByRole('alert')).toHaveTextContent("Today's email analysis limit was reached.");
-    expect(screen.getByText('2 emails could not be analysed.')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Retry sync' }));
-    await waitFor(() => expect(sent('POST', '/gmail/sync')[0]?.body).toEqual({ retryFailed: true }));
-  });
-
-  it('keeps sync progress inside the bar and offers a jump to pending reviews', async () => {
-    backend(active({ running: true, phase: 'incremental', caughtUp: false, remaining: 5 }, 2));
-    renderAt('/app/applications');
-    expect(await screen.findByText(/Checking for new email… 5 emails to go\./)).toBeVisible();
-    const bar = screen.getByRole('region', { name: 'Gmail' });
-    expect(within(bar).getByText('Syncing')).toBeVisible();
-    expect(within(bar).getByRole('button', { name: 'Syncing…' })).toBeDisabled();
-    expect(within(bar).getByRole('button', { name: 'Disconnect' })).toBeVisible();
+    const review = await screen.findByRole('button', { name: 'Review emails (2)' });
     await screen.findByRole('heading', { name: 'Needs review' });
     const original = Element.prototype.scrollIntoView;
     const scroll = vi.fn();
     Element.prototype.scrollIntoView = scroll; // not implemented by jsdom
     try {
-      fireEvent.click(within(bar).getByRole('button', { name: '2 to review' }));
+      fireEvent.click(review);
       expect(scroll).toHaveBeenCalled();
     } finally {
       Element.prototype.scrollIntoView = original;
     }
   });
 
+  it('shows the connected account, status and last sync time in Settings', async () => {
+    backend(active({ lastRun: { trigger: 'scheduled', processed: 8, imported: 2, linked: 1, activities: 3, reviews: 1, failed: 0 } }));
+    renderAt('/app/settings');
+    expect(await screen.findByText('student@gmail.example')).toBeVisible();
+    const card = screen.getByRole('region', { name: 'Gmail' });
+    expect(within(card).getByText('Connected')).toBeVisible();
+    expect(within(card).getByText('Last sync')).toBeVisible();
+    expect(within(card).getByRole('button', { name: 'Disconnect Gmail' })).toBeVisible();
+    expect(screen.queryByText(/Up to date|Last sync:/)).toBeNull();
+  });
+
+  it('shows partial completion and errors in Settings, retries failed emails, and flags them on Applications', async () => {
+    const partial = active({ caughtUp: false, remaining: 30, failed: 2,
+      error: { code: 'quota_reached', message: "Today's email analysis limit was reached." } });
+    const respond: Handler = (path, method) =>
+      path === '/gmail/sync' && method === 'POST' ? Response.json(partial, { status: 202 }) : undefined;
+    backend(partial, respond);
+    renderAt('/app/applications');
+    expect(await screen.findByText("Today's email analysis limit was reached.")).toBeVisible();
+    const header = screen.getByRole('banner');
+    expect(within(header).getByRole('link', { name: 'Gmail settings' })).toHaveAttribute('href', '/app/settings');
+    expect(within(header).getByRole('button', { name: 'Sync Gmail' })).toBeVisible();
+    cleanup();
+
+    backend(partial, respond);
+    renderAt('/app/settings');
+    expect(await screen.findByText('30 emails left for the next sync.')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent("Today's email analysis limit was reached.");
+    expect(screen.getByText('2 emails could not be analysed.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry sync' }));
+    await waitFor(() => expect(sent('POST', '/gmail/sync')[0]?.body).toEqual({ retryFailed: true }));
+  });
+
   it('reports a sync that is already running or rate limited', async () => {
     backend(active(), (path, method) =>
       path === '/gmail/sync' && method === 'POST' ? Response.json({ detail: 'A Gmail sync is already running.' }, { status: 409 }) : undefined);
     renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Sync now' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Gmail' }));
     expect(await screen.findByText('A Gmail sync is already running.')).toBeVisible();
   });
 
-  it('asks to reconnect when Google access expired', async () => {
-    backend({ ...active(), connection: { state: 'reauth_required', email: 'student@gmail.example' } }, (path) =>
-      path === '/gmail/oauth/start' ? Response.json({ authorizationUrl: 'https://accounts.google.com/x' }) : undefined);
+  it('asks to reconnect when Google access expired, on Applications and in Settings', async () => {
+    const expired: GmailStatus = { ...active(), connection: { state: 'reauth_required', email: 'student@gmail.example' } };
+    backend(expired);
     renderAt('/app/applications');
+    expect(await screen.findByRole('button', { name: 'Reconnect Gmail' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Sync Gmail' })).toBeNull();
+    cleanup();
+
+    backend(expired, (path) =>
+      path === '/gmail/oauth/start' ? Response.json({ authorizationUrl: 'https://accounts.google.com/x' }) : undefined);
+    renderAt('/app/settings');
     expect(await screen.findByText(/Google access expired. Reconnect with the same account/)).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull();
+    expect(screen.getByText('Access expired')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Reconnect Gmail' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Reconnect Gmail' })).getByRole('button', { name: 'Continue to Google' }));
     await waitFor(() => expect(sent('POST', '/gmail/oauth/start')[0]?.body).toMatchObject({ mode: 'reconnect' }));
   });
 
-  it('confirms before disconnecting and explains what is kept', async () => {
-    backend(active(), (path, method) => path === '/gmail' && method === 'DELETE' ? new Response(null, { status: 204 }) : undefined);
-    renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+  it('confirms before disconnecting in Settings, explains what is kept, then offers Connect Gmail', async () => {
+    let state: GmailStatus = active();
+    backend(() => state, (path, method) => {
+      if (path === '/gmail' && method === 'DELETE') {
+        state = disconnected;
+        return new Response(null, { status: 204 });
+      }
+    });
+    renderAt('/app/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect Gmail' }));
     const dialog = screen.getByRole('dialog', { name: 'Disconnect Gmail?' });
     expect(within(dialog).getByText(/Applications you already have, and statuses you approved, stay./)).toBeVisible();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
     expect(await screen.findByText('Gmail disconnected.')).toBeVisible();
     expect(sent('DELETE', '/gmail')).toHaveLength(1);
+    expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeVisible();
   });
 
-  it('shows a load error with Retry', async () => {
+  it('shows a load error with Retry in Settings', async () => {
     let fail = true;
     backend(active(), (path) => (path === '/gmail' && fail ? Response.json({ detail: 'down' }, { status: 503 }) : undefined));
-    renderAt('/app/applications');
+    renderAt('/app/settings');
     expect(await screen.findByText('Could not load Gmail status.')).toBeVisible();
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText(/^student@gmail\.example · synced /)).toBeVisible();
+    expect(await screen.findByText('student@gmail.example')).toBeVisible();
   });
 
   it.each([
@@ -413,10 +458,10 @@ describe('pre-merge hardening', () => {
         return new Response(null, { status: 204 });
       }
     });
-    renderAt('/app/applications');
+    renderAt('/app/settings');
     expect(await screen.findByText(/Disconnecting… FlowJob is erasing its Gmail data/)).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Connect Gmail' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Disconnect Gmail' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Finish disconnecting' }));
     expect(await screen.findByText('Gmail disconnected.')).toBeVisible();
     expect(sent('DELETE', '/gmail')).toHaveLength(1);
@@ -431,8 +476,8 @@ describe('pre-merge hardening', () => {
         return Response.json({ detail: 'Gmail could not be fully disconnected. Try again.' }, { status: 503 });
       }
     });
-    renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+    renderAt('/app/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect Gmail' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Disconnect Gmail?' })).getByRole('button', { name: 'Disconnect' }));
     expect(await screen.findByText('Gmail could not be fully disconnected. Try again.')).toBeVisible();
     expect(await screen.findByRole('button', { name: 'Finish disconnecting' })).toBeVisible();
@@ -440,8 +485,8 @@ describe('pre-merge hardening', () => {
 
   it('discloses that dismissed suggestions may reappear after reconnecting', async () => {
     backend(active());
-    renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+    renderAt('/app/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect Gmail' }));
     const dialog = screen.getByRole('dialog', { name: 'Disconnect Gmail?' });
     expect(within(dialog).getByText(/suggestions you dismissed may reappear/)).toBeVisible();
     cleanup();
@@ -456,7 +501,7 @@ describe('pre-merge hardening', () => {
       error: { code: 'gmail_rate_limited', message: 'Gmail asked FlowJob to slow down. FlowJob retries automatically after a pause.' },
       retryAt: new Date(Date.now() + 30 * 60_000).toISOString(),
     }));
-    renderAt('/app/applications');
+    renderAt('/app/settings');
     expect(await screen.findByRole('alert')).toHaveTextContent(/retries automatically after a pause\. Next try/);
     expect(screen.queryByRole('button', { name: 'Reconnect Gmail' })).toBeNull();
   });

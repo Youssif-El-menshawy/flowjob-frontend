@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { GmailHeaderAction, GmailHeaderStatus } from '@/features/applications/gmail/GmailHeaderAction';
 import { fmtDateTime } from '@/features/applications/gmail/gmailLabels';
 import { groupRequirements, overviewText, snippet } from '@/features/match/matchReport';
 import { useApplications, useCvs, useGmail, useMatches, useProfile } from '@/shared/api/queries';
@@ -13,7 +14,7 @@ import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, CardTitle, Note, PageHeader, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
 import { Icon } from '@/shared/ui/Icons';
 import { Skeleton } from '@/shared/ui/Spinner';
-import { GmailHeaderAction, GmailHeaderStatus } from './DashboardGmail';
+
 import { buildNextActions, isClosed, whenChip, type NextAction } from './nextActions';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
