@@ -146,14 +146,16 @@ describe('Gmail connection panel', () => {
     expect(screen.queryByRole('button', { name: 'Connect Gmail' })).toBeNull();
   });
 
-  it('shows the connection, last sync summary and starts a sync', async () => {
+  it('shows the connection and last sync time in a compact bar and starts a sync', async () => {
     const status = active({ lastRun: { trigger: 'scheduled', processed: 8, imported: 2, linked: 1, activities: 3, reviews: 1, failed: 0 } });
     backend(status, (path, method) =>
       path === '/gmail/sync' && method === 'POST' ? Response.json({ ...status, sync: { ...status.sync!, running: true } }, { status: 202 }) : undefined);
     renderAt('/app/applications');
-    expect(await screen.findByText(/Connected · student@gmail.example/)).toBeVisible();
-    expect(screen.getByText('Last sync: 2 applications added, 3 updates recorded, 1 suggestion to review.')).toBeVisible();
-    expect(screen.getByText('Up to date.')).toBeVisible();
+    expect(await screen.findByText(/^student@gmail\.example · synced /)).toBeVisible();
+    const bar = screen.getByRole('region', { name: 'Gmail' });
+    expect(within(bar).getByText('Connected')).toBeVisible();
+    // The compact bar drops the redundant lines.
+    expect(screen.queryByText(/Up to date|Last sync/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Sync now' }));
     expect(await screen.findByText('Sync started.')).toBeVisible();
     expect(sent('POST', '/gmail/sync')[0].body).toEqual({ retryFailed: false });
@@ -170,11 +172,31 @@ describe('Gmail connection panel', () => {
       error: { code: 'quota_reached', message: "Today's email analysis limit was reached." } });
     backend(partial, (path, method) => path === '/gmail/sync' && method === 'POST' ? Response.json(partial, { status: 202 }) : undefined);
     renderAt('/app/applications');
-    expect(await screen.findByText('30 emails still to check. They continue on the next sync.')).toBeVisible();
+    expect(await screen.findByText(/30 emails left for the next sync/)).toBeVisible();
     expect(screen.getByRole('alert')).toHaveTextContent("Today's email analysis limit was reached.");
     expect(screen.getByText('2 emails could not be analysed.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Retry sync' }));
     await waitFor(() => expect(sent('POST', '/gmail/sync')[0]?.body).toEqual({ retryFailed: true }));
+  });
+
+  it('keeps sync progress inside the bar and offers a jump to pending reviews', async () => {
+    backend(active({ running: true, phase: 'incremental', caughtUp: false, remaining: 5 }, 2));
+    renderAt('/app/applications');
+    expect(await screen.findByText(/Checking for new email… 5 emails to go\./)).toBeVisible();
+    const bar = screen.getByRole('region', { name: 'Gmail' });
+    expect(within(bar).getByText('Syncing')).toBeVisible();
+    expect(within(bar).getByRole('button', { name: 'Syncing…' })).toBeDisabled();
+    expect(within(bar).getByRole('button', { name: 'Disconnect' })).toBeVisible();
+    await screen.findByRole('heading', { name: 'Needs review' });
+    const original = Element.prototype.scrollIntoView;
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll; // not implemented by jsdom
+    try {
+      fireEvent.click(within(bar).getByRole('button', { name: '2 to review' }));
+      expect(scroll).toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 
   it('reports a sync that is already running or rate limited', async () => {
@@ -214,7 +236,7 @@ describe('Gmail connection panel', () => {
     expect(await screen.findByText('Could not load Gmail status.')).toBeVisible();
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText(/Connected · student@gmail.example/)).toBeVisible();
+    expect(await screen.findByText(/^student@gmail\.example · synced /)).toBeVisible();
   });
 
   it.each([

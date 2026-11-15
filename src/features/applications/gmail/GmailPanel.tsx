@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@/shared/api/client';
 import { qk, useDisconnectGmail, useGmail, useSyncGmail } from '@/shared/api/queries';
-import type { GmailStatus } from '@/shared/api/types';
-import { fmtRelative } from '@/shared/lib/utils';
+import { cn, fmtRelative } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
-import { Card } from '@/shared/ui/Display';
 import { Icon } from '@/shared/ui/Icons';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { Spinner } from '@/shared/ui/Spinner';
@@ -16,15 +14,75 @@ export { goTo } from './useGmailOAuth';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-function summaryText(s: NonNullable<GmailStatus['sync']>): string | null {
-  const r = s.lastRun;
-  if (!r) return null;
-  const parts = [
-    r.imported && `${plural(r.imported, 'application')} added`,
-    r.activities && `${plural(r.activities, 'update')} recorded`,
-    r.reviews && `${plural(r.reviews, 'suggestion')} to review`,
-  ].filter(Boolean);
-  return parts.length ? `Last sync: ${parts.join(', ')}.` : 'Last sync found nothing new.';
+type Tone = 'ok' | 'warn' | 'muted';
+
+const CHIP: Record<Tone, string> = {
+  ok: 'bg-success-bg text-success-ink',
+  warn: 'bg-danger-soft text-danger',
+  muted: 'bg-tint text-ink',
+};
+
+/**
+ * The compact Gmail bar: icon, title and status on the left, actions on the right (stacked on phones).
+ * `notice` is an optional second row for things that must stay visible (errors, expired access, failures).
+ */
+function Bar({
+  status,
+  badge,
+  detail,
+  actions,
+  notice,
+  live,
+  busy,
+}: {
+  status?: { label: string; tone: Tone };
+  /** Shown next to the status chip (the pending-review jump). */
+  badge?: ReactNode;
+  detail?: ReactNode;
+  actions?: ReactNode;
+  notice?: ReactNode;
+  live?: boolean;
+  busy?: boolean;
+}) {
+  return (
+    <section
+      aria-labelledby="gmail-panel-title"
+      aria-busy={busy || undefined}
+      className="mb-6 rounded-2xl border border-line bg-surface px-4 py-3 animate-in sm:px-5"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-tint text-primary">
+            <Icon.mail />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 id="gmail-panel-title" className="text-[15px] leading-snug font-semibold">
+                Gmail
+              </h2>
+              {status && (
+                <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', CHIP[status.tone])}>
+                  {status.label}
+                </span>
+              )}
+              {badge}
+            </div>
+            {detail && (
+              <div className="mt-0.5 text-[13px] leading-snug break-words text-soft" aria-live={live ? 'polite' : undefined}>
+                {detail}
+              </div>
+            )}
+          </div>
+        </div>
+        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">{actions}</div>}
+      </div>
+      {notice && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-2.5 text-[13px] leading-snug">
+          {notice}
+        </div>
+      )}
+    </section>
+  );
 }
 
 export function GmailPanel() {
@@ -50,22 +108,31 @@ export function GmailPanel() {
 
   if (gmail.isLoading) {
     return (
-      <Card className="mb-6 flex items-center gap-3" aria-busy="true">
-        <Spinner className="size-4" />
-        <span className="text-sm text-soft">Loading Gmail…</span>
-      </Card>
+      <Bar
+        busy
+        detail={
+          <span className="inline-flex items-center gap-2">
+            <Spinner className="size-3.5" />
+            Loading Gmail…
+          </span>
+        }
+      />
     );
   }
   if (gmail.isError || !gmail.data) {
     return (
-      <Card className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <p role="alert" className="text-sm text-danger">
-          Could not load Gmail status.
-        </p>
-        <Button size="sm" variant="secondary" loading={gmail.isFetching} onClick={() => void gmail.refetch()}>
-          Retry
-        </Button>
-      </Card>
+      <Bar
+        detail={
+          <span role="alert" className="text-danger">
+            Could not load Gmail status.
+          </span>
+        }
+        actions={
+          <Button size="sm" variant="secondary" loading={gmail.isFetching} onClick={() => void gmail.refetch()}>
+            Retry
+          </Button>
+        }
+      />
     );
   }
 
@@ -96,107 +163,129 @@ export function GmailPanel() {
 
   if (state === 'disconnecting') {
     return (
-      <Card className="mb-6 animate-in" aria-labelledby="gmail-panel-title">
-        <div className="flex flex-wrap items-start gap-4">
-          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-tint text-primary">
-            <Icon.mail />
+      <Bar
+        status={{ label: 'Disconnecting', tone: 'warn' }}
+        detail={
+          <span role="status">
+            Disconnecting… FlowJob is erasing its Gmail data. If this does not finish, try again; it is safe to
+            repeat.
           </span>
-          <div className="min-w-[220px] flex-1">
-            <h2 id="gmail-panel-title" className="text-[17px] font-semibold">
-              Gmail
-            </h2>
-            <p role="status" className="mt-1 text-sm leading-relaxed text-soft">
-              Disconnecting… FlowJob is erasing its Gmail data. If this does not finish, try again; it is safe to
-              repeat.
-            </p>
-          </div>
-          <Button variant="secondary" loading={disconnect.isPending} onClick={() => finishDisconnect()}>
+        }
+        actions={
+          <Button size="sm" variant="secondary" loading={disconnect.isPending} onClick={() => finishDisconnect()}>
             Finish disconnecting
           </Button>
-        </div>
-      </Card>
+        }
+      />
     );
   }
 
   const s = g.sync;
+  const pending = g.pendingReviewCount ?? 0;
+  const connected = state === 'active' || state === 'reauth_required';
+
+  const status: { label: string; tone: Tone } =
+    state === 'not_connected'
+      ? { label: 'Not connected', tone: 'muted' }
+      : state === 'reauth_required'
+        ? { label: 'Access expired', tone: 'warn' }
+        : running
+          ? { label: 'Syncing', tone: 'muted' }
+          : { label: 'Connected', tone: 'ok' };
+
+  let detail: ReactNode;
+  if (state === 'not_connected') {
+    detail = 'Add applications from confirmation emails and track interviews, offers and replies. You approve every status change.';
+  } else if (state === 'active' && running && s) {
+    detail = (
+      <span className="inline-flex flex-wrap items-center gap-x-1.5">
+        <Spinner className="size-3.5" />
+        {s.phase === 'backfill' ? 'Checking the last 30 days of email…' : 'Checking for new email…'}
+        {s.remaining > 0 && ` ${plural(s.remaining, 'email')} to go.`}
+      </span>
+    );
+  } else {
+    detail = [
+      g.connection.email,
+      s?.lastSuccessAt && `synced ${fmtRelative(s.lastSuccessAt)}`,
+      state === 'active' && s && s.remaining > 0 && `${plural(s.remaining, 'email')} left for the next sync`,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
+  // Shown in a second row so they are never hidden: expired access, sync errors, emails that failed analysis.
+  const showSyncIssues = state === 'active' && s && !running;
+  const notice =
+    state === 'reauth_required' ? (
+      <p role="alert" className="text-danger">
+        Google access expired. Reconnect with the same account to continue. Your progress and suggestions are kept.
+      </p>
+    ) : showSyncIssues && (s.error || s.failed > 0) ? (
+      <>
+        {s.error && (
+          <p role="alert" className="text-danger">
+            {s.error.message}
+            {s.retryAt && ` Next try ${fmtRelative(s.retryAt)}.`}
+          </p>
+        )}
+        {s.failed > 0 && (
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <span className="text-danger">{plural(s.failed, 'email')} could not be analysed.</span>
+            <Button size="sm" variant="secondary" loading={sync.isPending} onClick={() => runSync(true)}>
+              Retry sync
+            </Button>
+          </span>
+        )}
+      </>
+    ) : null;
+
   return (
-    <Card className="mb-6 animate-in" aria-labelledby="gmail-panel-title">
-      <div className="flex flex-wrap items-start gap-4">
-        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-tint text-primary">
-          <Icon.mail />
-        </span>
-        <div className="min-w-[220px] flex-1">
-          <h2 id="gmail-panel-title" className="text-[17px] font-semibold">
-            Gmail
-          </h2>
-          {state === 'not_connected' && (
-            <p className="mt-1 text-sm leading-relaxed text-soft">
-              Connect Gmail to add applications from confirmation emails and keep track of interviews, offers and
-              replies. You approve every status change.
-            </p>
-          )}
-          {state !== 'not_connected' && (
-            <p className="mt-1 text-sm text-soft">
-              {state === 'reauth_required' ? 'Access expired' : 'Connected'} · {g.connection.email}
-              {s?.lastSuccessAt && ` · synced ${fmtRelative(s.lastSuccessAt)}`}
-            </p>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {state === 'not_connected' && <Button onClick={() => setDialog('connect')}>Connect Gmail</Button>}
-          {state === 'reauth_required' && <Button onClick={() => setDialog('reconnect')}>Reconnect Gmail</Button>}
-          {state === 'active' && (
-            <Button variant="secondary" loading={sync.isPending} disabled={running} onClick={() => runSync(false)}>
-              {running ? 'Syncing…' : 'Sync now'}
-            </Button>
-          )}
-          {state !== 'not_connected' && (
-            <Button variant="ghost" onClick={() => setConfirmDisconnect(true)}>
-              Disconnect
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {state === 'reauth_required' && (
-        <p role="alert" className="mt-4 rounded-xl bg-accent-soft px-4 py-3 text-sm">
-          Google access expired. Reconnect with the same account to continue. Your progress and suggestions are
-          kept.
-        </p>
-      )}
-
-      {state === 'active' && s && (
-        <div className="mt-4 flex flex-col gap-2 text-sm" aria-live="polite">
-          {running ? (
-            <p className="flex items-center gap-2">
-              <Spinner className="size-4" />
-              {s.phase === 'backfill' ? 'Checking the last 30 days of email…' : 'Checking for new email…'}
-              {s.remaining > 0 && ` ${plural(s.remaining, 'email')} to go.`}
-            </p>
-          ) : s.caughtUp ? (
-            <p className="text-soft">Up to date.</p>
-          ) : s.remaining > 0 ? (
-            <p className="text-soft">
-              {plural(s.remaining, 'email')} still to check. They continue on the next sync.
-            </p>
-          ) : null}
-          {!running && summaryText(s) && <p className="text-soft">{summaryText(s)}</p>}
-          {s.error && (
-            <p role="alert" className="text-danger">
-              {s.error.message}
-              {s.retryAt && !running && ` Next try ${fmtRelative(s.retryAt)}.`}
-            </p>
-          )}
-          {s.failed > 0 && !running && (
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-danger">{plural(s.failed, 'email')} could not be analysed.</span>
-              <Button size="sm" variant="secondary" loading={sync.isPending} onClick={() => runSync(true)}>
-                Retry sync
+    <>
+      <Bar
+        status={status}
+        badge={
+          connected &&
+          pending > 0 && (
+            <button
+              type="button"
+              className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent-ink hover:underline"
+              onClick={() =>
+                document.getElementById('needs-review-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+            >
+              {pending} to review
+            </button>
+          )
+        }
+        live={state === 'active'}
+        detail={detail}
+        notice={notice}
+        actions={
+          <>
+            {state === 'not_connected' && (
+              <Button size="sm" onClick={() => setDialog('connect')}>
+                Connect Gmail
               </Button>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+            {state === 'reauth_required' && (
+              <Button size="sm" onClick={() => setDialog('reconnect')}>
+                Reconnect Gmail
+              </Button>
+            )}
+            {state === 'active' && (
+              <Button size="sm" variant="secondary" loading={sync.isPending} disabled={running} onClick={() => runSync(false)}>
+                {running ? 'Syncing…' : 'Sync now'}
+              </Button>
+            )}
+            {connected && (
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDisconnect(true)}>
+                Disconnect
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <GmailConnectDialog
         open={dialog !== null}
@@ -215,6 +304,6 @@ export function GmailPanel() {
         loading={disconnect.isPending}
         onConfirm={() => finishDisconnect(() => setConfirmDisconnect(false))}
       />
-    </Card>
+    </>
   );
 }
