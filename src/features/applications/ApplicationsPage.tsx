@@ -145,7 +145,7 @@ export default function ApplicationsPage() {
             <GmailHeaderAction
               showRemaining
               problemAsSync
-              onReview={() => setReviewing(true)}
+              review={false}
             />
             <ButtonLink to="/app/applications/new">Add application</ButtonLink>
           </>

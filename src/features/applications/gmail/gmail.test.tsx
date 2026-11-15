@@ -374,9 +374,9 @@ describe('Needs Review', () => {
     expect(await screen.findByText('Saved.')).toBeVisible();
 
     // The decided suggestion leaves immediately; the next one is shown and the counts drop.
-    expect(await within(dialog).findByText('1 of 2')).toHaveFocus();
+    await waitFor(() => expect(within(dialog).getByText('1 of 2')).toHaveFocus());
     expect(within(dialog).queryByText('New application: Acme Polska · analyst')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Review emails (2)' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /^Needs review/ })).toHaveTextContent('2 waiting');
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
     fireEvent.click(within(card(dialog)).getByRole('button', { name: 'Dismiss' }));
@@ -448,10 +448,24 @@ describe('Needs Review', () => {
     expect(await within(dialog).findByText('1 of 3')).toBeVisible();
   });
 
-  it('opens the same dialog from the header Review emails button and from ?review', async () => {
+  it('keeps Sync Gmail in the header while reviews are pending; the bar is the only review entry', async () => {
+    backend(active({}, 3), (path, method) =>
+      path === '/gmail/sync' && method === 'POST' ? Response.json(active({ running: true }, 3), { status: 202 }) : undefined);
+    renderAt('/app/applications');
+    const header = await screen.findByRole('banner');
+    const sync = await within(header).findByRole('button', { name: 'Sync Gmail' });
+    expect(screen.queryByRole('button', { name: /Review emails/ })).toBeNull();
+    expect(within(header).getByRole('link', { name: 'Add application' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: /^Needs review/ })).toHaveTextContent('3 waiting');
+    fireEvent.click(sync);
+    expect(await within(header).findByRole('button', { name: 'Syncing…' })).toBeDisabled();
+    expect(sent('POST', '/gmail/sync')[0].body).toEqual({ retryFailed: false });
+  });
+
+  it('opens the dialog from the bar and from ?review', async () => {
     backend(active({}, 3));
     renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Review emails (3)' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Needs review/ }));
     expect(screen.getByRole('dialog', { name: 'Needs review' })).toBeVisible();
     expect(screen.getByTestId('location')).toHaveTextContent('/app/applications?review=1');
     cleanup();

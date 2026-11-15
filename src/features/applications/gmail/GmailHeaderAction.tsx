@@ -24,8 +24,13 @@ const syncProblem = (s: GmailStatus['sync']) =>
 /**
  * Which single Gmail action a page header offers. Detailed management stays in Settings. With `problemAsSync`
  * a sync problem still offers Sync Gmail (the header status line explains the problem and links to Settings).
+ * With `review: false` pending reviews do not replace Sync Gmail (the page has its own review entry point).
  */
-export function gmailAction(g: GmailStatus | undefined, loadFailed: boolean, problemAsSync = false): GmailAction {
+export function gmailAction(
+  g: GmailStatus | undefined,
+  loadFailed: boolean,
+  { problemAsSync = false, review = true }: { problemAsSync?: boolean; review?: boolean } = {},
+): GmailAction {
   if (loadFailed) return 'manage';
   if (!g) return 'none';
   const state = g.connection.state;
@@ -33,7 +38,7 @@ export function gmailAction(g: GmailStatus | undefined, loadFailed: boolean, pro
   if (state === 'disconnecting') return 'manage';
   if (state === 'reauth_required') return 'reconnect';
   if (g.sync?.running) return 'syncing';
-  if ((g.pendingReviewCount ?? 0) > 0) return 'review';
+  if (review && (g.pendingReviewCount ?? 0) > 0) return 'review';
   if (syncProblem(g.sync) && !problemAsSync) return 'manage';
   return 'sync';
 }
@@ -43,18 +48,19 @@ export function gmailAction(g: GmailStatus | undefined, loadFailed: boolean, pro
  * Manage Gmail (to Settings). Connecting reuses the consent dialog and OAuth start; syncing reuses the same sync
  * request. When Gmail is not configured on the server, `fallback` is shown instead.
  *
- * - `onReview`: what Review emails does on this page (default: go to Applications, where Needs review is).
+ * - `review`: offer Review emails (N) when reviews are pending (a link to Applications). Applications passes false:
+ *   its Needs review bar is the review entry point, so its header keeps Sync Gmail.
  * - `showRemaining`: put the real remaining email count in the Syncing… label when the backend reports one.
  * - `problemAsSync`: on a sync problem keep offering Sync Gmail instead of Manage Gmail.
  */
 export function GmailHeaderAction({
   fallback,
-  onReview,
+  review = true,
   showRemaining = false,
   problemAsSync = false,
 }: {
   fallback?: ReactNode;
-  onReview?: () => void;
+  review?: boolean;
   showRemaining?: boolean;
   problemAsSync?: boolean;
 }) {
@@ -77,7 +83,7 @@ export function GmailHeaderAction({
   }, [running, qc]);
 
   if (gmail.isLoading) return <Skeleton className="h-11 w-36 rounded-full" />;
-  const action = gmailAction(gmail.data, gmail.isError || !gmail.data, problemAsSync);
+  const action = gmailAction(gmail.data, gmail.isError || !gmail.data, { problemAsSync, review });
 
   const dialogEl = (
     <GmailConnectDialog
@@ -126,18 +132,12 @@ export function GmailHeaderAction({
         </Button>
       );
     }
-    case 'review': {
-      const label = `Review emails (${gmail.data!.pendingReviewCount})`;
-      return onReview ? (
-        <Button variant="secondary" onClick={onReview}>
-          {label}
-        </Button>
-      ) : (
+    case 'review':
+      return (
         <ButtonLink to="/app/applications" variant="secondary">
-          {label}
+          Review emails ({gmail.data!.pendingReviewCount})
         </ButtonLink>
       );
-    }
     case 'manage':
       return (
         <ButtonLink to={GMAIL_SETTINGS} variant="secondary">
