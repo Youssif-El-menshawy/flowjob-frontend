@@ -12,7 +12,7 @@ import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, CardTitle, Note, PageHeader, ProgressBar, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
 import { Icon } from '@/shared/ui/Icons';
 import { Skeleton } from '@/shared/ui/Spinner';
-import { DashboardGmail } from './DashboardGmail';
+import { GmailHeaderAction, GmailHeaderStatus } from './DashboardGmail';
 import { buildNextActions, CLOSED, isClosed, whenChip, type NextAction } from './nextActions';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -393,20 +393,28 @@ export default function DashboardPage() {
     <>
       <PageHeader
         title={`${greeting()}, ${firstName(user?.name)}.`}
-        subtitle={sub}
+        subtitle={
+          <>
+            {sub}
+            <GmailHeaderStatus />
+          </>
+        }
         actions={
-          !isNew && (
-            <>
-              <ButtonLink to="/app/applications/new" variant="secondary">
-                Add application
-              </ButtonLink>
-              <ButtonLink to="/app/match">Check a job match</ButtonLink>
-            </>
-          )
+          <>
+            {/* Gmail is the secondary action (Add application only when Gmail is not available on this server). */}
+            <GmailHeaderAction
+              fallback={
+                !isNew && (
+                  <ButtonLink to="/app/applications/new" variant="secondary">
+                    Add application
+                  </ButtonLink>
+                )
+              }
+            />
+            {!isNew && <ButtonLink to="/app/match">Check a job match</ButtonLink>}
+          </>
         }
       />
-
-      <DashboardGmail />
 
       {loading ? (
         <div className="flex flex-col gap-5" aria-busy="true">

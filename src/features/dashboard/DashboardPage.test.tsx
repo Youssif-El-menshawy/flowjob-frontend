@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   gmail: { data: undefined } as Q<GmailStatus>,
   profile: { data: undefined as unknown },
   startOAuth: vi.fn(),
-  disconnect: vi.fn(),
+  sync: vi.fn(),
 }));
 
 vi.mock('@/shared/api/queries', async (importOriginal) => ({
@@ -32,7 +32,7 @@ vi.mock('@/shared/api/queries', async (importOriginal) => ({
   useGmail: () => ({ refetch: vi.fn(), ...mocks.gmail }),
   useProfile: () => mocks.profile,
   useStartGmailOAuth: () => ({ mutate: mocks.startOAuth, isPending: false }),
-  useDisconnectGmail: () => ({ mutate: mocks.disconnect, isPending: false }),
+  useSyncGmail: () => ({ mutate: mocks.sync, isPending: false }),
 }));
 vi.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ user: { name: 'Test User' } }) }));
 
@@ -108,7 +108,8 @@ function renderDashboard() {
   );
 }
 
-const gmailRegion = () => screen.getByRole('region', { name: 'Gmail' });
+/** The header's action area (Gmail action + Check a job match). */
+const header = () => screen.getByRole('banner');
 
 beforeEach(() => {
   mocks.apps = { data: [], isLoading: false, isError: false };
@@ -117,7 +118,7 @@ beforeEach(() => {
   mocks.gmail = { data: { available: true, pendingReviewCount: 0, connection: { state: 'not_connected' }, sync: null } };
   mocks.profile = { data: undefined };
   mocks.startOAuth.mockReset();
-  mocks.disconnect.mockReset();
+  mocks.sync.mockReset();
   vi.spyOn(goTo, 'assign').mockImplementation(() => {});
 });
 
@@ -208,8 +209,9 @@ describe('Dashboard header and overview', () => {
     renderDashboard();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Good (morning|afternoon|evening), Test\./);
     expect(screen.getByText('5 active applications · 1 at interview · 1 offer.')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Add application' })).toHaveAttribute('href', '/app/applications/new');
-    expect(screen.getByRole('link', { name: 'Check a job match' })).toHaveAttribute('href', '/app/match');
+    expect(within(header()).getByRole('button', { name: 'Connect Gmail' })).toBeVisible(); // replaces Add application
+    expect(screen.queryByRole('link', { name: 'Add application' })).not.toBeInTheDocument();
+    expect(within(header()).getByRole('link', { name: 'Check a job match' })).toHaveAttribute('href', '/app/match');
   });
 
   it('shows one equal summary tile per status with real counts, grouped into in progress and closed', () => {
@@ -247,22 +249,25 @@ describe('Dashboard header and overview', () => {
   });
 });
 
-describe('Dashboard Gmail strip', () => {
+describe('Dashboard header Gmail action', () => {
   beforeEach(() => {
     mocks.apps = { data: [realApp()], isLoading: false };
   });
 
-  it('offers Connect Gmail once, below the header, using the existing consent dialog and OAuth start', () => {
-    mocks.gmail = { data: { available: true, pendingReviewCount: 0, connection: { state: 'not_connected' }, sync: null } };
+  it('has no Gmail banner: Gmail is one header action next to Check a job match', () => {
+    mocks.gmail = { data: gmailStatus({ pendingReviewCount: 2 }) };
+    renderDashboard();
+    expect(screen.queryByRole('region', { name: 'Gmail' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Gmail updates? to review/)).not.toBeInTheDocument();
+    const links = within(header()).getAllByRole('link').map((l) => l.textContent);
+    expect(links).toEqual(['Review emails (2)', 'Check a job match']);
+  });
+
+  it('Connect Gmail opens the existing consent dialog and OAuth start', () => {
     mocks.startOAuth.mockImplementation((_mode, opts) => opts.onSuccess({ authorizationUrl: 'https://accounts.google.com/x' }));
     renderDashboard();
-    const strip = gmailRegion();
-    expect(within(strip).getByRole('heading', { name: 'Connect your Gmail' })).toBeVisible();
-    expect(strip).toHaveTextContent('Automatically track applications, interviews and hiring updates.');
-    expect(screen.getAllByRole('button', { name: 'Connect Gmail' })).toHaveLength(1); // no bottom banner
-    expect(screen.queryByRole('link', { name: 'Connect Gmail' })).not.toBeInTheDocument();
-
-    fireEvent.click(within(strip).getByRole('button', { name: 'Connect Gmail' }));
+    expect(screen.getAllByRole('button', { name: 'Connect Gmail' })).toHaveLength(1);
+    fireEvent.click(within(header()).getByRole('button', { name: 'Connect Gmail' }));
     const dialog = screen.getByRole('dialog', { name: 'Connect Gmail' });
     expect(within(dialog).getByText(/read-only/)).toBeVisible();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Continue to Google' }));
@@ -270,95 +275,83 @@ describe('Dashboard Gmail strip', () => {
     expect(goTo.assign).toHaveBeenCalledWith('https://accounts.google.com/x');
   });
 
-  it('shows nothing when Gmail is not configured on the server', () => {
+  it('falls back to Add application when Gmail is not configured on the server', () => {
     mocks.gmail = { data: { available: false, pendingReviewCount: 0, connection: { state: 'not_connected' }, sync: null } };
     renderDashboard();
-    expect(screen.queryByRole('region', { name: 'Gmail' })).not.toBeInTheDocument();
+    expect(within(header()).getByRole('link', { name: 'Add application' })).toHaveAttribute('href', '/app/applications/new');
+    expect(screen.queryByText(/Gmail/)).not.toBeInTheDocument();
   });
 
-  it('is compact when connected with nothing to review', () => {
+  it('Sync Gmail starts the existing sync when connected with nothing pending', () => {
     mocks.gmail = { data: gmailStatus() };
     renderDashboard();
-    expect(within(gmailRegion()).getByRole('heading', { name: 'Gmail connected · All caught up' })).toBeVisible();
-    expect(gmailRegion()).toHaveTextContent('me@gmail.com');
-    expect(screen.queryByRole('link', { name: 'Review applications' })).not.toBeInTheDocument();
+    fireEvent.click(within(header()).getByRole('button', { name: 'Sync Gmail' }));
+    expect(mocks.sync).toHaveBeenCalledWith(false, expect.anything());
   });
 
-  it('does not claim "all caught up" while emails are still waiting for the next sync', () => {
-    mocks.gmail = { data: gmailStatus({}, { caughtUp: false, remaining: 40 }) };
+  it('shows a disabled Syncing… button and small progress text while syncing', () => {
+    mocks.gmail = { data: gmailStatus({ pendingReviewCount: 4 }, { running: true, phase: 'backfill', caughtUp: false, remaining: 12 }) };
     renderDashboard();
-    expect(screen.queryByText(/All caught up/)).not.toBeInTheDocument();
-    expect(gmailRegion()).toHaveTextContent('40 emails still to check on the next sync.');
+    expect(within(header()).getByRole('button', { name: 'Syncing…' })).toBeDisabled();
+    expect(within(header()).getByText(/Checking the last 30 days of email… 12 emails to go\./)).toBeVisible();
   });
 
-  it('prominently shows pending reviews once, and lists each suggestion in next actions', () => {
-    mocks.apps = {
-      data: [
-        realApp({
-          id: 'a1',
-          company: 'Umbrella',
-          suggestion: { id: 's1', proposedStatus: 'Interview', receivedAt: '2026-02-01T00:00:00Z' },
-        }),
-      ],
-      isLoading: false,
-    };
+  it('links Review emails (N) to Applications when reviews are pending', () => {
     mocks.gmail = { data: gmailStatus({ pendingReviewCount: 3 }) };
     renderDashboard();
-    expect(within(gmailRegion()).getByRole('heading', { name: '3 Gmail updates to review' })).toBeVisible();
-    const review = screen.getAllByRole('link', { name: 'Review applications' });
-    expect(review).toHaveLength(1);
-    expect(review[0]).toHaveAttribute('href', '/app/applications');
-    const next = screen.getByRole('heading', { name: 'Next actions' }).closest('section')!;
-    const row = within(next).getByRole('link', { name: /Review Gmail update/ });
-    expect(row).toHaveAttribute('href', '/app/applications/a1');
-    expect(row).toHaveTextContent('An email looks like an interview invite.');
+    expect(within(header()).getByRole('link', { name: 'Review emails (3)' })).toHaveAttribute('href', '/app/applications');
   });
 
-  it('shows sync progress while Gmail is syncing', () => {
-    mocks.gmail = { data: gmailStatus({}, { running: true, phase: 'backfill', caughtUp: false, remaining: 12 }) };
-    renderDashboard();
-    expect(within(gmailRegion()).getByRole('heading', { name: 'Gmail connected · Syncing' })).toBeVisible();
-    expect(gmailRegion()).toHaveTextContent('Checking the last 30 days of email… 12 emails to go.');
-  });
-
-  it('shows the backend sync error with a way to manage Gmail', () => {
+  it('shows Manage Gmail with the backend message when sync has a problem', () => {
     mocks.gmail = {
       data: gmailStatus({}, { error: { code: 'gmail_unavailable', message: 'Gmail is temporarily unavailable.' }, failed: 2 }),
     };
     renderDashboard();
-    expect(within(gmailRegion()).getByRole('heading', { name: 'Gmail sync needs attention' })).toBeVisible();
-    expect(within(gmailRegion()).getByRole('alert')).toHaveTextContent(
-      'Gmail is temporarily unavailable. 2 emails could not be analysed.',
-    );
-    expect(within(gmailRegion()).getByRole('link', { name: 'Manage Gmail' })).toHaveAttribute('href', '/app/applications');
-    expect(screen.queryByText(/All caught up/)).not.toBeInTheDocument();
+    expect(within(header()).getByRole('link', { name: 'Manage Gmail' })).toHaveAttribute('href', '/app/applications');
+    expect(within(header()).getByText('Gmail is temporarily unavailable.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Sync Gmail' })).not.toBeInTheDocument();
   });
 
-  it('reports a Gmail status error with Retry', () => {
-    const refetch = vi.fn();
-    mocks.gmail = { data: undefined, isError: true, refetch };
+  it('shows Manage Gmail when the Gmail status cannot be loaded', () => {
+    mocks.gmail = { data: undefined, isError: true };
     renderDashboard();
-    expect(within(gmailRegion()).getByRole('alert')).toHaveTextContent('Could not load Gmail status.');
-    fireEvent.click(within(gmailRegion()).getByRole('button', { name: 'Retry' }));
-    expect(refetch).toHaveBeenCalled();
+    expect(within(header()).getByRole('link', { name: 'Manage Gmail' })).toBeVisible();
+    expect(within(header()).getByText('Could not load Gmail status.')).toBeVisible();
   });
 
-  it('asks to reconnect when access expired, through the same dialog in reconnect mode', () => {
+  it('reconnects through the same dialog in reconnect mode when access expired', () => {
     mocks.gmail = { data: gmailStatus({ connection: { state: 'reauth_required', email: 'me@gmail.com' } }) };
     renderDashboard();
-    expect(within(gmailRegion()).getByRole('heading', { name: 'Gmail access expired' })).toBeVisible();
-    fireEvent.click(within(gmailRegion()).getByRole('button', { name: 'Reconnect Gmail' }));
-    const dialog = screen.getByRole('dialog', { name: 'Reconnect Gmail' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Continue to Google' }));
+    expect(within(header()).getByText('Gmail access expired. Reconnect to keep tracking.')).toBeVisible();
+    fireEvent.click(within(header()).getByRole('button', { name: 'Reconnect Gmail' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Reconnect Gmail' })).getByRole('button', { name: 'Continue to Google' }));
     expect(mocks.startOAuth).toHaveBeenCalledWith('reconnect', expect.anything());
   });
 
-  it('offers Finish disconnecting while a disconnect is pending', () => {
+  it('sends an interrupted disconnect to Applications to finish', () => {
     mocks.gmail = { data: gmailStatus({ connection: { state: 'disconnecting' } }) };
     renderDashboard();
-    expect(within(gmailRegion()).getByRole('heading', { name: 'Gmail is disconnecting' })).toBeVisible();
-    fireEvent.click(within(gmailRegion()).getByRole('button', { name: 'Finish disconnecting' }));
-    expect(mocks.disconnect).toHaveBeenCalled();
+    expect(within(header()).getByRole('link', { name: 'Manage Gmail' })).toHaveAttribute('href', '/app/applications');
+    expect(within(header()).getByText('Gmail is disconnecting. Finish it on Applications.')).toBeVisible();
+  });
+
+  it('keeps the header quiet when Gmail is connected and idle', () => {
+    mocks.gmail = { data: gmailStatus() };
+    renderDashboard();
+    expect(header()).not.toHaveTextContent(/Checking|attention|expired|could not/i);
+  });
+
+  it('still lists each pending suggestion in next actions', () => {
+    mocks.apps = {
+      data: [realApp({ id: 'a1', company: 'Umbrella', suggestion: { id: 's1', proposedStatus: 'Interview', receivedAt: '2026-02-01T00:00:00Z' } })],
+      isLoading: false,
+    };
+    mocks.gmail = { data: gmailStatus({ pendingReviewCount: 1 }) };
+    renderDashboard();
+    const next = screen.getByRole('heading', { name: 'Next actions' }).closest('section')!;
+    const row = within(next).getByRole('link', { name: /Review Gmail update/ });
+    expect(row).toHaveAttribute('href', '/app/applications/a1');
+    expect(row).toHaveTextContent('An email looks like an interview invite.');
   });
 });
 
