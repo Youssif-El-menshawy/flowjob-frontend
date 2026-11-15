@@ -17,12 +17,24 @@ import { RecentMatches } from './RecentMatches';
 const MIN_JOB_CHARS = 80;
 const MAX_JOB_CHARS = 12000;
 
+const MATCH_STEPS = ['Reading the job post…', 'Comparing it with your CV…', 'Writing your feedback…'];
+const TAILOR_STEPS = ['Reading the job post…', 'Finding what to emphasise in your CV…', 'Drafting your suggestions…'];
+
 /**
- * Pending labels. Matching and tailoring are single requests with no progress reporting, so the button says
- * only that the request is running (no timed "stages").
+ * The running button's label: the existing status messages, advanced every 700 ms while the request runs and
+ * held on the last one (the requests report no real progress). Restarts from the first message each run.
  */
-const MATCH_PENDING = 'Checking match…';
-const TAILOR_PENDING = 'Tailoring…';
+function useStepLabel(steps: string[], active: boolean): string {
+  const [i, setI] = useState(0);
+  const last = steps.length - 1;
+  useEffect(() => {
+    setI(0);
+    if (!active) return;
+    const t = setInterval(() => setI((x) => Math.min(x + 1, last)), 700);
+    return () => clearInterval(t);
+  }, [active, last]);
+  return steps[i];
+}
 
 interface FormError {
   message: string;
@@ -56,6 +68,8 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
   const [jobUrl, setJobUrl] = useState(recovery?.jobUrl ?? '');
   const [text, setText] = useState(() => recovery ? '' : pendingJob.get());
   const [error, setError] = useState<FormError | null>(null);
+  const matchLabel = useStepLabel(MATCH_STEPS, run.isPending);
+  const tailorLabel = useStepLabel(TAILOR_STEPS, tailor.isPending);
 
   useEffect(() => {
     if (!cvId && cvs.data?.length) setCvId(cvs.data.find((c) => c.kind === 'original')?.id ?? cvs.data[0].id);
@@ -214,21 +228,28 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
       {/* The running action's button carries the only spinner and the pending label; the other one is just
           disabled. Fixed-height, full-width, single-line buttons keep the layout still while the label changes. */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <Button className="w-full min-w-0" onClick={submit} loading={run.isPending} disabled={!canSubmit && !run.isPending}>
-          <span className="truncate">{run.isPending ? MATCH_PENDING : 'Check my match'}</span>
+        <Button
+          id="check-match"
+          className="w-full min-w-0"
+          onClick={submit}
+          loading={run.isPending}
+          disabled={!canSubmit && !run.isPending}
+        >
+          <span className="truncate">{run.isPending ? matchLabel : 'Check my match'}</span>
         </Button>
         <Button
+          id="tailor-cv"
           className="w-full min-w-0"
           onClick={tailorSubmit}
           loading={tailor.isPending}
           disabled={!canSubmit && !tailor.isPending}
         >
-          <span className="truncate">{tailor.isPending ? TAILOR_PENDING : 'Tailor my CV'}</span>
+          <span className="truncate">{tailor.isPending ? tailorLabel : 'Tailor my CV'}</span>
         </Button>
       </div>
       {/* Announces the running request to screen readers (a disabled button's label change is not announced). */}
       <p role="status" aria-live="polite" className="sr-only">
-        {run.isPending ? MATCH_PENDING : tailor.isPending ? TAILOR_PENDING : ''}
+        {run.isPending ? matchLabel : tailor.isPending ? tailorLabel : ''}
       </p>
 
       <RecentMatches />
