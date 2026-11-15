@@ -15,7 +15,8 @@ export interface NextAction {
   kind: NextActionKind;
   /** Short label, e.g. "Interview" or "Review Gmail update". */
   label: string;
-  app: Application;
+  /** Absent only for Gmail reviews that are not linked to an application yet (e.g. a possible new one). */
+  app?: Application;
   /** Extra sentence (reviews only). */
   detail?: string;
   /** The date the action is about: an ISO date-time (scheduled) or a YYYY-MM-DD date (follow-up). */
@@ -76,7 +77,10 @@ function upcoming(app: Application, now: Date): NextAction[] {
  * connected), then verified upcoming interview/assessment dates from Gmail, then follow-up dates the user
  * set themselves. Closed applications are skipped for dates. Nothing here is inferred from a status alone.
  */
-export function buildNextActions(apps: Application[], opts: { gmailConnected: boolean; now?: Date }): NextAction[] {
+export function buildNextActions(
+  apps: Application[],
+  opts: { gmailConnected: boolean; pendingReviewCount?: number; now?: Date },
+): NextAction[] {
   const now = opts.now ?? new Date();
 
   const reviews: NextAction[] = opts.gmailConnected
@@ -92,6 +96,16 @@ export function buildNextActions(apps: Application[], opts: { gmailConnected: bo
           to: `/app/applications/${a.id}`,
         }))
     : [];
+  // Pending reviews the applications do not show (new applications, unclear matches) are reviewed on Applications.
+  const unlinked = opts.gmailConnected ? Math.max(0, (opts.pendingReviewCount ?? 0) - reviews.length) : 0;
+  if (unlinked > 0)
+    reviews.push({
+      key: 'review:unlinked',
+      kind: 'review',
+      label: 'Review Gmail emails',
+      detail: `${unlinked} ${unlinked === 1 ? 'email needs' : 'emails need'} a quick decision.`,
+      to: '/app/applications',
+    });
 
   const scheduled = apps
     .filter((a) => !isClosed(a.status))

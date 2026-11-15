@@ -125,6 +125,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('DashboardPage (regression: must never blank-crash)', () => {
@@ -214,7 +215,7 @@ describe('Dashboard header and overview', () => {
     expect(within(header()).getByRole('link', { name: 'Check a job match' })).toHaveAttribute('href', '/app/match');
   });
 
-  it('shows one equal summary tile per status with real counts, grouped into in progress and closed', () => {
+  it('shows one compact summary tile per status with real counts and an active/closed summary', () => {
     renderDashboard();
     const expected: Record<ApplicationStatus, string> = {
       Saved: 'Saved: 1 application',
@@ -229,8 +230,7 @@ describe('Dashboard header and overview', () => {
       expect(tile).toHaveAttribute('href', `/app/applications?status=${s}`);
       expect(tile).not.toHaveAttribute('style'); // no decorative heights that could misrepresent counts
     }
-    expect(screen.getByRole('group', { name: 'In progress · 5' })).toBeVisible();
-    expect(screen.getByRole('group', { name: 'Closed · 3' })).toBeVisible();
+    expect(screen.getByText('8 applications · 5 active · 3 closed')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Open board' })).toHaveAttribute('href', '/app/applications');
   });
 
@@ -279,7 +279,8 @@ describe('Dashboard header Gmail action', () => {
     mocks.gmail = { data: { available: false, pendingReviewCount: 0, connection: { state: 'not_connected' }, sync: null } };
     renderDashboard();
     expect(within(header()).getByRole('link', { name: 'Add application' })).toHaveAttribute('href', '/app/applications/new');
-    expect(screen.queryByText(/Gmail/)).not.toBeInTheDocument();
+    expect(header()).not.toHaveTextContent(/Gmail/);
+    expect(screen.getByText('Follow-up dates you set on your applications will appear here.')).toBeVisible();
   });
 
   it('Sync Gmail starts the existing sync when connected with nothing pending', () => {
@@ -362,7 +363,8 @@ describe('Dashboard next actions', () => {
     mocks.apps = { data: [realApp({ status: 'Interview' })], isLoading: false };
     mocks.gmail = { data: gmailStatus() };
     renderDashboard();
-    expect(nextActions()).toHaveTextContent('You’re all caught up. Nothing needs your attention right now.');
+    expect(nextActions()).toHaveTextContent('You’re all caught up.');
+    expect(nextActions()).toHaveTextContent('Interview and assessment times from Gmail');
     expect(within(nextActions()).queryByRole('link')).not.toBeInTheDocument();
   });
 
@@ -419,21 +421,68 @@ describe('Dashboard next actions', () => {
   });
 });
 
+describe('Dashboard next actions cards and recent list', () => {
+  const nextActions = () => screen.getByRole('heading', { name: 'Next actions' }).closest('section')!;
+
+  it('adds one card for pending Gmail reviews not linked to an application, with the total count', () => {
+    mocks.apps = {
+      data: [realApp({ id: 'a1', suggestion: { id: 's1', proposedStatus: 'Offer', receivedAt: '2026-02-01T00:00:00Z' } })],
+      isLoading: false,
+    };
+    mocks.gmail = { data: gmailStatus({ pendingReviewCount: 3 }) };
+    renderDashboard();
+    const links = within(nextActions()).getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/app/applications/a1', '/app/applications']);
+    expect(links[1]).toHaveTextContent('2 emails need a quick decision.');
+    expect(within(nextActions()).getByText('2', { selector: 'span.rounded-full' })).toBeVisible(); // action count
+  });
+
+  it('shows at most four action cards and points to the rest', () => {
+    mocks.apps = {
+      data: Array.from({ length: 6 }, (_, i) => realApp({ id: `f${i}`, company: `Co ${i}`, followUpDate: dateInDays(i) })),
+      isLoading: false,
+    };
+    renderDashboard();
+    expect(within(nextActions()).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(nextActions()).getByRole('link', { name: /2 more actions on Applications/ })).toHaveAttribute(
+      'href',
+      '/app/applications',
+    );
+  });
+
+  it('lists at most four recent applications', () => {
+    mocks.apps = {
+      data: Array.from({ length: 7 }, (_, i) => realApp({ id: `r${i}`, company: `Recent ${i}` })),
+      isLoading: false,
+    };
+    renderDashboard();
+    const recent = screen.getByRole('heading', { name: 'Recent applications' }).closest('section')!;
+    expect(within(recent).getAllByRole('link', { name: /Recent \d/ })).toHaveLength(4);
+  });
+});
+
 describe('Dashboard latest AI match', () => {
   beforeEach(() => {
     mocks.apps = { data: [realApp()], isLoading: false };
   });
 
-  it('shows the real latest job, employer and score with one insight and Tailor CV navigation', () => {
-    mocks.matches = { data: [match(), match({ id: 'm0', jobTitle: 'Older', company: 'Old Co' })] };
+  it('shows the real latest score, job and employer, one short insight and a Tailor CV action', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true })); // reduced motion: the score is shown without counting up
+    mocks.matches = {
+      data: [
+        match({ summary: 'Your CV clearly shows React and TypeScript. Testing is not shown yet.' }),
+        match({ id: 'm0', jobTitle: 'Older', company: 'Old Co' }),
+      ],
+    };
     renderDashboard();
     const card = screen.getByRole('heading', { name: 'Latest AI match' }).closest('section')!;
+    expect(card).toHaveTextContent('82%');
     expect(within(card).getByRole('link', { name: 'Frontend Engineer' })).toHaveAttribute('href', '/app/match/m1');
     expect(card).toHaveTextContent('Globex');
-    expect(within(card).getByRole('progressbar', { name: 'Match score' })).toHaveAttribute('aria-valuenow', '82');
     expect(card).toHaveTextContent('Your CV clearly shows React and TypeScript.');
+    expect(card).not.toHaveTextContent('Testing is not shown yet.'); // one insight only
     expect(card).not.toHaveTextContent('Old Co');
-    expect(within(card).getByRole('link', { name: /Tailor my CV for this job/ })).toHaveAttribute(
+    expect(within(card).getByRole('link', { name: 'Tailor CV for Frontend Engineer at Globex' })).toHaveAttribute(
       'href',
       '/app/match/m1/tailor',
     );

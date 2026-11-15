@@ -1,25 +1,129 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fmtDateTime } from '@/features/applications/gmail/gmailLabels';
-import { groupRequirements, overviewText } from '@/features/match/matchReport';
+import { groupRequirements, overviewText, snippet } from '@/features/match/matchReport';
 import { useApplications, useCvs, useGmail, useMatches, useProfile } from '@/shared/api/queries';
 import { isProfileComplete } from '@/shared/lib/profile';
 import type { Application, ApplicationStatus, MatchResult } from '@/shared/api/types';
+import { STATUSES } from '@/shared/api/types';
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { cn, firstName, fmtDate, greeting } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
-import { Card, CardTitle, Note, PageHeader, ProgressBar, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
+import { Card, CardTitle, Note, PageHeader, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
 import { Icon } from '@/shared/ui/Icons';
 import { Skeleton } from '@/shared/ui/Spinner';
 import { GmailHeaderAction, GmailHeaderStatus } from './DashboardGmail';
-import { buildNextActions, CLOSED, isClosed, whenChip, type NextAction } from './nextActions';
+import { buildNextActions, isClosed, whenChip, type NextAction } from './nextActions';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const ACTIVE: ApplicationStatus[] = ['Saved', 'Applied', 'Interview', 'Offer'];
-const MAX_ACTIONS = 5;
+const MAX_ACTIONS = 4;
+/** Phones show four recent applications; wider layouts three, so the card lines up with the match card. */
+const RECENT = 4;
 
 const linkClass = 'inline-flex shrink-0 items-center gap-1 text-sm font-medium whitespace-nowrap text-primary hover:underline';
+
+// --- Next actions: the focal point -------------------------------------------------------------
+
+const KIND_STYLE: Record<NextAction['kind'], string> = {
+  review: 'bg-accent-soft text-accent-ink',
+  scheduled: STATUS_STYLE.Interview.pill,
+  followUp: STATUS_STYLE.Applied.pill,
+};
+const CTA: Record<NextAction['kind'], string> = { review: 'Review', scheduled: 'View details', followUp: 'Open' };
+
+function ActionCard({ action, wide }: { action: NextAction; wide?: boolean }) {
+  const { app } = action;
+  const chip = whenChip(action.days, action.kind);
+  const footer =
+    action.kind === 'scheduled'
+      ? fmtDateTime(action.at)
+      : action.kind === 'followUp'
+        ? `Follow-up date: ${fmtDate(action.at, true)}`
+        : app
+          ? action.detail
+          : 'Waiting in Needs Review on Applications.';
+  return (
+    <li className={cn('min-w-0', wide && '@md:col-span-2')}>
+      <Link
+        to={action.to}
+        className="flex h-full flex-col gap-2 rounded-xl border border-line bg-bg/60 p-3.5 transition-colors hover:border-primary/40 hover:bg-tint/50 focus-visible:bg-tint/50"
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span className={cn('truncate rounded-full px-2.5 py-0.5 text-xs font-semibold', KIND_STYLE[action.kind])}>
+            {action.label}
+          </span>
+          {chip && (
+            <span
+              className={cn(
+                'shrink-0 text-xs font-semibold',
+                chip === 'Overdue' ? 'text-danger' : chip === 'Today' || chip === 'Tomorrow' ? 'text-accent-ink' : 'text-soft',
+              )}
+            >
+              {chip}
+            </span>
+          )}
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate font-semibold">{app ? app.company : action.detail}</span>
+          {app && <span className="block truncate text-sm text-soft">{app.jobTitle}</span>}
+        </span>
+        <span className="mt-auto flex items-end justify-between gap-3 text-sm">
+          <span className="min-w-0 text-soft">{footer}</span>
+          <span className="inline-flex shrink-0 items-center gap-1 font-medium text-primary">
+            {CTA[action.kind]} <Icon.arrowRight />
+          </span>
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+function NextActions({ actions, gmailAvailable }: { actions: NextAction[]; gmailAvailable: boolean }) {
+  const shown = actions.slice(0, MAX_ACTIONS);
+  const more = actions.length - shown.length;
+  return (
+    <Card className="flex h-full flex-col p-5 animate-in sm:p-6">
+      <div className="mb-4 flex items-center gap-2.5">
+        <h2 className="text-[17px] font-semibold">Next actions</h2>
+        {actions.length > 0 && (
+          <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-on-primary tabular-nums">
+            {actions.length}
+          </span>
+        )}
+      </div>
+      {shown.length ? (
+        <div className="@container">
+          <ul className="grid gap-3 @md:grid-cols-2">
+            {shown.map((a, i) => (
+              // An odd last card takes the full row, so two columns never leave a half-empty row.
+              <ActionCard key={a.key} action={a} wide={i === shown.length - 1 && shown.length % 2 === 1} />
+            ))}
+          </ul>
+          {more > 0 && (
+            <Link to="/app/applications" className={cn(linkClass, 'mt-3')}>
+              {plural(more, 'more action')} on Applications <Icon.arrowRight />
+            </Link>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col justify-center gap-1 rounded-xl border border-dashed border-line px-4 py-5">
+          <p className="flex items-center gap-2 font-medium">
+            <span aria-hidden className="size-2 rounded-full bg-st-offer" />
+            You’re all caught up.
+          </p>
+          <p className="text-sm leading-relaxed text-soft">
+            {gmailAvailable
+              ? 'Interview and assessment times from Gmail, emails to review and follow-up dates you set will appear here.'
+              : 'Follow-up dates you set on your applications will appear here.'}
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// --- Compact overview -----------------------------------------------------------------------------
 
 function StatusTile({ status, count }: { status: ApplicationStatus; count: number }) {
   return (
@@ -28,14 +132,14 @@ function StatusTile({ status, count }: { status: ApplicationStatus; count: numbe
       aria-label={`${status}: ${plural(count, 'application')}`}
       className={cn(
         STATUS_STYLE[status].pill,
-        'flex min-h-[74px] min-w-0 flex-col justify-between gap-1.5 rounded-xl px-3.5 py-3 transition-transform hover:-translate-y-0.5',
+        'flex min-w-0 items-center justify-between gap-2 rounded-xl px-3 py-2 transition-[filter] hover:brightness-95',
       )}
     >
-      <span className="font-display text-[26px] leading-none font-semibold tabular-nums">{count}</span>
-      <span className="flex items-center gap-1.5 text-[13px] leading-tight font-semibold">
+      <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold">
         <span aria-hidden className={cn('size-2 shrink-0 rounded-full', STATUS_STYLE[status].slab)} />
         <span className="truncate">{status}</span>
       </span>
+      <span className="font-display text-lg leading-none font-semibold tabular-nums">{count}</span>
     </Link>
   );
 }
@@ -44,8 +148,9 @@ function Overview({ apps }: { apps: Application[] }) {
   const count = (s: ApplicationStatus) => apps.filter((a) => a.status === s).length;
   const closed = apps.filter((a) => isClosed(a.status)).length;
   return (
-    <Card className="p-5 animate-in sm:p-6" style={{ animationDelay: '.06s' }}>
+    <Card className="flex h-full flex-col p-5 animate-in sm:p-6" style={{ animationDelay: '.06s' }}>
       <CardTitle
+        className="mb-1"
         action={
           <Link to="/app/applications" className={linkClass}>
             Open board <Icon.arrowRight />
@@ -53,113 +158,24 @@ function Overview({ apps }: { apps: Application[] }) {
         }
       >
         Application overview
-        <span className="ml-2 hidden text-sm font-normal text-soft sm:inline">{plural(apps.length, 'application')}</span>
       </CardTitle>
-      <div className="grid gap-4 xl:grid-cols-[2fr_1fr] xl:gap-5">
-        <div role="group" aria-labelledby="ov-active">
-          <p id="ov-active" className="mb-2 text-xs font-semibold tracking-wide text-soft uppercase">
-            In progress · {apps.length - closed}
-          </p>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-            {ACTIVE.map((s) => (
-              <StatusTile key={s} status={s} count={count(s)} />
-            ))}
-          </div>
-        </div>
-        <div role="group" aria-labelledby="ov-closed">
-          <p id="ov-closed" className="mb-2 text-xs font-semibold tracking-wide text-soft uppercase">
-            Closed · {closed}
-          </p>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-2">
-            {CLOSED.map((s) => (
-              <StatusTile key={s} status={s} count={count(s)} />
-            ))}
-          </div>
-        </div>
+      <p className="mb-3 text-sm text-soft">
+        {plural(apps.length, 'application')} · {apps.length - closed} active · {closed} closed
+      </p>
+      <div className="grid flex-1 auto-rows-fr grid-cols-2 gap-2">
+        {STATUSES.map((s) => (
+          <StatusTile key={s} status={s} count={count(s)} />
+        ))}
       </div>
     </Card>
   );
 }
 
-function ActionRow({ action }: { action: NextAction }) {
-  const { app } = action;
-  const chip = whenChip(action.days, action.kind);
-  const when =
-    action.kind === 'scheduled' ? fmtDateTime(action.at) : action.kind === 'followUp' ? fmtDate(action.at, true) : '';
-  return (
-    <li>
-      <Link
-        to={action.to}
-        className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg focus-visible:bg-bg"
-      >
-        <span
-          aria-hidden
-          className={cn(
-            'mt-1.5 size-2 shrink-0 rounded-full',
-            action.kind === 'review' ? 'bg-accent' : action.kind === 'scheduled' ? 'bg-st-interview' : 'bg-st-applied',
-          )}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-baseline gap-x-2">
-            <span className="font-medium">{action.label}</span>
-            {chip && (
-              <span
-                className={cn(
-                  'rounded-full px-2 py-0.5 text-xs font-semibold',
-                  chip === 'Overdue' ? 'bg-danger-soft text-danger' : 'bg-tint text-ink',
-                )}
-              >
-                {chip}
-              </span>
-            )}
-          </span>
-          <span className="block truncate text-sm text-soft">
-            {app.company} · {app.jobTitle}
-          </span>
-          {(action.detail || when) && (
-            <span className="block text-sm text-soft">
-              {action.detail ?? (action.kind === 'followUp' ? `Your follow-up date: ${when}` : when)}
-            </span>
-          )}
-        </span>
-        <span aria-hidden className="mt-1 text-soft">
-          <Icon.arrowRight />
-        </span>
-      </Link>
-    </li>
-  );
-}
-
-function NextActions({ actions }: { actions: NextAction[] }) {
-  const shown = actions.slice(0, MAX_ACTIONS);
-  const more = actions.length - shown.length;
-  return (
-    <Card className="h-full p-5 animate-in sm:p-6" style={{ animationDelay: '.12s' }}>
-      <h2 id="next-actions-title" className={cn('text-[17px] font-semibold', shown.length > 0 && 'mb-2')}>
-        Next actions
-      </h2>
-      {shown.length ? (
-        <>
-          <ul className="-mx-2 flex flex-col">
-            {shown.map((a) => (
-              <ActionRow key={a.key} action={a} />
-            ))}
-          </ul>
-          {more > 0 && <p className="mt-2 text-sm text-soft">and {more} more on your applications.</p>}
-        </>
-      ) : (
-        <p className="mt-1 flex items-center gap-2 text-sm text-soft">
-          <span aria-hidden className="size-2 rounded-full bg-st-offer" />
-          You’re all caught up. Nothing needs your attention right now.
-        </p>
-      )}
-    </Card>
-  );
-}
+// --- Recent applications --------------------------------------------------------------------------
 
 function RecentApplications({ apps }: { apps: Application[] }) {
   return (
-    <Card className="p-5 animate-in sm:p-6" style={{ animationDelay: '.18s' }}>
+    <Card className="h-full p-5 animate-in sm:p-6" style={{ animationDelay: '.12s' }}>
       <CardTitle
         className="mb-2"
         action={
@@ -170,31 +186,30 @@ function RecentApplications({ apps }: { apps: Application[] }) {
       >
         Recent applications
       </CardTitle>
-      <ul className="-mx-2 divide-y divide-line @container">
-        {apps.slice(0, 5).map((a) => (
-          <li key={a.id}>
+      <ul className="-mx-2 divide-y divide-line">
+        {apps.slice(0, RECENT).map((a, i) => (
+          <li key={a.id} className={cn(i === 3 && 'md:hidden')}>
             <Link
               to={`/app/applications/${a.id}`}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 rounded-xl px-2 py-3 transition-colors hover:bg-bg focus-visible:bg-bg @lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_88px_auto]"
+              className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg focus-visible:bg-bg"
             >
-              <span className="truncate font-medium">{a.company}</span>
-              <span className="row-start-2 truncate text-sm text-soft @lg:row-start-auto @lg:text-[15px]">
-                {a.jobTitle}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{a.company}</span>
+                <span className="block truncate text-sm text-soft">{a.jobTitle}</span>
               </span>
-              <span className="row-start-2 text-right text-[13px] whitespace-nowrap text-soft @lg:row-start-auto @lg:text-left @lg:text-sm">
-                {a.dateApplied ? (
-                  <>
-                    <span className="sr-only">Applied </span>
-                    {fmtDate(a.dateApplied)}
-                  </>
-                ) : (
-                  <span className="sr-only">No application date</span>
-                )}
+              <span className="flex shrink-0 flex-col items-end gap-1">
+                <StatusPill status={a.status} />
+                <span className="text-xs text-soft">
+                  {a.dateApplied ? (
+                    <>
+                      <span className="sr-only">Applied </span>
+                      {fmtDate(a.dateApplied)}
+                    </>
+                  ) : (
+                    <span className="sr-only">No application date</span>
+                  )}
+                </span>
               </span>
-              <StatusPill
-                status={a.status}
-                className="col-start-2 row-start-1 justify-self-end @lg:col-start-auto @lg:row-start-auto"
-              />
             </Link>
           </li>
         ))}
@@ -203,12 +218,21 @@ function RecentApplications({ apps }: { apps: Application[] }) {
   );
 }
 
+// --- Latest AI match ------------------------------------------------------------------------------
+
+/** The first sentence of the saved overview (cut at a word boundary if very long). Nothing is generated. */
+function shortInsight(m: MatchResult): string {
+  const text = overviewText(m, groupRequirements(m)).text.replace(/\s+/g, ' ').trim();
+  const first = text.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? text;
+  return snippet(first, 150);
+}
+
 function LatestMatch({ match, error, onRetry }: { match?: MatchResult; error: boolean; onRetry: () => void }) {
   const scoreAvailable = match ? (match.scoreAvailable ?? true) : false;
   const score = useCountUp(match && scoreAvailable ? match.score : 0);
-  const insight = match ? overviewText(match, groupRequirements(match)).text : '';
+  const insight = match ? shortInsight(match) : '';
   return (
-    <Card className="flex h-full flex-col p-5 animate-in sm:p-6" style={{ animationDelay: '.24s' }}>
+    <Card className="flex h-full flex-col p-5 animate-in sm:p-6" style={{ animationDelay: '.18s' }}>
       <CardTitle className="mb-3">Latest AI match</CardTitle>
       {match ? (
         <>
@@ -218,23 +242,22 @@ function LatestMatch({ match, error, onRetry }: { match?: MatchResult; error: bo
               {!scoreAvailable && <span className="sr-only">Score unavailable</span>}
             </p>
             <div className="min-w-0">
-              <Link
-                to={`/app/match/${match.id}`}
-                className="line-clamp-2 font-medium break-words hover:underline"
-              >
+              <Link to={`/app/match/${match.id}`} className="line-clamp-2 font-semibold break-words hover:underline">
                 {match.jobTitle}
               </Link>
               {match.company && <p className="truncate text-sm text-soft">{match.company}</p>}
             </div>
           </div>
-          {scoreAvailable && <ProgressBar value={match.score} className="mt-3" label="Match score" />}
-          {insight && <p className="mt-3 line-clamp-2 text-sm leading-relaxed break-words text-soft">{insight}</p>}
-          <Link
-            to={`/app/match/${match.id}/tailor`}
-            className="mt-auto inline-flex items-center gap-1.5 pt-4 text-sm font-medium text-accent-ink hover:underline"
-          >
-            Tailor my CV for this job <Icon.arrowRight />
-          </Link>
+          {insight && <p className="mt-3 text-sm leading-relaxed break-words text-soft">{insight}</p>}
+          <div className="mt-auto pt-4">
+            <ButtonLink
+              to={`/app/match/${match.id}/tailor`}
+              size="sm"
+              aria-label={`Tailor CV for ${match.jobTitle}${match.company ? ` at ${match.company}` : ''}`}
+            >
+              Tailor CV <Icon.arrowRight />
+            </ButtonLink>
+          </div>
         </>
       ) : error ? (
         <div className="flex flex-wrap items-center gap-3">
@@ -248,9 +271,11 @@ function LatestMatch({ match, error, onRetry }: { match?: MatchResult; error: bo
       ) : (
         <>
           <p className="text-sm leading-relaxed text-soft">Paste a job post to see how your CV fits before you apply.</p>
-          <ButtonLink to="/app/match" variant="secondary" size="sm" className="mt-4 self-start">
-            Check a job
-          </ButtonLink>
+          <div className="mt-auto pt-4">
+            <ButtonLink to="/app/match" variant="secondary" size="sm">
+              Check a job
+            </ButtonLink>
+          </div>
         </>
       )}
     </Card>
@@ -387,7 +412,7 @@ export default function DashboardPage() {
             .filter(Boolean)
             .join(' · ') + '.';
 
-  const actions = buildNextActions(list, { gmailConnected });
+  const actions = buildNextActions(list, { gmailConnected, pendingReviewCount: gmail.data?.pendingReviewCount });
 
   return (
     <>
@@ -417,12 +442,11 @@ export default function DashboardPage() {
       />
 
       {loading ? (
-        <div className="flex flex-col gap-5" aria-busy="true">
-          <Skeleton className="h-40 rounded-2xl" />
-          <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-            <Skeleton className="h-72 rounded-2xl" />
-            <Skeleton className="h-72 rounded-2xl" />
-          </div>
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]" aria-busy="true">
+          <Skeleton className="h-64 rounded-2xl" />
+          <Skeleton className="h-64 rounded-2xl" />
+          <Skeleton className="h-60 rounded-2xl" />
+          <Skeleton className="h-60 rounded-2xl" />
         </div>
       ) : failed ? (
         <Card className="flex flex-wrap items-center justify-between gap-3">
@@ -459,19 +483,19 @@ export default function DashboardPage() {
           </Note>
         </div>
       ) : (
-        <div className="flex flex-col gap-5">
-          <Overview apps={list} />
-          {/* Phone: next actions, recent, match. Tablet: actions | match, then recent. Wide: recent | actions + match. */}
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:grid-rows-[auto_1fr] xl:items-start">
-            <div className="min-w-0 md:col-start-1 md:row-start-1 xl:col-start-2">
-              <NextActions actions={actions} />
-            </div>
-            <div className="min-w-0 md:col-span-2 md:row-start-2 xl:col-span-1 xl:col-start-1 xl:row-span-2 xl:row-start-1">
-              <RecentApplications apps={list} />
-            </div>
-            <div className="min-w-0 md:col-start-2 md:row-start-1 xl:row-start-2">
-              <LatestMatch match={last} error={matches.isError} onRetry={() => void matches.refetch()} />
-            </div>
+        // Phone: one column in this order. Tablet and up: next actions beside the overview, then recent beside match.
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+          <div className="min-w-0">
+            <NextActions actions={actions} gmailAvailable={!!gmail.data?.available || gmailConnected} />
+          </div>
+          <div className="min-w-0">
+            <Overview apps={list} />
+          </div>
+          <div className="min-w-0">
+            <RecentApplications apps={list} />
+          </div>
+          <div className="min-w-0">
+            <LatestMatch match={last} error={matches.isError} onRetry={() => void matches.refetch()} />
           </div>
         </div>
       )}
