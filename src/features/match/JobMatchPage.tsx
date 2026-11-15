@@ -9,35 +9,20 @@ import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { EmptyState, PageHeader } from '@/shared/ui/Display';
 import { Input, Select, Textarea } from '@/shared/ui/Field';
-import { PageLoader, Spinner } from '@/shared/ui/Spinner';
+import { PageLoader } from '@/shared/ui/Spinner';
 import { RecentMatches } from './RecentMatches';
 
-const MATCH_STEPS = ['Reading the job post…', 'Comparing it with your CV…', 'Writing your feedback…'];
-const TAILOR_STEPS = ['Reading the job post…', 'Finding what to emphasise in your CV…', 'Drafting your suggestions…'];
 
 /** Same minimum the backend enforces for a job description (it also caps at 12,000). */
 const MIN_JOB_CHARS = 80;
 const MAX_JOB_CHARS = 12000;
 
-type Action = 'match' | 'tailor';
-
-/** Rotating status line shown while an (explicitly requested) AI request runs. */
-function Progress({ steps: STEPS }: { steps: string[] }) {
-  const [i, setI] = useState(0);
-  const last = STEPS.length - 1;
-  useEffect(() => {
-    const t = setInterval(() => setI((x) => Math.min(x + 1, last)), 700);
-    return () => clearInterval(t);
-  }, [last]);
-  return (
-    <div role="status" aria-live="polite" className="flex items-center gap-3 text-sm text-soft">
-      <Spinner className="size-4" />
-      <span key={i} className="animate-in">
-        {STEPS[i]}
-      </span>
-    </div>
-  );
-}
+/**
+ * Pending labels. Matching and tailoring are single requests with no progress reporting, so the button says
+ * only that the request is running (no timed "stages").
+ */
+const MATCH_PENDING = 'Checking match…';
+const TAILOR_PENDING = 'Tailoring…';
 
 interface FormError {
   message: string;
@@ -65,7 +50,6 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
   const run = useRunMatch();
   const tailor = useTailorDirect();
   const submitting = useRef(false);
-  const [action, setAction] = useState<Action | null>(null);
   const [cvId, setCvId] = useState(recovery?.sourceCvId ?? '');
   const [jobTitle, setJobTitle] = useState(recovery?.jobTitle ?? '');
   const [company, setCompany] = useState(recovery?.company ?? '');
@@ -126,7 +110,6 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
     if (!canSubmit || submitting.current) return;
     submitting.current = true;
     setError(null);
-    setAction('tailor');
     tailor.mutate(
       {
         cvId,
@@ -154,7 +137,6 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
     if (!canSubmit || submitting.current) return;
     submitting.current = true;
     setError(null);
-    setAction('match');
     run.mutate(
       {
         cvId,
@@ -229,29 +211,25 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
         </p>
       )}
 
+      {/* The running action's button carries the only spinner and the pending label; the other one is just
+          disabled. Fixed-height, full-width, single-line buttons keep the layout still while the label changes. */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <Button
-          className="w-full"
-          onClick={submit}
-          loading={run.isPending}
-          disabled={!canSubmit && !run.isPending}
-        >
-          {run.isPending ? 'Checking match…' : 'Check my match'}
+        <Button className="w-full min-w-0" onClick={submit} loading={run.isPending} disabled={!canSubmit && !run.isPending}>
+          <span className="truncate">{run.isPending ? MATCH_PENDING : 'Check my match'}</span>
         </Button>
         <Button
-          className="w-full"
+          className="w-full min-w-0"
           onClick={tailorSubmit}
           loading={tailor.isPending}
           disabled={!canSubmit && !tailor.isPending}
         >
-          {tailor.isPending ? 'Tailoring…' : 'Tailor my CV'}
+          <span className="truncate">{tailor.isPending ? TAILOR_PENDING : 'Tailor my CV'}</span>
         </Button>
       </div>
-      {busy && (
-        <div className="mt-4">
-          <Progress key={action} steps={tailor.isPending ? TAILOR_STEPS : MATCH_STEPS} />
-        </div>
-      )}
+      {/* Announces the running request to screen readers (a disabled button's label change is not announced). */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {run.isPending ? MATCH_PENDING : tailor.isPending ? TAILOR_PENDING : ''}
+      </p>
 
       <RecentMatches />
     </div>

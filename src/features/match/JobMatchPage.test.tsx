@@ -106,10 +106,17 @@ describe('JobMatchPage (input step)', () => {
     expect(screen.getByText('REPORT PAGE')).toBeInTheDocument();
   });
 
-  it('shows progress and blocks duplicate submissions while analysing', () => {
+  it('shows one spinner in the Check my match button and blocks duplicate submissions while analysing', () => {
     mocks.run.isPending = true;
-    renderPage();
-    expect(screen.getByRole('status')).toHaveTextContent(/Reading the job post/i);
+    const { container } = renderPage();
+    expect(analyse()).toHaveTextContent('Checking match…');
+    expect(screen.getByRole('status')).toHaveTextContent('Checking match…'); // announced, visually hidden
+    expect(screen.getByRole('status')).toHaveClass('sr-only');
+    expect(container.querySelectorAll('.animate-spin')).toHaveLength(1);
+    expect(analyse().querySelector('.animate-spin')).not.toBeNull();
+    expect(tailorBtn()).toHaveTextContent('Tailor my CV'); // disabled, no spinner, label unchanged
+    expect(tailorBtn()).toBeDisabled();
+    expect(screen.queryByText(/Reading the job post|Comparing it with your CV|Writing your feedback/)).toBeNull();
     expect(analyse()).toBeDisabled();
     expect(screen.getByLabelText('Job title')).toBeDisabled(); // whole form locked via fieldset
     fireEvent.click(analyse());
@@ -221,7 +228,10 @@ describe('JobMatchPage direct tailoring', () => {
   it('shows which action is running, locks both buttons and blocks duplicate requests', () => {
     mocks.tailor.isPending = true;
     renderPage();
-    expect(screen.getByRole('status')).toHaveTextContent(/Reading the job post|Finding what to emphasise/i);
+    expect(screen.getByRole('status')).toHaveTextContent('Tailoring…');
+    expect(tailorBtn()).toHaveTextContent('Tailoring…');
+    expect(analyse()).toHaveTextContent('Check my match');
+    expect(analyse().querySelector('.animate-spin')).toBeNull();
     expect(tailorBtn()).toBeDisabled();
     expect(analyse()).toBeDisabled();
     fireEvent.click(tailorBtn());
