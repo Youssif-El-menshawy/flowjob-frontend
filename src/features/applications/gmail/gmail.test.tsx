@@ -4,9 +4,10 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ApplicationDetailPage from '@/features/applications/ApplicationDetailPage';
 import ApplicationsPage from '@/features/applications/ApplicationsPage';
+import { GmailSettingsCard } from '@/features/applications/gmail/GmailSettingsCard';
 import type { Application, GmailReview, GmailStatus } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
-import { goTo } from './GmailPanel';
+import { goTo } from './useGmailOAuth';
 import { fromLocalInput, reviewReason, safeGmailUrl } from './gmailLabels';
 
 const GMAIL_URL = 'https://mail.google.com/mail/?authuser=student@gmail.example#all/18c2f0a1b2c3d4e5';
@@ -102,6 +103,7 @@ function renderAt(path: string) {
           <Routes>
             <Route path="/app/applications" element={<><ApplicationsPage /><Where /></>} />
             <Route path="/app/applications/:id" element={<ApplicationDetailPage />} />
+            <Route path="/app/settings" element={<GmailSettingsCard />} />
           </Routes>
         </MemoryRouter>
       </ToastProvider>
@@ -121,7 +123,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Gmail connection panel', () => {
+describe('Gmail on Applications (header) and in Settings (connection card)', () => {
   it('explains access and AI analysis before sending the user to Google', async () => {
     backend(disconnected, (path, method) =>
       path === '/gmail/oauth/start' && method === 'POST'
@@ -144,33 +146,68 @@ describe('Gmail connection panel', () => {
     renderAt('/app/applications');
     expect(await screen.findByText('No applications yet')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Connect Gmail' })).toBeNull();
+    expect(screen.getByRole('banner')).not.toHaveTextContent(/Gmail/);
   });
 
-  it('shows the connection, last sync summary and starts a sync', async () => {
-    const status = active({ lastRun: { trigger: 'scheduled', processed: 8, imported: 2, linked: 1, activities: 3, reviews: 1, failed: 0 } });
-    backend(status, (path, method) =>
-      path === '/gmail/sync' && method === 'POST' ? Response.json({ ...status, sync: { ...status.sync!, running: true } }, { status: 202 }) : undefined);
+  it('puts one Gmail action beside Add application, with no status bar and no Disconnect', async () => {
+    backend(active());
     renderAt('/app/applications');
-    expect(await screen.findByText(/Connected · student@gmail.example/)).toBeVisible();
-    expect(screen.getByText('Last sync: 2 applications added, 3 updates recorded, 1 suggestion to review.')).toBeVisible();
-    expect(screen.getByText('Up to date.')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }));
+    const header = await screen.findByRole('banner');
+    expect(await within(header).findByRole('button', { name: 'Sync Gmail' })).toBeVisible();
+    expect(within(header).getByRole('link', { name: 'Add application' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Gmail' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Disconnect/ })).toBeNull();
+  });
+
+  it('starts a sync from Applications and shows the real remaining count while syncing', async () => {
+    const status = active();
+    let current: GmailStatus = status;
+    backend(() => current, (path, method) => {
+      if (path === '/gmail/sync' && method === 'POST') {
+        current = { ...status, sync: { ...status.sync!, running: true, caughtUp: false, remaining: 42 } };
+        return Response.json(current, { status: 202 });
+      }
+    });
+    renderAt('/app/applications');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Gmail' }));
     expect(await screen.findByText('Sync started.')).toBeVisible();
     expect(sent('POST', '/gmail/sync')[0].body).toEqual({ retryFailed: false });
+    expect(await screen.findByRole('button', { name: 'Syncing… 42 left' })).toBeDisabled();
+  });
+
+  it('says Syncing… without a count when the backend reports none', async () => {
+    backend(active({ running: true, remaining: 0 }));
+    renderAt('/app/applications');
     expect(await screen.findByRole('button', { name: 'Syncing…' })).toBeDisabled();
   });
 
-  it('shows progress, partial completion and errors, and retries failed emails manually', async () => {
-    backend(active({ running: true, phase: 'backfill', caughtUp: false, remaining: 42 }));
-    renderAt('/app/applications');
-    expect(await screen.findByText(/Checking the last 30 days of email… 42 emails to go./)).toBeVisible();
-    cleanup();
+  it('shows the connected account, status and last sync time in Settings', async () => {
+    backend(active({ lastRun: { trigger: 'scheduled', processed: 8, imported: 2, linked: 1, activities: 3, reviews: 1, failed: 0 } }));
+    renderAt('/app/settings');
+    expect(await screen.findByText('student@gmail.example')).toBeVisible();
+    const card = screen.getByRole('region', { name: 'Gmail' });
+    expect(within(card).getByText('Connected')).toBeVisible();
+    expect(within(card).getByText('Last sync')).toBeVisible();
+    expect(within(card).getByRole('button', { name: 'Disconnect Gmail' })).toBeVisible();
+    expect(screen.queryByText(/Up to date|Last sync:/)).toBeNull();
+  });
 
+  it('shows partial completion and errors in Settings, retries failed emails, and flags them on Applications', async () => {
     const partial = active({ caughtUp: false, remaining: 30, failed: 2,
       error: { code: 'quota_reached', message: "Today's email analysis limit was reached." } });
-    backend(partial, (path, method) => path === '/gmail/sync' && method === 'POST' ? Response.json(partial, { status: 202 }) : undefined);
+    const respond: Handler = (path, method) =>
+      path === '/gmail/sync' && method === 'POST' ? Response.json(partial, { status: 202 }) : undefined;
+    backend(partial, respond);
     renderAt('/app/applications');
-    expect(await screen.findByText('30 emails still to check. They continue on the next sync.')).toBeVisible();
+    expect(await screen.findByText("Today's email analysis limit was reached.")).toBeVisible();
+    const header = screen.getByRole('banner');
+    expect(within(header).getByRole('link', { name: 'Gmail settings' })).toHaveAttribute('href', '/app/settings');
+    expect(within(header).getByRole('button', { name: 'Sync Gmail' })).toBeVisible();
+    cleanup();
+
+    backend(partial, respond);
+    renderAt('/app/settings');
+    expect(await screen.findByText('30 emails left for the next sync.')).toBeVisible();
     expect(screen.getByRole('alert')).toHaveTextContent("Today's email analysis limit was reached.");
     expect(screen.getByText('2 emails could not be analysed.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Retry sync' }));
@@ -181,40 +218,54 @@ describe('Gmail connection panel', () => {
     backend(active(), (path, method) =>
       path === '/gmail/sync' && method === 'POST' ? Response.json({ detail: 'A Gmail sync is already running.' }, { status: 409 }) : undefined);
     renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Sync now' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync Gmail' }));
     expect(await screen.findByText('A Gmail sync is already running.')).toBeVisible();
   });
 
-  it('asks to reconnect when Google access expired', async () => {
-    backend({ ...active(), connection: { state: 'reauth_required', email: 'student@gmail.example' } }, (path) =>
-      path === '/gmail/oauth/start' ? Response.json({ authorizationUrl: 'https://accounts.google.com/x' }) : undefined);
+  it('asks to reconnect when Google access expired, on Applications and in Settings', async () => {
+    const expired: GmailStatus = { ...active(), connection: { state: 'reauth_required', email: 'student@gmail.example' } };
+    backend(expired);
     renderAt('/app/applications');
+    expect(await screen.findByRole('button', { name: 'Reconnect Gmail' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Sync Gmail' })).toBeNull();
+    cleanup();
+
+    backend(expired, (path) =>
+      path === '/gmail/oauth/start' ? Response.json({ authorizationUrl: 'https://accounts.google.com/x' }) : undefined);
+    renderAt('/app/settings');
     expect(await screen.findByText(/Google access expired. Reconnect with the same account/)).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull();
+    expect(screen.getByText('Access expired')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Reconnect Gmail' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Reconnect Gmail' })).getByRole('button', { name: 'Continue to Google' }));
     await waitFor(() => expect(sent('POST', '/gmail/oauth/start')[0]?.body).toMatchObject({ mode: 'reconnect' }));
   });
 
-  it('confirms before disconnecting and explains what is kept', async () => {
-    backend(active(), (path, method) => path === '/gmail' && method === 'DELETE' ? new Response(null, { status: 204 }) : undefined);
-    renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+  it('confirms before disconnecting in Settings, explains what is kept, then offers Connect Gmail', async () => {
+    let state: GmailStatus = active();
+    backend(() => state, (path, method) => {
+      if (path === '/gmail' && method === 'DELETE') {
+        state = disconnected;
+        return new Response(null, { status: 204 });
+      }
+    });
+    renderAt('/app/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect Gmail' }));
     const dialog = screen.getByRole('dialog', { name: 'Disconnect Gmail?' });
     expect(within(dialog).getByText(/Applications you already have, and statuses you approved, stay./)).toBeVisible();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
     expect(await screen.findByText('Gmail disconnected.')).toBeVisible();
     expect(sent('DELETE', '/gmail')).toHaveLength(1);
+    expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeVisible();
   });
 
-  it('shows a load error with Retry', async () => {
+  it('shows a load error with Retry in Settings', async () => {
     let fail = true;
     backend(active(), (path) => (path === '/gmail' && fail ? Response.json({ detail: 'down' }, { status: 503 }) : undefined));
-    renderAt('/app/applications');
+    renderAt('/app/settings');
     expect(await screen.findByText('Could not load Gmail status.')).toBeVisible();
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText(/Connected · student@gmail.example/)).toBeVisible();
+    expect(await screen.findByText('student@gmail.example')).toBeVisible();
   });
 
   it.each([
@@ -231,73 +282,197 @@ describe('Gmail connection panel', () => {
 });
 
 describe('Needs Review', () => {
-  it('lists suggestions with excerpts, safe Gmail links and the proposed action', async () => {
+  const openReview = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: /^Needs review/ }));
+    return screen.getByRole('dialog', { name: 'Needs review' });
+  };
+  const card = (dialog: HTMLElement) => within(dialog).getByRole('listitem');
+
+  it('shows a slim bar with the count and opens a dialog with one suggestion at a time', async () => {
     backend(active({}, 3));
     renderAt('/app/applications');
-    expect(await screen.findByRole('heading', { name: 'Needs review' })).toBeVisible();
-    expect(await screen.findByText('New application: Acme Polska · analyst')).toBeVisible();
-    expect(screen.getByText('“Thanks for your interest in the analyst role”')).toBeVisible();
-    expect(screen.getByText(/not a confirmed submission date/)).toBeVisible();
-    expect(screen.getByText('FlowJob could not confirm this automatically. Please check the details.')).toBeVisible();
-    expect(screen.getByText('Move Beta to Interview?')).toBeVisible();
-    const links = screen.getAllByRole('link', { name: 'Open in Gmail' });
-    expect(links).toHaveLength(2); // the ambiguous review's foreign link is not rendered
-    for (const link of links) {
-      expect(link).toHaveAttribute('href', GMAIL_URL);
-      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-      expect(link).toHaveAttribute('target', '_blank');
-    }
+    const bar = await screen.findByRole('button', { name: /^Needs review/ });
+    expect(bar).toHaveTextContent('3 waiting');
+    expect(bar).toHaveTextContent('Review');
+    expect(screen.queryByText('New application: Acme Polska · analyst')).toBeNull(); // nothing expanded
+    fireEvent.click(bar);
+    const dialog = screen.getByRole('dialog', { name: 'Needs review' });
+    expect(await within(dialog).findByText('1 of 3')).toBeVisible();
+    expect(within(dialog).getByText('New application: Acme Polska · analyst')).toBeVisible();
+    expect(within(dialog).getByText('“Thanks for your interest in the analyst role”')).toBeVisible();
+    expect(within(dialog).getByText(/not a confirmed submission date/)).toBeVisible();
+    expect(within(dialog).getByText('FlowJob could not confirm this automatically. Please check the details.')).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: 'Previous suggestion' })).toBeDisabled();
+    const link = within(dialog).getByRole('link', { name: 'Open in Gmail' });
+    expect(link).toHaveAttribute('href', GMAIL_URL);
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toHaveAttribute('target', '_blank');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    expect(within(dialog).getByText('2 of 3')).toBeVisible();
+    expect(within(dialog).getByText(/Which application is this\?/)).toBeVisible();
+    expect(within(dialog).queryByRole('link', { name: 'Open in Gmail' })).toBeNull(); // foreign link not rendered
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    expect(within(dialog).getByText('3 of 3')).toBeVisible();
+    expect(within(dialog).getByText('Move Beta to Interview?')).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: 'Next suggestion' })).toBeDisabled();
   });
 
-  it('edits and approves a new application, dismisses, and prevents double submission', async () => {
+  it('hides the bar when nothing waits for review', async () => {
+    backend(active());
+    renderAt('/app/applications');
+    expect(await screen.findByRole('button', { name: 'Sync Gmail' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Needs review/ })).toBeNull();
+  });
+
+  it('closing without acting changes nothing, and drops unsaved edits', async () => {
+    backend(active({}, 3));
+    renderAt('/app/applications');
+    let dialog = await openReview();
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(dialog).getByLabelText('Job title'), { target: { value: 'Changed title' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close review' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(requests.filter((r) => r.method === 'POST')).toEqual([]);
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/app\/applications$/);
+
+    dialog = await openReview();
+    expect(await within(dialog).findByText('1 of 3')).toBeVisible();
+    expect(within(dialog).queryByLabelText('Job title')).toBeNull(); // not editing any more
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(requests.filter((r) => r.method === 'POST')).toEqual([]);
+  });
+
+  it('edits and approves, prevents double submission, and updates the list and count at once', async () => {
     let release!: (r: Response) => void;
-    backend(active({}, 3), (path) => {
+    let pending = 3;
+    backend(() => active({}, pending), (path) => {
       if (path === '/gmail/reviews/r-new/approve') return new Promise<Response>((r) => { release = r; });
-      if (path === '/gmail/reviews/r-st/dismiss') return Response.json({ review: 'dismissed' });
+      if (path === '/gmail/reviews/r-st/dismiss') {
+        pending -= 1;
+        return Response.json({ review: 'dismissed' });
+      }
     });
     renderAt('/app/applications');
-    const card = (await screen.findByText('New application: Acme Polska · analyst')).closest('li')!;
-    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
-    fireEvent.change(within(card).getByLabelText('Job title'), { target: { value: 'Junior Data Analyst' } });
-    fireEvent.change(within(card).getByLabelText('Date applied'), { target: { value: '2026-11-01' } });
-    const save = within(card).getByRole('button', { name: 'Save and approve' });
+    const dialog = await openReview();
+    const first = await within(dialog).findByText('New application: Acme Polska · analyst');
+    const item = first.closest('li')!;
+    fireEvent.click(within(item).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(item).getByLabelText('Job title'), { target: { value: 'Junior Data Analyst' } });
+    fireEvent.change(within(item).getByLabelText('Date applied'), { target: { value: '2026-11-01' } });
+    const save = within(item).getByRole('button', { name: 'Save and approve' });
     fireEvent.click(save);
     fireEvent.click(save);
     await waitFor(() => expect(sent('POST', '/gmail/reviews/r-new/approve')).toHaveLength(1));
     expect(sent('POST', '/gmail/reviews/r-new/approve')[0].body).toEqual({
       company: 'Acme Polska', jobTitle: 'Junior Data Analyst', status: 'Applied', dateApplied: '2026-11-01',
     });
-    expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+    expect(within(item).getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+    pending -= 1;
     release(Response.json({ review: 'approved', applicationId: 'new1' }));
     expect(await screen.findByText('Saved.')).toBeVisible();
 
-    const status = screen.getByText('Move Beta to Interview?').closest('li')!;
-    fireEvent.click(within(status).getByRole('button', { name: 'Dismiss' }));
+    // The decided suggestion leaves immediately; the next one is shown and the counts drop.
+    await waitFor(() => expect(within(dialog).getByText('1 of 2')).toHaveFocus());
+    expect(within(dialog).queryByText('New application: Acme Polska · analyst')).toBeNull();
+    expect(screen.getByRole('button', { name: /^Needs review/ })).toHaveTextContent('2 waiting');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    fireEvent.click(within(card(dialog)).getByRole('button', { name: 'Dismiss' }));
     expect(await screen.findByText('Dismissed.')).toBeVisible();
+    expect(await within(dialog).findByText('1 of 1')).toBeVisible();
+    expect(within(dialog).getByText(/Which application is this\?/)).toBeVisible();
+  });
+
+  it('closes by itself after the last suggestion is decided', async () => {
+    let pending = 1;
+    const single = [reviews[2]];
+    backend(() => active({}, pending), (path) => {
+      if (path === '/gmail/reviews') return Response.json(pending ? single : []);
+      if (path === '/gmail/reviews/r-st/approve') {
+        pending = 0;
+        return Response.json({ review: 'approved', applicationId: 'a3' });
+      }
+    });
+    renderAt('/app/applications');
+    const dialog = await openReview();
+    expect(await within(dialog).findByText('1 of 1')).toBeVisible();
+    expect(within(dialog).queryByRole('button', { name: 'Next suggestion' })).toBeNull();
+    fireEvent.click(within(card(dialog)).getByRole('button', { name: 'Approve' }));
+    expect(await screen.findByText('Saved.')).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Needs review/ })).toBeNull());
+    expect(sent('POST', '/gmail/reviews/r-st/approve')[0].body).toEqual({});
   });
 
   it('requires choosing an application for an ambiguous match', async () => {
     backend(active({}, 3), (path) =>
       path === '/gmail/reviews/r-amb/approve' ? Response.json({ review: 'approved', applicationId: 'a2' }) : undefined);
     renderAt('/app/applications');
-    const card = (await screen.findByText(/Which application is this\?/)).closest('li')!;
-    const approve = within(card).getByRole('button', { name: 'Approve' });
+    const dialog = await openReview();
+    await within(dialog).findByText('1 of 3');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    const approve = within(card(dialog)).getByRole('button', { name: 'Approve' });
     expect(approve).toBeDisabled();
-    fireEvent.click(within(card).getByLabelText(/Data Analyst Intern/));
+    fireEvent.click(within(dialog).getByLabelText(/Data Analyst Intern/));
     fireEvent.click(approve);
     expect(await screen.findByText('Linked to your application.')).toBeVisible();
     expect(sent('POST', '/gmail/reviews/r-amb/approve')[0].body).toEqual({ applicationId: 'a2' });
   });
 
-  it('shows a stale-suggestion error from the server', async () => {
+  it('shows a stale-suggestion error from the server and keeps the suggestion', async () => {
     backend(active({}, 3), (path) =>
       path === '/gmail/reviews/r-st/approve'
         ? Response.json({ detail: 'This suggestion is out of date: the application changed since it was made.' }, { status: 409 })
         : undefined);
     renderAt('/app/applications');
-    const card = (await screen.findByText('Move Beta to Interview?')).closest('li')!;
-    fireEvent.click(within(card).getByRole('button', { name: 'Approve' }));
+    const dialog = await openReview();
+    await within(dialog).findByText('1 of 3');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    fireEvent.click(within(card(dialog)).getByRole('button', { name: 'Approve' }));
     expect(await screen.findByText(/This suggestion is out of date/)).toBeVisible();
+    expect(within(dialog).getByText('3 of 3')).toBeVisible();
+  });
+
+  it('shows a load error with Retry inside the dialog', async () => {
+    let fail = true;
+    backend(active({}, 3), (path) =>
+      path === '/gmail/reviews' && fail ? Response.json({ detail: 'down' }, { status: 503 }) : undefined);
+    renderAt('/app/applications');
+    const dialog = await openReview();
+    expect(await within(dialog).findByText('Could not load suggestions.')).toBeVisible();
+    fail = false;
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    expect(await within(dialog).findByText('1 of 3')).toBeVisible();
+  });
+
+  it('keeps Sync Gmail in the header while reviews are pending; the bar is the only review entry', async () => {
+    backend(active({}, 3), (path, method) =>
+      path === '/gmail/sync' && method === 'POST' ? Response.json(active({ running: true }, 3), { status: 202 }) : undefined);
+    renderAt('/app/applications');
+    const header = await screen.findByRole('banner');
+    const sync = await within(header).findByRole('button', { name: 'Sync Gmail' });
+    expect(screen.queryByRole('button', { name: /Review emails/ })).toBeNull();
+    expect(within(header).getByRole('link', { name: 'Add application' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: /^Needs review/ })).toHaveTextContent('3 waiting');
+    fireEvent.click(sync);
+    expect(await within(header).findByRole('button', { name: 'Syncing…' })).toBeDisabled();
+    expect(sent('POST', '/gmail/sync')[0].body).toEqual({ retryFailed: false });
+  });
+
+  it('opens the dialog from the bar and from ?review', async () => {
+    backend(active({}, 3));
+    renderAt('/app/applications');
+    fireEvent.click(await screen.findByRole('button', { name: /^Needs review/ }));
+    expect(screen.getByRole('dialog', { name: 'Needs review' })).toBeVisible();
+    expect(screen.getByTestId('location')).toHaveTextContent('/app/applications?review=1');
+    cleanup();
+
+    backend(active({}, 3));
+    renderAt('/app/applications?review=1');
+    expect(await screen.findByRole('dialog', { name: 'Needs review' })).toBeVisible();
   });
 });
 
@@ -391,10 +566,10 @@ describe('pre-merge hardening', () => {
         return new Response(null, { status: 204 });
       }
     });
-    renderAt('/app/applications');
+    renderAt('/app/settings');
     expect(await screen.findByText(/Disconnecting… FlowJob is erasing its Gmail data/)).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Connect Gmail' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Disconnect Gmail' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Finish disconnecting' }));
     expect(await screen.findByText('Gmail disconnected.')).toBeVisible();
     expect(sent('DELETE', '/gmail')).toHaveLength(1);
@@ -409,8 +584,8 @@ describe('pre-merge hardening', () => {
         return Response.json({ detail: 'Gmail could not be fully disconnected. Try again.' }, { status: 503 });
       }
     });
-    renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+    renderAt('/app/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect Gmail' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Disconnect Gmail?' })).getByRole('button', { name: 'Disconnect' }));
     expect(await screen.findByText('Gmail could not be fully disconnected. Try again.')).toBeVisible();
     expect(await screen.findByRole('button', { name: 'Finish disconnecting' })).toBeVisible();
@@ -418,8 +593,8 @@ describe('pre-merge hardening', () => {
 
   it('discloses that dismissed suggestions may reappear after reconnecting', async () => {
     backend(active());
-    renderAt('/app/applications');
-    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+    renderAt('/app/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect Gmail' }));
     const dialog = screen.getByRole('dialog', { name: 'Disconnect Gmail?' });
     expect(within(dialog).getByText(/suggestions you dismissed may reappear/)).toBeVisible();
     cleanup();
@@ -434,7 +609,7 @@ describe('pre-merge hardening', () => {
       error: { code: 'gmail_rate_limited', message: 'Gmail asked FlowJob to slow down. FlowJob retries automatically after a pause.' },
       retryAt: new Date(Date.now() + 30 * 60_000).toISOString(),
     }));
-    renderAt('/app/applications');
+    renderAt('/app/settings');
     expect(await screen.findByRole('alert')).toHaveTextContent(/retries automatically after a pause\. Next try/);
     expect(screen.queryByRole('button', { name: 'Reconnect Gmail' })).toBeNull();
   });
@@ -452,7 +627,9 @@ describe('pre-merge hardening', () => {
       if (path === '/gmail/reviews/r-time/approve') return Response.json({ review: 'approved', applicationId: 'a3' });
     });
     renderAt('/app/applications');
+    fireEvent.click(await screen.findByRole('button', { name: /^Needs review/ }));
     const card = (await screen.findByText('Update the date for Beta?')).closest('li')!;
+    expect(within(card).getByText('Backend Intern')).toBeVisible();
     expect(within(card).getByText('The email says: 2026-11-19T11:00 PST')).toBeVisible();
     expect(within(card).getByText(/time zone FlowJob cannot convert reliably/)).toBeVisible();
     const save = within(card).getByRole('button', { name: 'Save date' });

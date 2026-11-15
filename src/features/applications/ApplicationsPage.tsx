@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk, useApplications, useUpdateApplication } from '@/shared/api/queries';
@@ -12,9 +12,9 @@ import { controlClass } from '@/shared/ui/Field';
 import { Icon } from '@/shared/ui/Icons';
 import { useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
-import { GmailPanel } from './gmail/GmailPanel';
+import { GmailHeaderAction, GmailHeaderStatus } from './gmail/GmailHeaderAction';
 import { oauthErrorMessage } from './gmail/gmailLabels';
-import { NeedsReview } from './gmail/NeedsReview';
+import { NeedsReviewBar, ReviewDialog } from './gmail/NeedsReview';
 
 const COLUMNS: { name: string; statuses: ApplicationStatus[]; slab: string; drop?: ApplicationStatus }[] = [
   { name: 'Saved', statuses: ['Saved'], slab: STATUS_STYLE.Saved.slab, drop: 'Saved' },
@@ -67,6 +67,22 @@ export default function ApplicationsPage() {
   const [q, setQ] = useState('');
   const [over, setOver] = useState<string | null>(null);
   const statusFilter = params.get('status') as ApplicationStatus | null;
+  // The review dialog is open while ?review is set, so the sidebar badge and header button can open it too.
+  const reviewing = params.has('review');
+  const setReviewing = useCallback(
+    (on: boolean) =>
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (on) next.set('review', '1');
+          else next.delete('review');
+          return next;
+        },
+        { replace: true },
+      ),
+    [setParams],
+  );
+  const closeReview = useCallback(() => setReviewing(false), [setReviewing]);
   const qc = useQueryClient();
 
   // Return from Google OAuth: report the outcome once, then drop the query parameters.
@@ -117,11 +133,26 @@ export default function ApplicationsPage() {
     <>
       <PageHeader
         title="Applications"
-        subtitle={`${data?.length ?? 0} ${(data?.length ?? 0) === 1 ? 'application' : 'applications'}`}
-        actions={<ButtonLink to="/app/applications/new">Add application</ButtonLink>}
+        subtitle={
+          <>
+            {`${data?.length ?? 0} ${(data?.length ?? 0) === 1 ? 'application' : 'applications'}`}
+            <GmailHeaderStatus settingsLink />
+          </>
+        }
+        actions={
+          <>
+            {/* Gmail sync and reviews happen here; connection management (disconnect, retries) is in Settings. */}
+            <GmailHeaderAction
+              showRemaining
+              problemAsSync
+              review={false}
+            />
+            <ButtonLink to="/app/applications/new">Add application</ButtonLink>
+          </>
+        }
       />
-      <GmailPanel />
-      <NeedsReview />
+      <NeedsReviewBar onOpen={() => setReviewing(true)} />
+      <ReviewDialog open={reviewing} onClose={closeReview} />
       {!data?.length ? (
         <EmptyState
           title="No applications yet"

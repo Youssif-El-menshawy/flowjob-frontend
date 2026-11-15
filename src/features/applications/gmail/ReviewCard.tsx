@@ -35,7 +35,8 @@ function Excerpt({ r }: { r: GmailReview }) {
   );
 }
 
-export function ReviewCard({ r }: { r: GmailReview }) {
+/** One Gmail suggestion with its Approve / Edit / Dismiss actions. `onDone` runs after a decision is saved. */
+export function ReviewCard({ r, onDone }: { r: GmailReview; onDone?: (id: string) => void }) {
   const toast = useToast();
   const approve = useApproveReview();
   const dismiss = useDismissReview();
@@ -72,7 +73,14 @@ export function ReviewCard({ r }: { r: GmailReview }) {
     once((release) =>
       approve.mutate(
         { id: r.id, edits },
-        { onSuccess: () => toast({ text: done }), onError: fail, onSettled: release },
+        {
+          onSuccess: () => {
+            toast({ text: done });
+            onDone?.(r.id);
+          },
+          onError: fail,
+          onSettled: release,
+        },
       ),
     );
 
@@ -100,6 +108,9 @@ export function ReviewCard({ r }: { r: GmailReview }) {
             </Link>{' '}
             · now {p.from} → suggested {p.to}
           </p>
+        )}
+        {r.kind === 'schedule_change' && r.application && (
+          <p className="text-sm text-soft">{r.application.jobTitle}</p>
         )}
         {r.kind === 'schedule_change' && !needsTime && (
           <p className="text-sm text-soft">
@@ -201,7 +212,14 @@ export function ReviewCard({ r }: { r: GmailReview }) {
         <Button size="sm" variant="ghost" disabled={busy} loading={dismiss.isPending}
           onClick={() =>
             once((release) =>
-              dismiss.mutate(r.id, { onSuccess: () => toast({ text: 'Dismissed.' }), onError: fail, onSettled: release }),
+              dismiss.mutate(r.id, {
+                onSuccess: () => {
+                  toast({ text: 'Dismissed.' });
+                  onDone?.(r.id);
+                },
+                onError: fail,
+                onSettled: release,
+              }),
             )
           }>
           Dismiss

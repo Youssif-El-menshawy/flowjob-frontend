@@ -218,12 +218,6 @@ export default function ApplicationDetailPage() {
               </Button>
             )}
           </Card>
-          <button
-            onClick={() => setRemoving(true)}
-            className="self-start px-1 text-sm font-medium text-danger hover:underline"
-          >
-            Delete application
-          </button>
         </div>
 
         <div className="flex flex-col gap-5">
@@ -273,6 +267,21 @@ export default function ApplicationDetailPage() {
               })
           }
         />
+        {/* Destructive action, kept apart from the form. It closes this dialog without saving (unsaved edits are
+            dropped) and asks for confirmation; cancelling that deletes nothing. */}
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
+          <p className="text-[13px] text-soft">Remove this application and its history.</p>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              setEditing(false);
+              setRemoving(true);
+            }}
+          >
+            Delete application
+          </Button>
+        </div>
       </Modal>
       <Modal open={statusOpen} onClose={() => setStatusOpen(false)} title="Change status">
         <div className="grid gap-2 sm:grid-cols-2">

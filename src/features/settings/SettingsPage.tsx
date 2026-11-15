@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { loginPassword, newPassword } from '@/features/auth/passwordValidation';
+import { GmailSettingsCard } from '@/features/applications/gmail/GmailSettingsCard';
 import { ApiError, USE_MOCKS } from '@/shared/api/client';
 import {
   exportData,
@@ -190,15 +191,9 @@ export default function SettingsPage() {
           )}
         </div>
 
-        <Card className="flex flex-col gap-3 animate-in" style={{ animationDelay: '.08s' }}>
-          <h2 className="text-[17px] font-semibold">Gmail</h2>
-          <p className="leading-relaxed text-soft">
-            Connect, sync and review Gmail suggestions on the Applications page.
-          </p>
-          <Link to="/app/applications" className="self-start text-sm font-medium text-primary hover:underline">
-            Go to Applications
-          </Link>
-        </Card>
+        <div className="h-fit">
+          <GmailSettingsCard />
+        </div>
       </div>
 
       <PasswordModal open={pw} onClose={() => setPw(false)} />

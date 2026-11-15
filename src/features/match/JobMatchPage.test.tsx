@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
@@ -47,8 +47,14 @@ const fill = () => {
     target: { value: JOB },
   });
 };
-const analyse = () => screen.getByRole('button', { name: /Check my match|Checking match/i });
-const tailorBtn = () => screen.getByRole('button', { name: /Tailor my CV|Tailoring/i });
+// While a request runs, the button's label (and so its accessible name) is the current step message.
+const button = (id: string) => {
+  const b = document.getElementById(id);
+  if (!(b instanceof HTMLButtonElement)) throw new Error(`No button #${id}`);
+  return b;
+};
+const analyse = () => button('check-match');
+const tailorBtn = () => button('tailor-cv');
 
 afterEach(() => {
   cleanup();
@@ -106,14 +112,46 @@ describe('JobMatchPage (input step)', () => {
     expect(screen.getByText('REPORT PAGE')).toBeInTheDocument();
   });
 
-  it('shows progress and blocks duplicate submissions while analysing', () => {
+  it('shows one spinner in the Check my match button and blocks duplicate submissions while analysing', () => {
     mocks.run.isPending = true;
-    renderPage();
-    expect(screen.getByRole('status')).toHaveTextContent(/Reading the job post/i);
+    const { container } = renderPage();
+    expect(analyse()).toHaveTextContent('Reading the job post…'); // the step messages live in the button
+    expect(screen.getByRole('status')).toHaveTextContent('Reading the job post…'); // announced, visually hidden
+    expect(screen.getByRole('status')).toHaveClass('sr-only');
+    expect(container.querySelectorAll('.animate-spin')).toHaveLength(1);
+    expect(analyse().querySelector('.animate-spin')).not.toBeNull();
+    expect(tailorBtn()).toHaveTextContent('Tailor my CV'); // disabled, no spinner, label unchanged
+    expect(tailorBtn()).toBeDisabled();
+    expect(screen.getAllByText('Reading the job post…').filter((e) => !e.closest('button, [role="status"]'))).toEqual([]);
     expect(analyse()).toBeDisabled();
     expect(screen.getByLabelText('Job title')).toBeDisabled(); // whole form locked via fieldset
     fireEvent.click(analyse());
     expect(mocks.run.mutate).not.toHaveBeenCalled();
+  });
+
+  it('advances the existing step messages inside the button and holds on the last one', () => {
+    vi.useFakeTimers();
+    try {
+      mocks.run.isPending = true;
+      renderPage();
+      expect(analyse()).toHaveTextContent('Reading the job post…');
+      act(() => vi.advanceTimersByTime(700));
+      expect(analyse()).toHaveTextContent('Comparing it with your CV…');
+      act(() => vi.advanceTimersByTime(700));
+      expect(analyse()).toHaveTextContent('Writing your feedback…');
+      act(() => vi.advanceTimersByTime(5000));
+      expect(analyse()).toHaveTextContent('Writing your feedback…');
+      expect(screen.getByRole('status')).toHaveTextContent('Writing your feedback…');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('labels the idle buttons by their action', () => {
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Check my match' })).toBe(analyse());
+    expect(screen.getByRole('button', { name: 'Tailor my CV' })).toBe(tailorBtn());
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('shows quota/provider errors as an alert, and validation errors by the field', () => {
@@ -221,7 +259,10 @@ describe('JobMatchPage direct tailoring', () => {
   it('shows which action is running, locks both buttons and blocks duplicate requests', () => {
     mocks.tailor.isPending = true;
     renderPage();
-    expect(screen.getByRole('status')).toHaveTextContent(/Reading the job post|Finding what to emphasise/i);
+    expect(screen.getByRole('status')).toHaveTextContent('Reading the job post…');
+    expect(tailorBtn()).toHaveTextContent('Reading the job post…');
+    expect(analyse()).toHaveTextContent('Check my match');
+    expect(analyse().querySelector('.animate-spin')).toBeNull();
     expect(tailorBtn()).toBeDisabled();
     expect(analyse()).toBeDisabled();
     fireEvent.click(tailorBtn());
