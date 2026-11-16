@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
-import { fetchCvPreviewPdf, useCreateCv, useCv, useCvs, useTailor, useTailorDraft } from '@/shared/api/queries';
+import { fetchCvPreviewPdf, useCreateCv, useCv, useCvs, useMatch, useRunMatch, useTailor, useTailorDraft } from '@/shared/api/queries';
 import { TAILORING_BACKEND_INCOMPATIBLE } from '@/shared/api/tailoring';
-import type { CvContent, TailorDraft } from '@/shared/api/types';
+import type { Cv, CvContent, MatchResult, TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
+import { jobPosts, tailorFromMatch } from '@/shared/lib/jobPosts';
 import { cn, downloadBlob } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, PageHeader, Segmented } from '@/shared/ui/Display';
@@ -29,7 +30,7 @@ function opLabel(s: ReviewedSuggestion) {
     case 'reorder': return s.section === 'skills' ? 'Reorder skills' : 'Reorder bullets';
     case 'delete': return s.section === 'skills' ? 'Remove skill' : 'Remove bullet';
     case 'add_skill': return 'Add skill';
-    default: return SECTION[s.section] ?? s.section;
+    default: return s.section === 'summary' && s.original === '' ? 'New summary' : SECTION[s.section] ?? s.section;
   }
 }
 
@@ -113,6 +114,13 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
 }) {
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
+  const op = suggestion.op ?? 'rewrite';
+  // The new wording is readable on the closed card, so a decision does not need the details open.
+  const preview = op === 'rewrite' && suggestion.text.trim()
+    ? { label: 'Suggested', text: suggestion.text }
+    : op === 'add_skill' && suggestion.evidence
+      ? { label: 'Your CV already says', text: `“${suggestion.evidence.quote}”` }
+      : null;
   return (
     <Card as="article" className={cn('!p-0', suggestion.applied && 'border-st-offer')}>
       <button
@@ -143,15 +151,30 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
         <span className="line-clamp-2 text-sm break-words text-soft">
           {suggestion.explanation || 'Compare the suggested wording with your original CV.'}
         </span>
-        {suggestion.needsReview && (
-          <span className="text-xs font-semibold text-accent-ink">{suggestion.blocked ? 'This suggestion cannot be matched to the verified source.' : 'Verify against your original CV before applying.'}</span>
+        {suggestion.blocked && (
+          <span className="text-xs font-semibold text-accent-ink">This suggestion cannot be matched to the verified source.</span>
         )}
       </button>
+      {!expanded && preview && (
+        <p className="px-4 pb-1 text-sm break-words">
+          <span className="font-medium">{preview.label}: </span>
+          <span className="line-clamp-3 whitespace-pre-wrap">{preview.text}</span>
+        </p>
+      )}
+      {!!suggestion.newTerms?.length && suggestion.text === suggestion.suggested && (
+        <p className="px-4 pb-1 text-[13px] break-words text-accent-ink">
+          <span className="font-semibold">Not in your CV: </span>
+          {suggestion.newTerms.join(', ')}. Apply only if this is true for you.
+        </p>
+      )}
       <div id={detailsId} hidden={!expanded}>
         {expanded && (
           <div className="grid gap-3 border-t border-line px-4 py-4">
             <SuggestionBody suggestion={suggestion} onEdit={onEdit} />
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Suggestion decision">
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2 px-4 pt-2 pb-3.5" role="group" aria-label="Suggestion decision">
               {suggestion.auto ? (
                 suggestion.applied ? (
                   <Button size="sm" variant="secondary" onClick={() => onDecide('original')}>
@@ -184,9 +207,6 @@ function SuggestionCard({ suggestion, onEdit, onDecide }: {
                   </Button>
                 </>
               )}
-            </div>
-          </div>
-        )}
       </div>
     </Card>
   );
@@ -253,6 +273,39 @@ function TailorPreview({ content, draftId, cvId, onSourceRejected }: {
   );
 }
 
+const REQUIREMENT_GROUPS = [
+  { key: 'matched', label: 'Shown in your CV', mark: '✓', tone: 'bg-tint text-primary' },
+  { key: 'partiallyMatched', label: 'Partly shown', mark: '~', tone: 'bg-accent/15 text-accent-ink' },
+  { key: 'missing', label: 'Not shown yet', mark: '–', tone: 'bg-side text-soft' },
+] as const;
+
+/** What the job asks for, grouped by whether the match report found it in the source CV. */
+function JobRequirements({ match }: { match: MatchResult }) {
+  const groups = REQUIREMENT_GROUPS.map((group) => ({ ...group, items: match[group.key] ?? [] }));
+  const total = groups.reduce((sum, group) => sum + group.items.length, 0);
+  if (!total) return null;
+  return (
+    <section aria-label="What this job asks for" className="rounded-2xl border border-line bg-surface p-6">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3">
+        <h3 className="text-sm font-semibold">What this job asks for</h3>
+        <p className="text-sm text-soft">{groups[0].items.length} of {total} shown in your CV</p>
+      </div>
+      <ul className="flex flex-wrap gap-1.5">
+        {groups.flatMap((group) => group.items.map((item, index) => (
+          <li key={`${group.key}-${index}`} className={cn('rounded-full px-2.5 py-1 text-[13px] break-words', group.tone)}>
+            <span aria-hidden>{group.mark} </span>
+            <span className="sr-only">{group.label}: </span>
+            {item.requirement}
+          </li>
+        )))}
+      </ul>
+      <p className="mt-2 text-[13px] text-soft">
+        ✓ shown in your CV · ~ partly shown · – not shown yet. Based on your original CV.
+      </p>
+    </section>
+  );
+}
+
 interface Back {
   to: string;
   label: string;
@@ -301,7 +354,7 @@ function MatchTailor({ matchId }: { matchId: string }) {
   const tailor = useTailor();
   const back = { to: `/app/match/${matchId}`, label: 'Back to match' };
 
-  const start = () => tailor.mutate({ matchId }, {
+  const start = () => tailor.mutate(tailorFromMatch({ matchId }), {
     onSuccess: (draft) => nav(`/app/tailor/${draft.id}`, { replace: true }),
   });
   if (tailor.isError) {
@@ -361,7 +414,7 @@ function DraftRecovery({ draft, incompatible }: { draft: TailorDraft; incompatib
       </p>
       {!incompatible && (matchId ? (
         <Button size="sm" variant="secondary" className="mt-2" loading={regenerate.isPending}
-          onClick={() => regenerate.mutate({ matchId, cvId: sourceCvId, fresh: true }, {
+          onClick={() => regenerate.mutate(tailorFromMatch({ matchId, cvId: sourceCvId, fresh: true }), {
             onSuccess: (freshDraft) => nav(`/app/tailor/${freshDraft.id}`, { replace: true }),
           })}
         >
@@ -384,16 +437,116 @@ function DraftRecovery({ draft, incompatible }: { draft: TailorDraft; incompatib
   );
 }
 
+// Review progress is kept for this browser tab, so a refresh or a wrong click does not throw the work away.
+// It only ever holds the user's own decisions; what may be applied is still re-checked against the source CV.
+interface ReviewProgress {
+  decisions: Record<string, Decision>;
+  edits: Record<string, string>;
+  confirmed: boolean;
+}
+const progressKey = (draftId: string) => `flowjob.tailorReview.${draftId}`;
+
+function loadProgress(draftId: string): ReviewProgress {
+  const empty: ReviewProgress = { decisions: {}, edits: {}, confirmed: false };
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(progressKey(draftId)) ?? 'null') as Partial<ReviewProgress> | null;
+    const isRecord = (v: unknown): v is Record<string, never> => !!v && typeof v === 'object' && !Array.isArray(v);
+    return saved && isRecord(saved.decisions) && isRecord(saved.edits)
+      ? { decisions: saved.decisions, edits: saved.edits, confirmed: saved.confirmed === true }
+      : empty;
+  } catch {
+    return empty;
+  }
+}
+
+function storeProgress(draftId: string, progress: ReviewProgress | null) {
+  try {
+    if (progress) sessionStorage.setItem(progressKey(draftId), JSON.stringify(progress));
+    else sessionStorage.removeItem(progressKey(draftId));
+  } catch {
+    /* storage unavailable: the review simply is not remembered */
+  }
+}
+
+/** After saving: the three things a person does next with a tailored CV, in one place. */
+function TailoredSaved({ cv, draft, previousScore, canDownload, downloading, onDownload }: {
+  cv: Pick<Cv, 'id' | 'name'>;
+  draft: TailorDraft;
+  previousScore?: number;
+  canDownload: boolean;
+  downloading: boolean;
+  onDownload: () => void;
+}) {
+  const nav = useNavigate();
+  const run = useRunMatch();
+  const post = jobPosts.get(draft.matchId ?? undefined);
+  const application = new URLSearchParams({
+    company: draft.company ?? '',
+    jobTitle: draft.jobTitle,
+    ...(draft.jobUrl ? { jobUrl: draft.jobUrl } : {}),
+    cvId: cv.id,
+  }).toString();
+  const recheck = () => {
+    if (!post || run.isPending) return;
+    run.mutate(
+      { cvId: cv.id, jobTitle: draft.jobTitle, jobDescription: post, company: draft.company || undefined, jobUrl: draft.jobUrl || undefined },
+      {
+        onSuccess: (m) => {
+          jobPosts.remember(m.id, post);
+          nav(`/app/match/${m.id}`, { state: { previousScore } });
+        },
+      },
+    );
+  };
+  return (
+    <section aria-labelledby="saved-h" className="mx-auto max-w-[640px] rounded-3xl border border-st-offer bg-surface p-6 sm:p-8">
+      <h2 id="saved-h" className="font-display text-2xl font-semibold break-words">{cv.name} is saved</h2>
+      <p className="mt-2 text-soft">
+        It is in My CVs as a new version. Your original CV has not changed.
+      </p>
+      <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
+        <ButtonLink to={`/app/applications/new?${application}`}>Add to Applications</ButtonLink>
+        <Button variant="secondary" disabled={!canDownload} loading={downloading} onClick={onDownload}>
+          {downloading ? 'Preparing PDF…' : 'Download PDF'}
+        </Button>
+        {post && (
+          <Button variant="secondary" loading={run.isPending} onClick={recheck}>
+            {run.isPending ? 'Checking…' : 'Re-check my match'}
+          </Button>
+        )}
+        <ButtonLink to="/app/cvs" variant="ghost">Go to My CVs</ButtonLink>
+      </div>
+      {post && (
+        <p className="mt-3 text-[13px] text-soft">
+          Re-check compares this new version with the same job post{typeof previousScore === 'number' ? ` (it was ${previousScore}% before)` : ''}.
+        </p>
+      )}
+      {run.isError && (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {run.error instanceof ApiError ? run.error.message : 'Could not check the match. Please try again.'}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** The single review UI for both entry paths. Never assumes a match exists. */
 function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; back: Back; hideHeaderBack?: boolean }) {
   const nav = useNavigate();
   const toast = useToast();
   const cvs = useCvs();
   const sourceQuery = useCv(draft.sourceCvId);
+  // The match report already knows what the job asks for and what the CV shows: no extra AI call.
+  const match = useMatch(draft.matchId ?? undefined);
   const create = useCreateCv();
-  const [decisions, setDecisions] = useState<Record<string, Decision>>({});
-  const [edits, setEdits] = useState<Record<string, string>>({});
-  const [confirmed, setConfirmed] = useState<CvContent | null>(null);
+  const [initial] = useState(() => loadProgress(draft.id));
+  const [decisions, setDecisions] = useState<Record<string, Decision>>(initial.decisions);
+  const [edits, setEdits] = useState<Record<string, string>>(initial.edits);
+  const [confirmed, setConfirmed] = useState(initial.confirmed);
+  const [saved, setSaved] = useState<Pick<Cv, 'id' | 'name'> | null>(null);
+  useEffect(() => {
+    storeProgress(draft.id, saved ? null : { decisions, edits, confirmed });
+  }, [draft.id, saved, decisions, edits, confirmed]);
   const [sourceRejected, setSourceRejected] = useState(false);
   const [name, setName] = useState<string | null>(null);
   const [view, setView] = useState<'Tailored' | 'Original'>('Tailored');
@@ -414,7 +567,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const refetchSource = sourceQuery.refetch;
   const rejectSource = useCallback(() => {
     setSourceRejected(true);
-    setConfirmed(null);
+    setConfirmed(false);
     void refetchSource();
   }, [refetchSource]);
   const defaultName = `${draft.company || draft.jobTitle} v${(cvs.data?.filter((cv) => cv.company === draft.company).length ?? 0) + 1}`;
@@ -432,8 +585,19 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const tailoredPreview = view === 'Tailored' ? result : null;
   const appliedCount = suggestions.filter((suggestion) => suggestion.applied).length;
   const skippedCount = Object.values(draft.proposalStats?.rejected ?? {}).reduce((sum, n) => sum + n, 0);
-  // Confirm the exact reviewed version, so an edit never inherits an earlier confirmation.
-  const agree = !!result && result === confirmed;
+  // One confirmation covers the review session: it is given by the user, for wording the user approves, and is
+  // withdrawn only when the source CV stops being verifiable (result becomes null, or the server rejects it).
+  const agree = !!result && confirmed;
+  const pending = suggestions.filter((s) => !s.blocked && !s.applied && s.status === 'Needs review'
+    && (!isEditable(s) || !!s.text.trim()));
+  const applyAll = () => setDecisions((current) => ({
+    ...current, ...Object.fromEntries(pending.map((s) => [s.id, { acceptedText: s.text }])),
+  }));
+  const edit = (id: string, text: string) => {
+    setEdits((current) => ({ ...current, [id]: text }));
+    // Wording the user already approved stays approved while they refine it: they are the author of the edit.
+    setDecisions((current) => (typeof current[id] === 'object' ? { ...current, [id]: { acceptedText: text } } : current));
+  };
 
   useEffect(() => {
     if (!sourceIsCurrent) setDownloadStatus('idle');
@@ -482,7 +646,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
       {
         onSuccess: (cv) => {
           toast({ text: `${cv.name} saved to My CVs.` });
-          nav('/app/cvs');
+          setSaved({ id: cv.id, name: cv.name });
         },
         onError: (error) => {
           if (error instanceof ApiError && error.status === 409) rejectSource();
@@ -501,7 +665,16 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
         subtitle={`${draft.jobTitle} · based on ${source?.name ?? 'your CV'}`}
       />
 
-      {!source ? (
+      {saved ? (
+        <TailoredSaved
+          cv={saved}
+          draft={draft}
+          previousScore={match.data && (match.data.scoreAvailable ?? true) ? match.data.score : undefined}
+          canDownload={agree}
+          downloading={downloadStatus === 'loading'}
+          onDownload={() => void download()}
+        />
+      ) : !source ? (
         sourceQuery.isLoading || checkingSource ? (
           <TailorLoading message="Checking the original CV…" />
         ) : (
@@ -522,8 +695,12 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
                 <p className="ml-auto text-sm text-soft" aria-live="polite">
                   {appliedCount} of {suggestions.length} suggestions applied
                 </p>
+                {pending.length > 1 && (
+                  <Button size="sm" variant="secondary" onClick={applyAll}>Apply all {pending.length}</Button>
+                )}
               </header>
               <div className="flex min-w-0 flex-col gap-3">
+                {match.data && <JobRequirements match={match.data} />}
                 {suggestions.length === 0 && (
                   <Card>
                     <p role="status" className="font-medium">No meaningful improvements found.</p>
@@ -541,7 +718,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
                   <SuggestionCard
                     key={suggestion.id}
                     suggestion={suggestion}
-                    onEdit={(text) => setEdits((current) => ({ ...current, [suggestion.id]: text }))}
+                    onEdit={(text) => edit(suggestion.id, text)}
                     onDecide={(decision) => setDecisions((current) => ({ ...current, [suggestion.id]: decision }))}
                   />
                 ))}
@@ -552,6 +729,18 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
                     <ul className="list-disc space-y-1 pl-5 text-sm break-words text-soft">
                       {draft.missingQualifications.map((item, index) => <li key={index}>{item}</li>)}
                     </ul>
+                  </Card>
+                )}
+                {!!draft.questions?.length && (
+                  <Card>
+                    <h3 className="mb-2 text-sm font-semibold">Questions that could strengthen this CV</h3>
+                    <ul className="list-disc space-y-1 pl-5 text-sm break-words text-soft">
+                      {draft.questions.map((item, index) => <li key={index}>{item}</li>)}
+                    </ul>
+                    <p className="mt-2 text-[13px] text-soft">
+                      If an answer is yes, add it to your original CV in your own words, then tailor again. FlowJob never
+                      adds experience you have not written yourself.
+                    </p>
                   </Card>
                 )}
               </div>
@@ -606,7 +795,7 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
                 type="checkbox"
                 checked={agree}
                 disabled={!result}
-                onChange={(event) => setConfirmed(event.target.checked ? result : null)}
+                onChange={(event) => setConfirmed(event.target.checked)}
                 className="mt-0.5 size-[18px] shrink-0 accent-primary"
               />
               I checked this CV and everything in it is true

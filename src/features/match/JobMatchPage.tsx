@@ -4,6 +4,7 @@ import { ApiError } from '@/shared/api/client';
 import { useCvs, useRunMatch, useTailorDirect } from '@/shared/api/queries';
 import type { TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
+import { jobPosts } from '@/shared/lib/jobPosts';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
@@ -162,6 +163,7 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
       {
         onSuccess: (m) => {
           pendingJob.clear();
+          jobPosts.remember(m.id, text);
           // A normal (push) navigation, so the browser Back button returns to this form.
           nav(`/app/match/${m.id}`);
         },
@@ -186,12 +188,20 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
         <legend className="sr-only">Job details</legend>
         <Select label="CV to use" value={cvAvailable ? cvId : ''} onChange={(e) => setCvId(e.target.value)}>
           {!cvAvailable && <option value="" disabled>Choose a CV</option>}
-          {cvs.data.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-              {c.kind === 'original' ? `, updated ${fmtDate(c.updatedAt)}` : ''}
-            </option>
-          ))}
+          {/* Originals first: a version tailored for one job is rarely the right start for another. */}
+          {(['original', 'tailored'] as const).map((kind) => {
+            const group = cvs.data.filter((c) => (c.kind === 'tailored') === (kind === 'tailored'));
+            return group.length ? (
+              <optgroup key={kind} label={kind === 'original' ? 'Your CVs' : 'Tailored versions'}>
+                {group.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {c.kind === 'original' ? `, updated ${fmtDate(c.updatedAt)}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null;
+          })}
         </Select>
         <Input
           label="Job title"
@@ -239,6 +249,7 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
         </Button>
         <Button
           id="tailor-cv"
+          variant="secondary"
           className="w-full min-w-0"
           onClick={tailorSubmit}
           loading={tailor.isPending}
@@ -247,6 +258,9 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
           <span className="truncate">{tailor.isPending ? tailorLabel : 'Tailor my CV'}</span>
         </Button>
       </div>
+      <p className="mt-3 text-[13px] text-soft">
+        Not sure which? Check your match first. The report shows what the job asks for, and you can tailor from there.
+      </p>
       {/* Announces the running request to screen readers (a disabled button's label change is not announced). */}
       <p role="status" aria-live="polite" className="sr-only">
         {run.isPending ? matchLabel : tailor.isPending ? tailorLabel : ''}

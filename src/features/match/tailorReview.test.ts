@@ -104,3 +104,21 @@ describe('typed tailoring review', () => {
     expect(applySuggestions(source, [accepted]).summary).toBe('Old style.');
   });
 });
+
+describe('a summary the CV does not have yet', () => {
+  const noSummary = { ...structuredClone(source), summary: '' };
+  const proposal: TailorSuggestion = { id: 'n', op: 'rewrite', section: 'summary', original: '', suggested: 'Developer who builds APIs.' };
+
+  it('can be proposed and applied, and only after an explicit decision', () => {
+    const pending = reviewSuggestion(proposal, noSummary, true, proposal.suggested);
+    expect([pending.blocked, pending.applied, pending.status]).toEqual([false, false, 'Needs review']);
+    const accepted = reviewSuggestion(proposal, noSummary, true, proposal.suggested, { acceptedText: proposal.suggested });
+    expect(applySuggestions(noSummary, [accepted]).summary).toBe('Developer who builds APIs.');
+  });
+
+  it('is blocked once the source has a summary, and an empty original never unlocks other sections', () => {
+    expect(reviewSuggestion(proposal, source, true, proposal.suggested).blocked).toBe(true);
+    const bullet: TailorSuggestion = { id: 'b', op: 'rewrite', section: 'experience', experienceId: source.experience[0].id, bulletIndex: 99, original: '', suggested: 'Invented bullet' };
+    expect(reviewSuggestion(bullet, source, true, bullet.suggested).blocked).toBe(true);
+  });
+});
