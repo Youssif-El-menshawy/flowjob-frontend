@@ -159,6 +159,8 @@ export interface TailorMatchInput {
   matchId: ID;
   cvId?: ID;
   fresh?: boolean;
+  /** The post this match analysed, when the browser still has it: the backend verifies it and never stores it. */
+  jobDescription?: string;
 }
 
 export interface TailorDirectInput {
@@ -188,6 +190,8 @@ export interface TailorSuggestion {
   skill?: string;
   order?: number[];
   evidence?: { path: string; quote: string };
+  /** Content words of a rewrite that appear nowhere in the source CV (computed by the backend, not the model). */
+  newTerms?: string[];
 }
 
 export interface TailorDraft {

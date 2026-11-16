@@ -1,3 +1,4 @@
+import { clearTemporaryJobData } from '@/shared/lib/sessionData';
 import type { ApiErrorBody, AuthResponse, User } from './types';
 
 export const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === 'true';
@@ -32,8 +33,12 @@ function publish(next: Session) {
 }
 
 function expireSession() {
+  // Only the end of a signed-in session clears tab data: a visitor's first load also lands here, and the job they
+  // pasted before signing up must survive it.
+  const signedIn = session.status === 'authenticated';
   generation++;
   accessToken = null;
+  if (signedIn) clearTemporaryJobData();
   publish({ status: 'anonymous', user: null });
 }
 

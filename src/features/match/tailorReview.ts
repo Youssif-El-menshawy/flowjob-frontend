@@ -82,7 +82,9 @@ function isBlocked(source: CvContent, s: TailorSuggestion, sourceIsCurrent: bool
   switch (opOf(s)) {
     case 'rewrite': {
       const target = findTarget(source, s);
-      return !target?.text.trim() || target.text !== s.original;
+      // A CV with no summary may be offered one: that is the only rewrite whose original is empty.
+      const newSummary = s.section === 'summary' && s.original === '';
+      return !target || target.text !== s.original || (!newSummary && !target.text.trim());
     }
     case 'delete': {
       if (s.section === 'skills') return !skills.some((k) => skillKey(k) === skillKey(s.skill ?? ''));
@@ -165,8 +167,13 @@ export function applySuggestions(content: CvContent, suggestions: ReviewedSugges
   if (Array.isArray(copy.skills)) {
     let skills = [...copy.skills];
     for (const s of applied.filter((x) => opOf(x) === 'reorder' && x.section === 'skills')) {
-      const byKey = new Map(skills.map((k) => [skillKey(k), k]));
-      const next = splitSkills(s.suggested).map((k) => byKey.get(skillKey(k)));
+      // Take each original entry once (exact spelling first), so duplicates such as "Excel, excel" survive as they are.
+      const pool = [...skills];
+      const next = splitSkills(s.suggested).map((k) => {
+        const exact = pool.indexOf(k);
+        const at = exact >= 0 ? exact : pool.findIndex((x) => skillKey(x) === skillKey(k));
+        return at >= 0 ? pool.splice(at, 1)[0] : undefined;
+      });
       if (next.length === skills.length && next.every((k): k is string => !!k)) skills = next;
     }
     for (const s of applied.filter((x) => opOf(x) === 'delete' && x.section === 'skills')) {

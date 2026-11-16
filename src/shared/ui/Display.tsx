@@ -67,10 +67,13 @@ export function ProgressBar({
   value,
   className,
   label,
+  tone = 'accent',
 }: {
   value: number;
   className?: string;
   label?: string;
+  /** "primary" for a result that reads as good, so the bar does not look like a warning. */
+  tone?: 'accent' | 'primary';
 }) {
   return (
     <div
@@ -82,7 +85,7 @@ export function ProgressBar({
       aria-label={label}
     >
       <div
-        className="h-full rounded-full bg-accent animate-fill"
+        className={cn('h-full rounded-full animate-fill', tone === 'primary' ? 'bg-primary' : 'bg-accent')}
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>

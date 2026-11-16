@@ -80,7 +80,17 @@ function ActionCard({ action, wide }: { action: NextAction; wide?: boolean }) {
   );
 }
 
-function NextActions({ actions, gmailAvailable }: { actions: NextAction[]; gmailAvailable: boolean }) {
+interface Suggestion {
+  text: string;
+  to: string;
+  cta: string;
+}
+
+function NextActions({ actions, gmailAvailable, suggestion }: {
+  actions: NextAction[];
+  gmailAvailable: boolean;
+  suggestion?: Suggestion;
+}) {
   const shown = actions.slice(0, MAX_ACTIONS);
   const more = actions.length - shown.length;
   return (
@@ -118,6 +128,14 @@ function NextActions({ actions, gmailAvailable }: { actions: NextAction[]; gmail
               ? 'Interview and assessment times from Gmail, emails to review and follow-up dates you set will appear here.'
               : 'Follow-up dates you set on your applications will appear here.'}
           </p>
+          {suggestion && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
+              <p className="min-w-0 text-sm break-words">{suggestion.text}</p>
+              <ButtonLink to={suggestion.to} size="sm" variant="secondary" className="shrink-0">
+                {suggestion.cta} <Icon.arrowRight />
+              </ButtonLink>
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -126,21 +144,56 @@ function NextActions({ actions, gmailAvailable }: { actions: NextAction[]; gmail
 
 // --- Compact overview -----------------------------------------------------------------------------
 
-function StatusTile({ status, count }: { status: ApplicationStatus; count: number }) {
+/** The stages an application moves through, in order. Rejected and Withdrawn are outcomes, shown apart. */
+const PIPELINE: ApplicationStatus[] = ['Saved', 'Applied', 'Interview', 'Offer'];
+
+/** One bar of the overview chart. Its height is the stage's share of the fullest stage, so the chart never
+ *  suggests more than the numbers say; an empty stage is a thin baseline. */
+function StageBar({ status, count, max, step }: { status: ApplicationStatus; count: number; max: number; step: number }) {
+  const height = count ? Math.max(10, Math.round((82 * count) / Math.max(max, 1))) : 0;
+  return (
+    <Link
+      to={`/app/applications?status=${encodeURIComponent(status)}`}
+      aria-label={`${status}: ${plural(count, 'application')}`}
+      className="group flex h-full min-w-0 flex-1 flex-col gap-2"
+    >
+      <span className="relative min-h-0 flex-1">
+        <span
+          className={cn(
+            'absolute inset-x-0 text-center font-display text-2xl leading-none font-semibold tabular-nums',
+            count === 0 && 'text-soft/50',
+          )}
+          style={{ bottom: count ? `calc(${height}% + 6px)` : '10px' }}
+        >
+          {count}
+        </span>
+        <span
+          aria-hidden
+          className={cn(
+            STATUS_STYLE[status].slab,
+            'absolute inset-x-0 bottom-0 rounded-t-xl rounded-b-sm animate-grow transition-[filter] group-hover:brightness-95',
+            count === 0 && 'opacity-50',
+          )}
+          style={{ height: count ? `${height}%` : '4px', animationDelay: `${0.1 + step * 0.08}s` }}
+        />
+      </span>
+      <span className="truncate text-center text-[12px] leading-tight font-medium text-soft sm:text-[13px]">{status}</span>
+    </Link>
+  );
+}
+
+function ClosedPill({ status, count }: { status: ApplicationStatus; count: number }) {
   return (
     <Link
       to={`/app/applications?status=${encodeURIComponent(status)}`}
       aria-label={`${status}: ${plural(count, 'application')}`}
       className={cn(
         STATUS_STYLE[status].pill,
-        'flex min-w-0 items-center justify-between gap-2 rounded-xl px-3 py-2 transition-[filter] hover:brightness-95',
+        'flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-[13px] transition-[filter] hover:brightness-95 sm:flex-none',
       )}
     >
-      <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold">
-        <span aria-hidden className={cn('size-2 shrink-0 rounded-full', STATUS_STYLE[status].slab)} />
-        <span className="truncate">{status}</span>
-      </span>
-      <span className="font-display text-lg leading-none font-semibold tabular-nums">{count}</span>
+      <span className="truncate">{status}</span>
+      <span className="font-bold tabular-nums">{count}</span>
     </Link>
   );
 }
@@ -163,10 +216,19 @@ function Overview({ apps }: { apps: Application[] }) {
       <p className="mb-3 text-sm text-soft">
         {plural(apps.length, 'application')} · {apps.length - closed} active · {closed} closed
       </p>
-      <div className="grid flex-1 auto-rows-fr grid-cols-2 gap-2">
-        {STATUSES.map((s) => (
-          <StatusTile key={s} status={s} count={count(s)} />
-        ))}
+      <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end">
+        {/* A fixed height in both layouts: stacked on a phone (so it must not flex away), beside the pills from sm up. */}
+        <div className="flex h-44 min-w-0 flex-none items-stretch gap-2.5 border-b border-line sm:h-48 sm:flex-1 sm:gap-4">
+          {PIPELINE.map((s, i) => (
+            <StageBar key={s} status={s} count={count(s)} max={Math.max(...PIPELINE.map(count))} step={i} />
+          ))}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:w-32 sm:flex-col sm:items-stretch">
+          <span className="w-full text-xs font-medium text-soft">Closed</span>
+          {STATUSES.filter((s) => !PIPELINE.includes(s)).map((s) => (
+            <ClosedPill key={s} status={s} count={count(s)} />
+          ))}
+        </div>
       </div>
     </Card>
   );
@@ -414,6 +476,20 @@ export default function DashboardPage() {
             .join(' · ') + '.';
 
   const actions = buildNextActions(list, { gmailConnected, pendingReviewCount: gmail.data?.pendingReviewCount });
+  // With nothing due, point at the most useful thing to do next instead of an empty box.
+  // Tailored already: a version was saved from this match, or the match itself was run on a tailored version.
+  const tailoredForLast = !!last && !!cvs.data?.some((cv) => cv.kind === 'tailored' && (cv.matchId === last.id || cv.id === last.cvId));
+  const tracksLast = !!last && list.some((a) => a.company === last.company && a.jobTitle === last.jobTitle);
+  const suggestion: Suggestion =
+    last && !tailoredForLast
+      ? { text: `Tailor your CV for ${last.jobTitle}${last.company ? ` at ${last.company}` : ''}.`, to: `/app/match/${last.id}`, cta: 'Open match' }
+      : last && !tracksLast
+        ? {
+            text: `Applied for ${last.jobTitle}? Keep track of it.`,
+            to: `/app/applications/new?${new URLSearchParams({ company: last.company ?? '', jobTitle: last.jobTitle }).toString()}`,
+            cta: 'Add application',
+          }
+        : { text: 'Found a job you like? See how your CV fits before you apply.', to: '/app/match', cta: 'Check a job' };
 
   return (
     <>
@@ -490,7 +566,7 @@ export default function DashboardPage() {
             <Overview apps={list} />
           </div>
           <div className="min-w-0">
-            <NextActions actions={actions} gmailAvailable={!!gmail.data?.available || gmailConnected} />
+            <NextActions actions={actions} gmailAvailable={!!gmail.data?.available || gmailConnected} suggestion={suggestion} />
           </div>
           <div className="min-w-0">
             <RecentApplications apps={list} />
