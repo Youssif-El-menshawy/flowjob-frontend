@@ -28,14 +28,17 @@ const mocks = vi.hoisted(() => ({
   draftQuery: { data: undefined as unknown, isError: false, error: null as unknown },
   draftIds: [] as (string | undefined)[],
   source: undefined as Cv | undefined,
+  match: undefined as unknown,
   sourceFetching: false,
   refetchSource: vi.fn(),
+  runMatch: vi.fn(),
   preview: vi.fn(),
   download: vi.fn(),
 }));
 
 vi.mock('@/shared/api/queries', () => ({
   useCvs: () => ({ data: [sourceCv], isLoading: false }),
+  useMatch: () => ({ data: mocks.match }),
   useCv: () => ({
     data: mocks.source,
     isFetching: mocks.sourceFetching,
@@ -58,6 +61,7 @@ vi.mock('@/shared/api/queries', () => ({
     return mocks.draftQuery;
   },
   useCreateCv: () => mocks.create,
+  useRunMatch: () => ({ mutate: mocks.runMatch, isPending: false, isError: false, error: null }),
   fetchCvPreviewPdf: (...args: unknown[]) => mocks.preview(...args),
 }));
 vi.mock('@/shared/lib/utils', async (original) => ({
@@ -78,6 +82,7 @@ function page(path = '/app/match/m1/tailor') {
         <Route path="/app/tailor/:draftId" element={<TailorPage />} />
         <Route path="/app/match" element={<div>JOB FORM</div>} />
         <Route path="/app/cvs" element={<div>MY CVS</div>} />
+        <Route path="/app/match/:id" element={<div>MATCH REPORT</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -103,9 +108,11 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  sessionStorage.clear();
   mocks.create.mutate = vi.fn();
   mocks.tailorMutate = vi.fn();
   mocks.tailorError = null;
+  mocks.match = undefined;
   mocks.draftQuery = { data: undefined, isError: false, error: null };
   mocks.draftIds = [];
   mocks.preview.mockReset();
@@ -122,14 +129,18 @@ const decide = (section: string, label: 'Apply suggestion' | 'Keep original') =>
   fireEvent.click(card(section).getByRole('button', { name: label }));
 
 describe('TailorPage review', () => {
-  it('collapses details, applies normal suggestions and keeps factual warnings visible', () => {
+  it('collapses details, applies normal suggestions and offers the decision on the closed card', () => {
     renderPage();
     expect(toggle('Summary')).toHaveAttribute('aria-expanded', 'false');
     expect(toggle('Experience')).toHaveAttribute('aria-expanded', 'false');
     expect(card('Summary').getByText('Applied')).toBeInTheDocument();
     expect(card('Summary').getByText('Lead with relevant experience.')).toBeInTheDocument();
     expect(card('Experience').getByText('Needs review')).toBeInTheDocument();
-    expect(card('Experience').getByText(/Verify against your original CV/)).toBeVisible();
+    // The new wording and both decisions are on the closed card: no warning line, no need to open it.
+    expect(screen.queryByText(/Verify against your original CV/)).toBeNull();
+    expect(card('Experience').getByText('New bullet')).toBeVisible();
+    expect(card('Experience').getByRole('button', { name: 'Apply suggestion' })).toBeEnabled();
+    expect(card('Experience').getByRole('button', { name: 'Keep original' })).toBeEnabled();
     // The card names its target (role and bullet) and shows a short excerpt of the original text.
     expect(toggle('Experience')).toHaveTextContent('Experience · Dev, bullet 1');
     expect(card('Experience').getByText('“Old bullet”')).toBeInTheDocument();
@@ -189,11 +200,13 @@ describe('TailorPage review', () => {
     expect(mocks.tailorMutate).toHaveBeenCalledExactlyOnceWith({ matchId: 'm1' });
   });
 
-  it('shows missing requirements without rendering or applying conversational questions', () => {
+  it('shows missing requirements and the questions as prompts, without applying anything from them', () => {
     renderPage();
     expect(screen.getByRole('heading', { name: 'Requirements not evidenced in your CV' })).toBeInTheDocument();
     expect(screen.getByText('Docker')).toBeVisible();
-    expect(screen.queryByText('Used Docker?')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Questions that could strengthen this CV' })).toBeInTheDocument();
+    expect(screen.getByText('Used Docker?')).toBeVisible();
+    expect(screen.getByText(/add it to your original CV in your own words/)).toBeVisible();
     expect(mocks.preview.mock.calls[0][0].skills).toEqual(sourceCv.content.skills);
   });
 
@@ -215,13 +228,134 @@ describe('TailorPage review', () => {
     decide('Skills', 'Apply suggestion');
     expect(card('Skills').getByText('Applied')).toBeInTheDocument();
     confirm();
+    // Refining wording the user already approved keeps it approved, and the confirmation stays ticked.
     fireEvent.change(wording('Skills'), { target: { value: 'Python, MongoDB, Rust' } });
-    expect(card('Skills').getByText('Needs review')).toBeVisible();
-    expect(save()).toBeDisabled();
+    expect(card('Skills').getByText('Applied')).toBeVisible();
+    expect(save()).toBeEnabled();
+    fireEvent.click(save());
+    expect(mocks.create.mutate.mock.calls[0][0].content.skills).toEqual(['Python', 'MongoDB', 'Rust']);
+    expect(mocks.tailorMutate).not.toHaveBeenCalled();
+  });
+
+  it('applies a suggestion from the closed card and keeps the confirmation across later decisions', () => {
+    renderPage();
+    confirm();
+    decide('Experience', 'Apply suggestion');
+    expect(toggle('Experience')).toHaveAttribute('aria-expanded', 'false');
+    expect(card('Experience').getByText('Applied')).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: /everything in it is true/i })).toBeChecked();
+    decide('Summary', 'Keep original');
+    expect(save()).toBeEnabled();
+    fireEvent.click(save());
+    expect(mocks.create.mutate.mock.calls[0][0].content).toMatchObject({
+      summary: 'Old summary', experience: [{ bullets: ['New bullet'] }],
+    });
+  });
+
+  it('an emptied approved wording is not applied, and nothing pending is saved', () => {
+    renderPage();
+    decide('Experience', 'Apply suggestion');
+    fireEvent.click(toggle('Experience'));
+    fireEvent.change(wording('Experience'), { target: { value: '  ' } });
+    expect(card('Experience').queryByText('Applied')).toBeNull();
     confirm();
     fireEvent.click(save());
-    expect(mocks.create.mutate.mock.calls[0][0].content.skills).toEqual(['Python', 'MongoDB']);
-    expect(mocks.tailorMutate).not.toHaveBeenCalled();
+    expect(mocks.create.mutate.mock.calls[0][0].content.experience[0].bullets).toEqual(['Old bullet']);
+  });
+
+  it('Apply all approves only pending, valid suggestions and leaves kept originals alone', () => {
+    const three: TailorDraft = { ...directDraft, suggestions: [
+      { id: 'a', op: 'rewrite', section: 'summary', original: 'Old summary', suggested: 'Sharper summary' },
+      { id: 'b', op: 'rewrite', section: 'experience', experienceId: '0', bulletIndex: 0, original: 'Old bullet', suggested: 'Sharper bullet' },
+      { id: 'c', op: 'add_skill', section: 'skills', original: 'Python, MongoDB', suggested: 'Python, MongoDB, FastAPI', skill: 'FastAPI', evidence: { path: 'projects.p1.tech', quote: 'FastAPI, React' } },
+      { id: 'd', op: 'rewrite', section: 'experience', experienceId: 'missing', bulletIndex: 0, original: 'Gone', suggested: 'Nope' },
+    ] };
+    mocks.draftQuery = { data: three, isError: false, error: null };
+    renderPage('/app/tailor/d9');
+    expect(screen.getByText('0 of 4 suggestions applied')).toBeVisible();
+    decide('Summary', 'Keep original');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply all 2' }));
+    expect(screen.getByText('2 of 4 suggestions applied')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Apply all/ })).toBeNull();
+    confirm();
+    fireEvent.click(save());
+    expect(mocks.create.mutate.mock.calls[0][0].content).toMatchObject({
+      summary: 'Old summary', experience: [{ bullets: ['Sharper bullet'] }], skills: ['Python', 'MongoDB', 'FastAPI'],
+    });
+  });
+
+  it('shows the words a rewrite brings in from outside the CV, until the user rewrites it themselves', () => {
+    mocks.draftQuery = { data: { ...directDraft, suggestions: [
+      { id: 'a', op: 'rewrite', section: 'summary', original: 'Old summary', suggested: 'Project Coordinator summary', newTerms: ['project', 'coordinator'] },
+    ] }, isError: false, error: null };
+    renderPage('/app/tailor/d9');
+    expect(card('Summary').getByText(/Not in your CV:/).parentElement).toHaveTextContent(
+      'Not in your CV: project, coordinator. Apply only if this is true for you.');
+    fireEvent.click(toggle('Summary'));
+    fireEvent.change(wording('Summary'), { target: { value: 'My own summary' } });
+    expect(card('Summary').queryByText(/Not in your CV:/)).toBeNull();
+  });
+
+  it('keeps review progress across a refresh of the same draft, and not for another draft', () => {
+    const first = renderPage();
+    decide('Experience', 'Apply suggestion');
+    fireEvent.click(toggle('Summary'));
+    fireEvent.change(wording('Summary'), { target: { value: 'My own summary' } });
+    confirm();
+    first.unmount();
+    renderPage('/app/tailor/d1');
+    expect(card('Experience').getByText('Applied')).toBeVisible();
+    fireEvent.click(toggle('Summary'));
+    expect(wording('Summary')).toHaveValue('My own summary');
+    expect(screen.getByRole('checkbox', { name: /everything in it is true/i })).toBeChecked();
+    cleanup();
+    mocks.draftQuery = { data: directDraft, isError: false, error: null };
+    renderPage('/app/tailor/d9');
+    expect(card('Experience').getByText('Needs review')).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: /everything in it is true/i })).not.toBeChecked();
+  });
+
+  it('after saving, offers the next steps for this job and forgets the finished review', () => {
+    sessionStorage.setItem('flowjob.jobPosts', JSON.stringify({ m1: 'We need Python.' }));
+    mocks.match = { score: 59, scoreAvailable: true, matched: [], partiallyMatched: [], missing: [] };
+    mocks.create.mutate = vi.fn((input: { name: string }, opts: { onSuccess: (cv: unknown) => void }) =>
+      opts.onSuccess({ id: 'new-cv', name: input.name }));
+    mocks.runMatch = vi.fn((_input: unknown, opts: { onSuccess: (m: unknown) => void }) => opts.onSuccess({ id: 'm2' }));
+    renderPage();
+    decide('Experience', 'Apply suggestion');
+    confirm();
+    fireEvent.click(save());
+    const done = within(screen.getByRole('region', { name: 'Acme v1 is saved' }));
+    expect(done.getByRole('link', { name: 'Add to Applications' })).toHaveAttribute(
+      'href', '/app/applications/new?company=Acme&jobTitle=Backend+Engineer&cvId=new-cv');
+    expect(done.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(done.getByText(/it was 59% before/)).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'AI suggestions' })).toBeNull();
+    expect(sessionStorage.getItem('flowjob.tailorReview.d1')).toBeNull();
+    fireEvent.click(done.getByRole('button', { name: 'Re-check my match' }));
+    expect(mocks.runMatch.mock.calls[0][0]).toEqual({
+      cvId: 'new-cv', jobTitle: 'Backend Engineer', jobDescription: 'We need Python.', company: 'Acme', jobUrl: undefined });
+    // The re-check opens the new report and carries the earlier score for the before/after line.
+    expect(JSON.parse(sessionStorage.getItem('flowjob.jobPosts')!)).toMatchObject({ m2: 'We need Python.' });
+  });
+
+  it('lists what the job asks for from the match report, and nothing for a draft without a match', () => {
+    mocks.match = {
+      matched: [{ requirement: 'Python', importance: 'required', evidence: '' }],
+      partiallyMatched: [{ requirement: 'REST APIs', importance: 'required', evidence: '' }],
+      missing: [{ requirement: 'Kubernetes', importance: 'preferred', evidence: '' }],
+    };
+    const rendered = renderPage();
+    const panel = within(screen.getByRole('region', { name: 'What this job asks for' }));
+    expect(panel.getByText('1 of 3 shown in your CV')).toBeVisible();
+    expect(panel.getByText('Python').closest('li')).toHaveTextContent('Shown in your CV: Python');
+    expect(panel.getByText('REST APIs').closest('li')).toHaveTextContent('Partly shown: REST APIs');
+    expect(panel.getByText('Kubernetes').closest('li')).toHaveTextContent('Not shown yet: Kubernetes');
+    rendered.unmount();
+    mocks.match = undefined;
+    mocks.draftQuery = { data: directDraft, isError: false, error: null };
+    renderPage('/app/tailor/d9');
+    expect(screen.queryByRole('region', { name: 'What this job asks for' })).toBeNull();
   });
 });
 

@@ -1,7 +1,8 @@
 import { useId, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import { useMatch, useTailor } from '@/shared/api/queries';
+import { jobPosts, tailorFromMatch } from '@/shared/lib/jobPosts';
 import type { MatchResult } from '@/shared/api/types';
 import {
   attentionItems,
@@ -77,7 +78,7 @@ function externalHref(url: string) {
 
 /** The original job post details, shown inside the (already collapsed) Detailed analysis section. */
 function JobDetails({ m }: { m: MatchResult }) {
-  const description = m.jobText?.trim();
+  const description = (m.jobText || jobPosts.get(m.id))?.trim();
   const rows: [string, ReactNode][] = [
     ['Job title', m.jobTitle],
     ['Company', m.company || null],
@@ -394,6 +395,7 @@ function CompareList({
 
 function ImproveSection({ m, groups }: { m: MatchResult; groups: Groups }) {
   const list = improvements(m, groups);
+  const gaps = [...groups.unverified, ...groups.partial].slice(0, 5);
   return (
     <Panel headingId="improve-h" title="Improve your CV for this job">
       {list.length ? (
@@ -415,6 +417,21 @@ function ImproveSection({ m, groups }: { m: MatchResult; groups: Groups }) {
           No specific changes stand out from this analysis. You can still tailor your CV to this job.
         </p>
       )}
+      {gaps.length > 0 && m.cvId && (
+        <div className="mt-4 rounded-xl bg-bg p-4">
+          <p className="text-[15px] font-medium">Have one of these already?</p>
+          <p className="mt-1.5 text-sm leading-relaxed break-words text-soft">
+            {gaps.map((r) => r.requirement).join(' · ')}
+          </p>
+          <p className="mt-2 text-sm text-soft">
+            Tailoring never adds experience you have not written yourself. Add it to your CV in your own words, then
+            check this job again.
+          </p>
+          <ButtonLink to={`/app/cv-builder/${m.cvId}`} variant="secondary" size="sm" className="mt-3">
+            Edit my CV
+          </ButtonLink>
+        </div>
+      )}
       <p className="mt-4 text-[13px] text-soft">You review every suggestion before anything is saved. Your original CV never changes.</p>
     </Panel>
   );
@@ -429,7 +446,7 @@ function HeaderActions({ m, appQuery }: { m: MatchResult; appQuery: string }) {
       <Button
         className="w-full sm:w-auto"
         loading={tailor.isPending}
-        onClick={() => tailor.mutate({ matchId: m.id }, { onSuccess: (draft) => nav(`/app/tailor/${draft.id}`) })}
+        onClick={() => tailor.mutate(tailorFromMatch({ matchId: m.id }), { onSuccess: (draft) => nav(`/app/tailor/${draft.id}`) })}
       >
         Tailor my CV
       </Button>
@@ -448,6 +465,8 @@ function HeaderActions({ m, appQuery }: { m: MatchResult; appQuery: string }) {
 function Report({ m }: { m: MatchResult }) {
   const scoreAvailable = m.scoreAvailable ?? true;
   const score = useCountUp(scoreAvailable ? m.score : 0, 1000, 100);
+  // Set when this report is a re-check of a freshly tailored CV against the same post.
+  const previousScore = (useLocation().state as { previousScore?: unknown } | null)?.previousScore;
   const groups = groupRequirements(m);
   const overview = overviewText(m, groups);
   const strongest = pickTop(groups.matched, 2).map((r) => ({ r, label: '' }));
@@ -495,10 +514,15 @@ function Report({ m }: { m: MatchResult }) {
             ) : (
               <p className="font-display text-[30px] leading-tight font-semibold">Score unavailable</p>
             )}
-            <p className="mt-1.5 text-base font-semibold text-accent-ink">{m.verdict}</p>
+            <p className={cn('mt-1.5 text-base font-semibold', scoreAvailable && m.score >= 60 ? 'text-primary' : 'text-accent-ink')}>
+              {m.verdict}
+            </p>
+            {scoreAvailable && typeof previousScore === 'number' && (
+              <p className="mt-1 text-sm text-soft">Before tailoring: {previousScore}%</p>
+            )}
           </div>
           <div className="min-w-0">
-            {scoreAvailable && <ProgressBar value={m.score} label="Match score" />}
+            {scoreAvailable && <ProgressBar value={m.score} label="Match score" tone={m.score >= 60 ? 'primary' : 'accent'} />}
             {overview.text && (
               <p className={cn('text-[15px] leading-relaxed break-words', scoreAvailable && 'mt-3')}>{overview.text}</p>
             )}

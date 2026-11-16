@@ -365,7 +365,36 @@ describe('Dashboard next actions', () => {
     renderDashboard();
     expect(nextActions()).toHaveTextContent('You’re all caught up.');
     expect(nextActions()).toHaveTextContent('Interview and assessment times from Gmail');
-    expect(within(nextActions()).queryByRole('link')).not.toBeInTheDocument();
+    // No action cards, and never a dead end: one suggested next step is offered.
+    expect(within(nextActions()).queryByRole('list')).not.toBeInTheDocument();
+    expect(within(nextActions()).getAllByRole('link')).toHaveLength(1);
+  });
+
+  it('suggests the most useful next step when nothing is due', () => {
+    mocks.apps = { data: [realApp()], isLoading: false };
+    mocks.matches = { data: [] };
+    renderDashboard();
+    expect(within(nextActions()).getByRole('link', { name: 'Check a job' })).toHaveAttribute('href', '/app/match');
+    cleanup();
+    mocks.matches = { data: [match()] };
+    renderDashboard();
+    expect(nextActions()).toHaveTextContent('Tailor your CV for Frontend Engineer at Globex.');
+    expect(within(nextActions()).getByRole('link', { name: 'Open match' })).toHaveAttribute('href', '/app/match/m1');
+  });
+
+  it('draws the stages as a bar chart whose heights follow the counts, with closed outcomes beside it', () => {
+    mocks.apps = { data: [
+      realApp({ status: 'Applied' }), realApp({ id: 'a2', status: 'Applied' }), realApp({ id: 'a3', status: 'Interview' }),
+      realApp({ id: 'a4', status: 'Rejected' }),
+    ], isLoading: false };
+    renderDashboard();
+    const overview = within(screen.getByRole('heading', { name: /Application overview/ }).closest('section')!);
+    const bar = (stage: string) =>
+      overview.getByRole('link', { name: new RegExp(`^${stage}: `) }).querySelector<HTMLElement>('[aria-hidden]')!.style.height;
+    // The fullest stage sets the scale; half as many is half as tall; an empty stage is only a baseline.
+    expect([bar('Saved'), bar('Applied'), bar('Interview'), bar('Offer')]).toEqual(['4px', '82%', '41%', '4px']);
+    expect(overview.getByRole('link', { name: 'Applied: 2 applications' })).toHaveTextContent('2Applied');
+    expect(overview.getByText('Closed').parentElement).toHaveTextContent('ClosedRejected1Withdrawn0');
   });
 
   it('lists verified upcoming interview and assessment times, never past or closed ones', () => {
