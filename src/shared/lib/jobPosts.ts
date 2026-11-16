@@ -1,6 +1,6 @@
 // The job post a match was run on, kept for this browser tab only. The backend never stores the post, so
 // this is what lets the report show it again and lets tailoring read the employer's own wording.
-const KEY = 'flowjob.jobPosts';
+import { JOB_POSTS_KEY as KEY } from './sessionData';
 const MAX_POSTS = 8;
 
 type Store = Record<string, string>;

@@ -6,6 +6,7 @@ import { TAILORING_BACKEND_INCOMPATIBLE } from '@/shared/api/tailoring';
 import type { Cv, CvContent, MatchResult, TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { jobPosts, tailorFromMatch } from '@/shared/lib/jobPosts';
+import { TAILOR_REVIEW_PREFIX } from '@/shared/lib/sessionData';
 import { cn, downloadBlob } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, PageHeader, Segmented } from '@/shared/ui/Display';
@@ -444,7 +445,7 @@ interface ReviewProgress {
   edits: Record<string, string>;
   confirmed: boolean;
 }
-const progressKey = (draftId: string) => `flowjob.tailorReview.${draftId}`;
+const progressKey = (draftId: string) => `${TAILOR_REVIEW_PREFIX}${draftId}`;
 
 function loadProgress(draftId: string): ReviewProgress {
   const empty: ReviewProgress = { decisions: {}, edits: {}, confirmed: false };

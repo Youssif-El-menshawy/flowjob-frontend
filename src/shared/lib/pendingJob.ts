@@ -1,6 +1,6 @@
 // A job a visitor pasted on the landing page before having an account.
 // It survives the sign-up step and is picked up again by Job Match.
-const KEY = 'flowjob.pendingJob';
+import { PENDING_JOB_KEY as KEY } from './sessionData';
 
 export const pendingJob = {
   get(): string {
