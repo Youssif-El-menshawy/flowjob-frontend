@@ -1,22 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { loginPassword, newPassword } from '@/features/auth/passwordValidation';
 import { GmailSettingsCard } from '@/features/applications/gmail/GmailSettingsCard';
-import { ApiError, USE_MOCKS } from '@/shared/api/client';
-import {
-  exportData,
-  useChangePassword,
-  useDeleteAccount,
-  useUpdateMe,
-} from '@/shared/api/queries';
+import { ApiError } from '@/shared/api/client';
+import { useChangePassword, useUpdateMe } from '@/shared/api/queries';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { useTheme } from '@/shared/lib/theme';
-import { downloadJson } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { Card, PageHeader, Segmented } from '@/shared/ui/Display';
 import { Input } from '@/shared/ui/Field';
-import { ConfirmDialog, Modal, useToast } from '@/shared/ui/Overlay';
+import { Modal, useToast } from '@/shared/ui/Overlay';
 
 function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useToast();
@@ -179,16 +172,12 @@ export default function SettingsPage() {
             />
           </Card>
 
-          {USE_MOCKS ? (
-            <DemoDataCard />
-          ) : (
-            <Card className="flex flex-col gap-3 animate-in" style={{ animationDelay: '.12s' }}>
-              <h2 className="text-[17px] font-semibold">Your data</h2>
-              <p className="leading-relaxed text-soft">
-                Data export and account deletion are currently unavailable in connected mode.
-              </p>
-            </Card>
-          )}
+          <Card className="flex flex-col gap-3 animate-in" style={{ animationDelay: '.12s' }}>
+            <h2 className="text-[17px] font-semibold">Your data</h2>
+            <p className="leading-relaxed text-soft">
+              Data export and account deletion are not available yet.
+            </p>
+          </Card>
         </div>
 
         <div className="h-fit">
@@ -197,66 +186,6 @@ export default function SettingsPage() {
       </div>
 
       <PasswordModal open={pw} onClose={() => setPw(false)} />
-    </>
-  );
-}
-
-function DemoDataCard() {
-  const toast = useToast();
-  const nav = useNavigate();
-  const { logout } = useAuth();
-  const del = useDeleteAccount();
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [exporting, setExporting] = useState(false);
-
-  return (
-    <>
-      <Card className="flex flex-col gap-3 animate-in" style={{ animationDelay: '.12s' }}>
-        <h2 className="text-[17px] font-semibold">Your data</h2>
-        <p className="leading-relaxed text-soft">
-          Download the data stored for your demo account, or delete that account and its data.
-        </p>
-        <div className="flex flex-wrap gap-2.5 pt-1">
-          <Button
-            variant="secondary"
-            loading={exporting}
-            onClick={async () => {
-              setExporting(true);
-              try {
-                downloadJson('flowjob-data.json', await exportData());
-                toast({ text: 'Your data was downloaded.' });
-              } catch {
-                toast({ text: 'Could not download your data. Try again.', tone: 'error' });
-              } finally {
-                setExporting(false);
-              }
-            }}
-          >
-            Download my data
-          </Button>
-          <Button variant="danger" onClick={() => setConfirmDelete(true)}>
-            Delete account
-          </Button>
-        </div>
-      </Card>
-      <ConfirmDialog
-        open={confirmDelete}
-        onClose={() => setConfirmDelete(false)}
-        title="Delete your account?"
-        text="Your profile, CVs, matches and applications will be deleted for good. This cannot be undone."
-        confirmLabel="Delete my account"
-        danger
-        loading={del.isPending}
-        onConfirm={() =>
-          del.mutate(undefined, {
-            onSuccess: async () => {
-              await logout().catch(() => {});
-              nav('/', { replace: true });
-            },
-            onError: () => toast({ text: 'Could not delete your account. Try again.', tone: 'error' }),
-          })
-        }
-      />
     </>
   );
 }

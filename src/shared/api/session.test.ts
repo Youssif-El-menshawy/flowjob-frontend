@@ -75,13 +75,13 @@ describe('shared authenticated transport', () => {
     expect([refreshCalls, pdfCalls, meCalls]).toEqual([1, 2, 2]);
   });
 
-  it.each(['http', 'network', 'malformed'])('settles a %s refresh failure once and leaves no stale credentials', async (failure) => {
+  // A network failure is NOT an expired session: see serverUnavailable.test.ts.
+  it.each(['http', 'malformed'])('settles a %s refresh failure once and leaves no stale credentials', async (failure) => {
     let refreshCalls = 0;
     const fetcher = vi.fn(async (url: string) => {
       if (is(url, '/auth/login')) return session();
       if (is(url, '/auth/refresh')) {
         refreshCalls++;
-        if (failure === 'network') throw new TypeError('synthetic offline failure');
         if (failure === 'malformed') return Response.json({ accessToken: 'incomplete-fixture' });
       }
       return denied();
@@ -188,7 +188,7 @@ describe('shared authenticated transport', () => {
       if (is(url, '/auth/logout')) throw new TypeError('synthetic offline failure');
       return denied();
     }));
-    await expect(client.authSession.logout()).rejects.toThrow('synthetic offline failure');
+    await expect(client.authSession.logout()).rejects.toBeInstanceOf(client.ServerUnavailableError);
     expect(client.authSession.getSnapshot().status).toBe('anonymous');
     await expect(client.authSession.login(bob.email, 'synthetic password')).resolves.toEqual(bob);
   });

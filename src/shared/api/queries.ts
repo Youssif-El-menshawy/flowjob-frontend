@@ -297,6 +297,3 @@ export const useChangePassword = () =>
     mutationFn: (b: { current: string; next: string }) =>
       api<void>('/me/password', { method: 'POST', json: b }),
   });
-export const useDeleteAccount = () =>
-  useMutation({ mutationFn: () => api<void>('/me', { method: 'DELETE' }) });
-export const exportData = () => api<unknown>('/me/export');

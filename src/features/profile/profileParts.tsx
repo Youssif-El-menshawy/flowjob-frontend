@@ -1,7 +1,7 @@
 // Small editors reused by the Profile page and the CV builder.
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import type { Education, Experience, Project } from '@/shared/api/types';
-import { uid } from '@/mocks/seed';
+import { uid } from '@/shared/lib/uid';
 import { Button } from '@/shared/ui/Button';
 import { controlClass, Input, Textarea } from '@/shared/ui/Field';
 import { Modal } from '@/shared/ui/Overlay';

@@ -3,6 +3,7 @@ import { createRoutesFromElements, Navigate, Outlet, Route, useLocation } from '
 import { useAuth } from '@/features/auth/AuthProvider';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { AppLayout } from './AppLayout';
+import { ServerStatusBanner, ServerUnavailablePage } from './ServerUnavailable';
 import { ReportLayout } from './ReportLayout';
 
 const Landing = lazy(() => import('@/features/landing/LandingPage'));
@@ -25,6 +26,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const { status } = useAuth();
   const loc = useLocation();
   if (status === 'loading') return <PageLoader />;
+  if (status === 'unavailable') return <ServerUnavailablePage />;
   if (status === 'anonymous') return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
   return <>{children}</>;
 }
@@ -37,7 +39,7 @@ function GuestOnly({ children }: { children: ReactNode }) {
 }
 
 export const appRoutes = createRoutesFromElements(
-  <Route element={<Suspense fallback={<PageLoader />}><Outlet /></Suspense>}>
+  <Route element={<><ServerStatusBanner /><Suspense fallback={<PageLoader />}><Outlet /></Suspense></>}>
     <Route path="/" element={<Landing />} />
     <Route
       path="/login"

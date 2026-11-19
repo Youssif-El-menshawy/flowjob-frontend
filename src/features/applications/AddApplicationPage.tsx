@@ -1,5 +1,4 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { USE_MOCKS } from '@/shared/api/client';
 import { useCreateApplication } from '@/shared/api/queries';
 import type { Application } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
@@ -42,14 +41,6 @@ export default function AddApplicationPage() {
           />
         </Card>
         <aside className="flex flex-col gap-4 animate-in" style={{ animationDelay: '.1s' }}>
-          {USE_MOCKS && (
-            <Note className="p-5">
-              <p className="font-medium">How Gmail helps</p>
-              <p className="mt-1.5 text-soft">
-                In demo mode, simulated replies can suggest a status update for a saved application.
-              </p>
-            </Note>
-          )}
           <Note tone="accent" className="p-5">
             <p className="font-medium">Link the CV you used</p>
             <p className="mt-1.5 text-soft">Before an interview you can open exactly what they read.</p>

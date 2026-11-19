@@ -71,7 +71,7 @@ function Sidebar({
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
-  // Pending Gmail suggestions come from the authenticated status endpoint (also in the demo).
+  // Pending Gmail suggestions come from the authenticated status endpoint.
   const { data: gmail } = useGmail();
   const pending = gmail?.pendingReviewCount ?? 0;
   const location = useLocation();
