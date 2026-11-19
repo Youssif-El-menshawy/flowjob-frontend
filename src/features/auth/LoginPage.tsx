@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ApiError, USE_MOCKS } from '@/shared/api/client';
+import { ApiError } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Field';
@@ -24,7 +24,7 @@ export default function LoginPage() {
   const nav = useNavigate();
   const loc = useLocation() as { state?: { from?: string } };
   const [formError, setFormError] = useState('');
-  const { register, handleSubmit, setValue, formState } = useForm<Form>({ resolver: zodResolver(schema) });
+  const { register, handleSubmit, formState } = useForm<Form>({ resolver: zodResolver(schema) });
 
   const onSubmit = async (v: Form) => {
     setFormError('');
@@ -58,25 +58,15 @@ export default function LoginPage() {
           error={formState.errors.email?.message}
           {...register('email')}
         />
-        <div className="flex flex-col gap-2">
-          <Input
-            label="Password"
-            icon="lock"
-            type="password"
-            placeholder="Enter your password"
-            autoComplete="current-password"
-            error={formState.errors.password?.message}
-            {...register('password')}
-          />
-          {USE_MOCKS && (
-            <Link
-              to="/forgot-password"
-              className="self-end text-[13px] text-soft hover:text-ink hover:underline"
-            >
-              Forgot password?
-            </Link>
-          )}
-        </div>
+        <Input
+          label="Password"
+          icon="lock"
+          type="password"
+          placeholder="Enter your password"
+          autoComplete="current-password"
+          error={formState.errors.password?.message}
+          {...register('password')}
+        />
         <Button
           type="submit"
           full
@@ -86,19 +76,6 @@ export default function LoginPage() {
           <span>Log in</span>
           <Icon.arrowRight />
         </Button>
-        {USE_MOCKS && (
-          <button
-            type="button"
-            className="text-sm font-semibold text-soft hover:text-ink"
-            onClick={() => {
-              setValue('email', 'sara@flowjob.dev');
-              setValue('password', 'flowjob123');
-              handleSubmit(onSubmit)();
-            }}
-          >
-            Try the demo account
-          </button>
-        )}
       </form>
       <p className="mt-8 text-center text-sm text-soft">
         Don’t have an account?{' '}

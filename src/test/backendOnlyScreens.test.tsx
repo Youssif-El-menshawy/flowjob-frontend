@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AddApplicationPage from '@/features/applications/AddApplicationPage';
@@ -12,15 +12,11 @@ import SettingsPage from '@/features/settings/SettingsPage';
 import type { Application, GmailStatus } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
 
+// FlowJob talks only to the real FastAPI backend: these screens must never offer demo accounts, simulated data or
+// invented pricing. HTTP is the only thing faked here (fetch is stubbed per test).
 const mocks = vi.hoisted(() => ({
-  demo: false,
   setUser: vi.fn(),
   logout: vi.fn(async () => {}),
-}));
-
-vi.mock('@/shared/api/client', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@/shared/api/client')>(),
-  get USE_MOCKS() { return mocks.demo; },
 }));
 
 vi.mock('@/features/auth/AuthProvider', () => ({
@@ -55,7 +51,6 @@ const application: Application = {
 const disconnected: GmailStatus = {
   available: true, pendingReviewCount: 0, connection: { state: 'not_connected' }, sync: null,
 };
-const unavailable = () => Response.json({ message: 'Service unavailable' }, { status: 503 });
 
 function stubBackend(override?: (path: string, method: string) => Response | Promise<Response> | undefined) {
   const requests: string[] = [];
@@ -98,7 +93,6 @@ function renderAt(path: string) {
 }
 
 beforeEach(() => {
-  mocks.demo = false;
   vi.clearAllMocks();
 });
 
@@ -107,25 +101,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('keeps the connected reset URL navigable without offering or requesting a reset', () => {
+it('keeps the reset URL navigable without offering or requesting a reset', () => {
   const requests = stubBackend();
   renderAt('/forgot-password');
 
-  expect(screen.getByText(/password reset is currently unavailable/i)).toBeVisible();
+  expect(screen.getByText(/password reset by email is not available yet/i)).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Send reset link' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('link', { name: 'Back to log in' }));
   expect(screen.getByRole('button', { name: 'Log in' })).toBeVisible();
   expect(screen.queryByRole('link', { name: 'Forgot password?' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /demo account/i })).not.toBeInTheDocument();
   expect(requests).toEqual([]);
 });
 
-it('shows connected settings notices, manages the Gmail connection there, and saves account details', async () => {
+it('shows settings notices, manages the Gmail connection there, and saves account details', async () => {
   const requests = stubBackend((path, method) => path === '/me' && method === 'PATCH'
     ? Response.json({ id: 'u1', name: 'Updated User', email: 'fixture@example.test' })
     : undefined);
   renderAt('/app/settings');
 
-  expect(screen.getByText(/data export and account deletion are currently unavailable/i)).toBeVisible();
+  expect(screen.getByText(/data export and account deletion are not available yet/i)).toBeVisible();
   // Gmail is not connected in this fixture: Settings offers Connect Gmail (consent dialog first).
   expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeVisible();
   expect(within(screen.getByRole('region', { name: 'Gmail' })).getByText('Not connected')).toBeVisible();
@@ -139,7 +134,7 @@ it('shows connected settings notices, manages the Gmail connection there, and sa
   expect(requests.sort()).toEqual(['GET /gmail', 'PATCH /me']);
 });
 
-it('shows a real Gmail suggestion for approval in connected mode, without the old demo undo', async () => {
+it('shows a real Gmail suggestion for approval, without the old demo undo', async () => {
   const requests = stubBackend((path, method) =>
     path === '/gmail/reviews/s1/approve' && method === 'POST'
       ? Response.json({ review: 'approved', applicationId: 'app1' })
@@ -169,55 +164,15 @@ it('shows a real Gmail suggestion for approval in connected mode, without the ol
   expect(screen.queryByText('How Gmail helps')).not.toBeInTheDocument();
 });
 
-it('advertises only supported application tracking on the connected landing page', () => {
+it('advertises only supported features on the landing page, with no demo or invented pricing', () => {
   const requests = stubBackend();
   renderAt('/');
 
   expect(screen.getByText(/track each application and update its status/i)).toBeVisible();
   expect(screen.queryByText(/gmail/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/demo/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/19 zł|Pro \(|no payments are taken/i)).not.toBeInTheDocument();
+  expect(screen.getByText('Free while you study.')).toBeVisible();
   expect(screen.getAllByRole('link', { name: 'Open dashboard' })[0]).toHaveAttribute('href', '/app');
   expect(requests).toEqual([]);
-});
-
-it('keeps demo password recovery available and handles a failed request without claiming an email was sent', async () => {
-  mocks.demo = true;
-  const reset = vi.fn().mockImplementationOnce(unavailable).mockImplementation(() => new Response(null, { status: 204 }));
-  const requests = stubBackend((path) => path === '/auth/forgot-password' ? reset() : undefined);
-  renderAt('/login');
-
-  fireEvent.click(screen.getByRole('link', { name: 'Forgot password?' }));
-  fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'fixture@example.test' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Send reset link' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('Could not complete the demo reset request.');
-  expect(screen.getByLabelText('Email address')).toHaveValue('fixture@example.test');
-  fireEvent.click(screen.getByRole('button', { name: 'Send reset link' }));
-  expect(await screen.findByRole('heading', { name: 'Demo request complete.' })).toBeVisible();
-  expect(screen.getByText(/no email was sent/i)).toBeVisible();
-  expect(requests).toEqual(['POST /auth/forgot-password', 'POST /auth/forgot-password']);
-});
-
-it('shows demo data action errors and only logs out after a successful confirmed deletion', async () => {
-  mocks.demo = true;
-  const deleteAccount = vi.fn().mockImplementationOnce(unavailable)
-    .mockImplementation(() => new Response(null, { status: 204 }));
-  const requests = stubBackend((path, method) => {
-    if (path === '/gmail') return Response.json(disconnected);
-    if (path === '/me/export') return unavailable();
-    if (path === '/me' && method === 'DELETE') return deleteAccount();
-  });
-  renderAt('/app/settings');
-
-  fireEvent.click(screen.getByRole('button', { name: 'Download my data' }));
-  expect(await screen.findByText('Could not download your data. Try again.')).toBeVisible();
-
-  fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
-  const dialog = screen.getByRole('dialog', { name: 'Delete your account?' });
-  expect(requests).not.toContain('DELETE /me');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Delete my account' }));
-  expect(await screen.findByText('Could not delete your account. Try again.')).toBeVisible();
-  expect(mocks.logout).not.toHaveBeenCalled();
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Delete my account' }));
-  await waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1));
-  expect(await screen.findByRole('heading', { name: 'Every application, one step closer.' })).toBeVisible();
-  expect(requests.filter((request) => request === 'DELETE /me')).toHaveLength(2);
 });

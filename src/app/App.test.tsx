@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +20,7 @@ vi.mock('@/features/auth/AuthProvider', () => ({
     status: mocks.status,
     user: { name: 'Jordan Example', email: 'jordan@example.com' },
     logout: vi.fn(),
+    retry: vi.fn(),
   }),
 }));
 vi.mock('@/shared/api/queries', () => ({
@@ -43,9 +45,11 @@ import { ToastProvider } from '@/shared/ui/Overlay';
 function renderApp(entries: string[], index?: number) {
   const router = createMemoryRouter(appRoutes, { initialEntries: entries, initialIndex: index });
   render(
-    <ToastProvider>
-      <RouterProvider router={router} />
-    </ToastProvider>,
+    <QueryClientProvider client={new QueryClient()}>
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
+    </QueryClientProvider>,
   );
   return router;
 }

@@ -23,7 +23,6 @@ import { safeGmailUrl } from './gmail/gmailLabels';
 
 const SOURCE = {
   manual: 'Changed by you',
-  gmail_auto: 'From Gmail · applied automatically',
   gmail_confirmed: 'From Gmail · you approved',
 };
 

@@ -1,6 +1,6 @@
 import type { MatchResult, RequirementCategory, RequirementImportance, RequirementMatch } from '@/shared/api/types';
 
-/** Legacy/demo results carry no importance, so it is optional for display. */
+/** Older stored results carry no importance, so it is optional for display. */
 export type Req = Omit<RequirementMatch, 'importance'> & { importance?: RequirementImportance };
 
 /** Required > Standard > Preferred; untagged legacy items last. */

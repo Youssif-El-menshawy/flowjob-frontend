@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { ThemeToggle } from '@/features/auth/AuthShell';
-import { USE_MOCKS } from '@/shared/api/client';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { Button, ButtonLink } from '@/shared/ui/Button';
@@ -150,9 +149,7 @@ export default function LandingPage() {
               },
               {
                 t: 'Your applications, kept in order',
-                d: USE_MOCKS
-                  ? 'Try how simulated Gmail replies can suggest status updates.'
-                  : 'Track each application and update its status as you hear back.',
+                d: 'Track each application and update its status as you hear back.',
                 x: (
                   <div className="flex flex-wrap gap-2">
                     <StatusPill status="Applied" />
@@ -174,56 +171,20 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {USE_MOCKS && (
-        <section className="mx-auto grid max-w-[1180px] gap-12 px-6 py-24 md:grid-cols-2 md:items-center">
-          <div>
-            <h2 className="text-4xl font-semibold">Try Gmail in the demo.</h2>
-            <p className="mt-4 text-lg leading-relaxed text-soft">
-              FlowJob uses simulated replies to show how Gmail could help track applications you added.
-              The demo does not access your inbox.
-            </p>
-          </div>
-          <ul>
-            {[
-              'Simulated replies show a sender, subject and result.',
-              'Replies never create applications on their own.',
-              'When a reply is unclear, you decide.',
-              'Disconnect the simulated account at any time.',
-            ].map((s) => (
-              <li key={s} className="border-t border-line py-4 text-[17px] last:border-b">
-                {s}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       <section id="pricing" className="bg-[#10261b] text-[#e8efe6]">
         <div className="mx-auto max-w-[1180px] px-6 py-24">
           <h2 className="text-4xl font-semibold">Free while you study.</h2>
-          <div className="mt-10 grid gap-5 md:grid-cols-2">
+          <div className="mt-10 max-w-xl">
             <div className="flex flex-col gap-3 rounded-3xl bg-white p-8 text-[#1c2b22]">
               <span className="font-medium">Student</span>
               <span className="font-display text-5xl font-semibold">0 zł</span>
               <p className="leading-relaxed text-[#56665b]">
                 CV builder, job matching, CV tailoring and application tracking.
-                {USE_MOCKS && ' Try simulated Gmail sync in the demo.'}
               </p>
               <ButtonLink to={authed ? '/app' : '/register'} className="mt-3 self-start">
                 {authed ? 'Open dashboard' : 'Create free account'}
               </ButtonLink>
-            </div>
-            <div className="flex flex-col gap-3 rounded-3xl bg-[#fde8d6] p-8 text-[#1c2b22]">
-              <span className="font-medium">Pro (demo pricing)</span>
-              <span className="font-display text-5xl font-semibold">
-                19 zł <span className="text-lg font-normal">/ month</span>
-              </span>
-              <p className="leading-relaxed text-[#56665b]">
-                Unlimited matches and tailored CVs, for the months when you apply every day.
-              </p>
-              <p className="mt-auto text-sm text-[#7a3a12]">
-                Shown for the course demo. No payments are taken.
-              </p>
             </div>
           </div>
         </div>

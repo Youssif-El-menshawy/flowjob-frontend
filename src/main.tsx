@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
-import { USE_MOCKS } from '@/shared/api/client';
+import { removeDemoArtifacts } from '@/shared/lib/demoCleanup';
 import { ThemeProvider } from '@/shared/lib/theme';
 import { ToastProvider } from '@/shared/ui/Overlay';
 import { AuthProvider } from '@/features/auth/AuthProvider';
@@ -13,11 +13,8 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
 });
 
-async function start() {
-  if (USE_MOCKS) {
-    const { worker } = await import('./mocks/browser');
-    await worker.start({ onUnhandledRequest: 'bypass', quiet: true });
-  }
+function start() {
+  void removeDemoArtifacts(); // leftovers from the removed in-browser demo; never touches real data
   const router = createBrowserRouter(appRoutes);
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

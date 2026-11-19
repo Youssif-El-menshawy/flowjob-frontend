@@ -5,11 +5,13 @@ import type { User } from '@/shared/api/types';
 
 interface AuthState {
   user: User | null;
-  status: 'loading' | 'authenticated' | 'anonymous';
+  /** 'unavailable': the server could not be reached when checking the session; nobody was signed out. */
+  status: 'loading' | 'authenticated' | 'anonymous' | 'unavailable';
   login: (email: string, password: string) => Promise<User>;
   register: (name: string, email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   setUser: (u: User) => void;
+  retry: () => void;
 }
 
 const Ctx = createContext<AuthState | null>(null);
@@ -37,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login: authSession.login,
     register: authSession.register,
     logout: authSession.logout,
+    retry: authSession.retry,
   }), [session]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

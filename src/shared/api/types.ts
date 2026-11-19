@@ -1,4 +1,4 @@
-// API contract shared by the mock API (MSW) and the real FastAPI backend.
+// API contract with the FlowJob FastAPI backend.
 // Keep this in sync with the backend's OpenAPI schema. Later it can be generated with
 // `npx openapi-typescript <backend>/openapi.json -o src/shared/api/schema.ts`.
 
@@ -127,7 +127,7 @@ export interface MatchResult {
   strengths: MatchStrength[];
   gaps: MatchGap[];
   createdAt: string;
-  // Structured AI analysis (real backend). Optional so demo/mock data stays valid.
+  // Structured AI analysis. Optional because older stored matches predate it.
   scoreAvailable?: boolean;
   scoreExplanation?: string;
   overallAssessment?: string;
@@ -230,8 +230,8 @@ export interface StatusEvent {
   id: ID;
   status: ApplicationStatus;
   at: string;
-  /** gmail_confirmed = an approved Gmail suggestion. gmail_auto only appears in older demo data. */
-  source: 'manual' | 'gmail_auto' | 'gmail_confirmed';
+  /** gmail_confirmed = an approved Gmail suggestion. */
+  source: 'manual' | 'gmail_confirmed';
   note?: string;
 }
 
