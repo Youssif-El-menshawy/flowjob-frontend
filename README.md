@@ -1,82 +1,135 @@
-# FlowJob frontend
+# FlowJob Frontend
 
-React + TypeScript web app for FlowJob: CV builder, AI job matching, CV tailoring, application tracking and Gmail sync.
-It always talks to the FlowJob FastAPI backend ([flowjob-backend](https://github.com/suleymangulymalikov/flowjob-backend)).
-There is no demo or offline mode: accounts, CVs, matches and applications all live in the backend.
+FlowJob helps students and early-career job seekers build a strong CV, check how well it fits a job post, tailor
+it for that job, and keep track of every application. It is a team project at Wrocław University of Science and
+Technology.
 
-## Run it
+This repository contains the **web app**, built with React and TypeScript. It works with the FlowJob FastAPI
+backend in [flowjob-backend](https://github.com/suleymangulymalikov/flowjob-backend), which stores all accounts and
+data.
 
-Start the backend first (see its README), on `http://localhost:8000`. Then:
+## Features
 
-```bash
-npm install
-npm run dev          # http://localhost:5173
-```
+- **Accounts**: registration, login and sessions that survive page reloads; account settings and password change.
+- **Dashboard**: a setup checklist, next steps and an overview of applications by stage.
+- **Profile**: experience, education, projects, skills, languages and contact details, reusable across CVs.
+- **CV Builder**: a guided, section-by-section form with a live Harvard-style PDF preview (zoom and full screen)
+  and PDF download. **My CVs** lists saved CVs with preview, download, rename and delete.
+- **Job Match**: paste a job post and get a match score with the requirements your CV meets, partly meets or
+  misses, each backed by quotes from your CV.
+- **CV Tailoring**: review suggested changes for a specific job, apply them one by one or all at once, confirm
+  they are truthful, and save the result as a new CV.
+- **Applications**: a board (with drag and drop) and a table, application details with status history, and an
+  optional Gmail connection that suggests status updates for your approval in Needs Review.
+- Light and dark themes, and responsive layouts.
 
-In development, Vite proxies `/api/v1` to `http://localhost:8000` (set `FLOWJOB_API` to use another address).
-Leave `VITE_API_URL` unset for that. Set it only when the API is served from a different origin.
+## Tech stack
 
-If the backend can't be reached, the app says so ("Can't reach the FlowJob server") and keeps you signed in. It
-never shows sample data instead. Only a session the backend actually rejects signs you out.
-
-If you used the old in-browser demo on this machine, the app removes its leftovers (the `flowjob.mockdb.*` and
-`flowjob.mock.refreshCookie` storage keys and the `/mockServiceWorker.js` service worker) on startup. Nothing else
-is touched.
-
-| Script | What it does |
+| Area | Technology |
 | --- | --- |
-| `npm run dev` | Dev server with hot reload |
-| `npm run build` | Type-check and production build to `dist/` |
-| `npm run preview` | Serve the production build |
-| `npm test` | Unit tests (Vitest) |
-| `npm run lint` / `npm run typecheck` | ESLint / TypeScript |
+| Framework | [React 18](https://react.dev/) with TypeScript |
+| Build and dev server | [Vite 6](https://vite.dev/) |
+| Styling | [Tailwind CSS v4](https://tailwindcss.com/), design tokens in `src/index.css` |
+| Routing and data | React Router, TanStack Query |
+| Forms | React Hook Form with Zod validation |
+| PDF preview | react-pdf (PDF.js), worker bundled with the app |
+| Tests and quality | Vitest, Testing Library, ESLint, Prettier, GitHub Actions |
 
-## Stack
-
-- **Vite + React 18 + TypeScript**
-- **Tailwind CSS v4** with design tokens in `src/index.css` (same names as the Figma "Theme Light" / "Theme Dark" variables). Light and dark mode.
-- **React Router** for pages, **TanStack Query** for server data, **React Hook Form + Zod** for forms
-- **Vitest + Testing Library**, ESLint, Prettier, GitHub Actions CI (`.github/workflows/ci.yml`)
-- Font: Geist (Google Fonts)
-
-## Structure
+## Project structure
 
 ```
 src/
-  app/            routes, layout with sidebar, auth guards
-  features/       one folder per feature (auth, landing, dashboard, profile, cv, match, applications, settings)
+  main.tsx        app entry point
+  app/            routes, layouts, auth guards, server-unavailable page
+  features/       one folder per area: auth, landing, dashboard, profile, cv, match, applications, settings
   shared/
-    api/          types.ts (API contract), client.ts (fetch + tokens), queries.ts (TanStack Query hooks)
-    ui/           Button, Field, Card, StatusPill, Modal, Toast... (= Figma Components page)
-    lib/          theme, hooks, helpers
-  test/           shared test setup and cross-screen tests (HTTP is stubbed per test; no real server is called)
+    api/          API client, request and response types (types.ts), TanStack Query hooks
+    lib/          theme, hooks and helpers
+    ui/           shared components: buttons, fields, cards, dialogs, toasts
+  test/           test setup and cross-screen tests
 ```
 
-## Auth (matches P-004)
+## Prerequisites
 
-- `POST /auth/register`, `/auth/login` return `{ accessToken, user }`. The access token is kept **in memory only**.
-- The refresh token is an **httpOnly cookie** set by the server. On page load the app calls `POST /auth/refresh` to restore the session, and retries once on a 401.
-- A refresh the server rejects (4xx) ends the session. A refresh that can't reach the server (network error, timeout, or a 5xx/gateway error) keeps it, and the app shows "Can't reach the FlowJob server" with **Try again**.
+- **Node.js 22** (the version used in CI) and npm
+- A running **FlowJob backend** on `http://localhost:8000`. See the
+  [backend README](https://github.com/suleymangulymalikov/flowjob-backend#getting-started) for setup.
 
-## API contract
+## Getting started
 
-`src/shared/api/types.ts` holds the request and response shapes the backend serves. If the API runs on another
-origin (`VITE_API_URL`), its CORS settings must allow the frontend origin with credentials, for the refresh cookie.
+```bash
+npm install
+```
 
-## Screens
+```bash
+npm run dev
+```
 
-Landing · Log in · Register · Forgot password · Dashboard · Profile · CV builder · My CVs · Job match · Tailor CV · Applications (board with drag and drop, and table) · Add application · Application detail · Settings
+The app runs at `http://localhost:5173`. Start the backend first: the app needs it for every page except the
+landing page.
 
-## Not done yet
+## Connecting to the backend
 
-- Word (.docx) export. PDF export works: the backend renders the Harvard-style PDF (WeasyPrint) and the app previews it with PDF.js.
-- Password reset by email, data export and account deletion (the backend has no endpoints for them yet).
-- CV upload and parsing (waiting for the team decision).
+The app always uses the FlowJob backend; there is no offline or sample-data mode.
 
-Gmail uses the backend's Gmail integration, which needs a Google OAuth client. See the backend README, including
-"Production configuration" for the same-host `/api/v1` proxy that the OAuth callback requires, and "Privacy and
-data retention".
+- **Development:** the app calls `/api/v1`, and the Vite dev server forwards those requests to
+  `http://localhost:8000`. The browser stays on one origin, so no CORS setup is needed. To use a backend on another
+  address, set `FLOWJOB_API` when starting the dev server:
 
-## Git workflow
+  ```bash
+  FLOWJOB_API=http://localhost:8001 npm run dev
+  ```
 
-`main` is protected. Work on a branch from `main` (for example `feature/<name>`) and open a pull request into `main`. CI must pass.
+- **Sessions:** the access token is kept in memory only. The refresh token is an HttpOnly cookie set by the
+  backend, and the app calls `POST /api/v1/auth/refresh` on page load to restore the session.
+- **Backend unavailable:** if the backend can't be reached, the app shows "Can't reach the FlowJob server" and
+  keeps you signed in. Only a session the backend rejects signs you out.
+
+The request and response shapes are defined in `src/shared/api/types.ts`.
+
+## Environment configuration
+
+No environment variables are needed for local development. `.env.example` documents the one optional setting:
+
+| Variable | Purpose |
+| --- | --- |
+| `VITE_API_URL` | Full API base URL, for example `https://api.example.com/api/v1`. Leave unset to use `/api/v1` and the dev proxy. |
+
+To set it, copy the template to `.env.local`, which Git ignores, and uncomment the line:
+
+```bash
+cp .env.example .env.local
+```
+
+`VITE_*` values are built into the public JavaScript bundle. Never put API keys, database connection strings or
+other secrets in them. If the API is served from a different origin, its CORS settings must allow the frontend
+origin with credentials, for the refresh cookie.
+
+## Testing and quality checks
+
+| Command | What it does |
+| --- | --- |
+| `npm test` | Run the unit and component tests once (Vitest) |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run lint` | Lint with ESLint |
+| `npm run typecheck` | Type-check with TypeScript |
+| `npm run build` | Type-check and build for production into `dist/` |
+| `npm run preview` | Serve the production build locally |
+| `npm run format` | Format the source files with Prettier |
+
+Tests stub HTTP requests and never call a real backend, OpenAI or Google. GitHub Actions runs lint, typecheck,
+tests and the build on every pull request and on pushes to `main` (`.github/workflows/ci.yml`).
+
+## Not implemented yet
+
+- Password reset by email, data export and account deletion (the backend has no endpoints for them yet)
+- Word (.docx) export
+- CV upload and parsing
+
+## Contributing
+
+`main` is protected. Create a branch from `main`, open a pull request into `main`, and make sure CI passes.
+
+## Related repository
+
+- Backend: [suleymangulymalikov/flowjob-backend](https://github.com/suleymangulymalikov/flowjob-backend)
