@@ -63,11 +63,11 @@ Landing · Log in · Register · Forgot password · Dashboard · Profile · CV b
 
 ## Not done yet
 
-- Word (.docx) export. PDF export uses the browser's print dialog on the CV preview.
+- Word (.docx) export. PDF export works: the backend renders the Harvard-style PDF (WeasyPrint) and the app previews it with PDF.js.
 - Reset-password link screen (the email step exists).
 - CV upload and parsing (waiting for the team decision).
 - In demo mode (`VITE_USE_MOCKS=true`), Gmail and the LLM are simulated (`src/mocks`). Connected mode uses the backend's Gmail integration, which needs a Google OAuth client (see the backend README, including "Production configuration" for the same-host `/api/v1` proxy that the OAuth callback requires, and "Privacy and data retention").
 
 ## Git workflow
 
-`main` is protected. Work on `feature/<name>` branches and open a pull request into `develop`. CI must pass.
+`main` is protected. Work on a branch from `main` (for example `feature/<name>`) and open a pull request into `main`. CI must pass.
