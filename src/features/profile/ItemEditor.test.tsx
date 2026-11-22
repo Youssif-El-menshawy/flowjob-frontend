@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { RouterProvider } from 'react-router-dom';
+import { guardedRouter } from '@/test/guardedRouter';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Education, Experience } from '@/shared/api/types';
 import { ItemEditor } from './profileParts';
@@ -173,5 +175,63 @@ describe('month/year date fields', () => {
     save();
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(saved().start).toBe('');
+  });
+});
+
+describe('closing with unsaved changes', () => {
+  function openGuarded(item: Experience, isNew = false) {
+    const onClose = vi.fn();
+    const router = guardedRouter([{
+      path: '/',
+      element: <ItemEditor kind="experience" item={item} isNew={isNew} onClose={onClose} onSave={onSave} />,
+    }]);
+    render(<RouterProvider router={router} />);
+    return onClose;
+  }
+  const editor = () => screen.getByRole('dialog', { name: /experience/ });
+
+  it('closes at once when nothing was changed', () => {
+    const onClose = openGuarded(exp());
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('dialog', { name: 'Discard your changes?' })).toBeNull();
+  });
+
+  it('asks before Cancel or Escape drops changes; Keep editing keeps them, Discard closes', () => {
+    const onClose = openGuarded(exp());
+    fireEvent.change(screen.getByLabelText('Company'), { target: { value: 'Globex' } });
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Cancel' }));
+    const ask = screen.getByRole('dialog', { name: 'Discard your changes?' });
+    expect(ask).toHaveTextContent('Your changes to this entry have not been saved.');
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep editing' }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Company')).toHaveValue('Globex');
+
+    fireEvent.keyDown(document, { key: 'Escape' }); // asks, and Escape on the question only closes the question
+    expect(screen.getByRole('dialog', { name: 'Discard your changes?' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Discard your changes?' })).toBeNull();
+    expect(editor()).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('names a new entry that has not been added yet, and saving never asks', () => {
+    const onClose = openGuarded(exp({ title: '', company: '' }), true);
+    fireEvent.change(screen.getByLabelText('Job title'), { target: { value: 'Engineer' } });
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('dialog', { name: 'Discard this entry?' })).toHaveTextContent('has not been added yet');
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    fireEvent.change(screen.getByLabelText('Company'), { target: { value: 'Acme' } });
+    save();
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Discard this entry?' })).toBeNull();
   });
 });

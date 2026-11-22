@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import {
@@ -15,6 +15,7 @@ import { useDocumentTitle } from '@/shared/lib/hooks';
 import { cn, fmtDate, suggestionPhrase } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, PageHeader, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
+import { useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { ConfirmDialog, Modal, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { ApplicationForm } from './ApplicationForm';
@@ -37,6 +38,21 @@ export default function ApplicationDetailPage() {
   const dismiss = useDismissReview();
   const del = useDeleteApplication();
   const [editing, setEditing] = useState(false);
+  const [editDirty, setEditDirty] = useState(false);
+  // Unsaved edits in the Edit details dialog: closing it or leaving the page asks first.
+  const editGuard = useLeaveGuard({
+    when: editing && editDirty,
+    dialog: true,
+    title: 'Discard your changes?',
+    message: 'Your changes to this application have not been saved.',
+    leaveLabel: 'Discard changes',
+    stayLabel: 'Keep editing',
+  });
+  const stopEditing = useCallback(() => {
+    setEditing(false);
+    setEditDirty(false);
+  }, []);
+  const closeEdit = useCallback(() => editGuard.confirm(stopEditing), [editGuard, stopEditing]);
   const [statusOpen, setStatusOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const deciding = useRef(false); // blocks a second decision before React re-renders the disabled buttons
@@ -251,17 +267,18 @@ export default function ApplicationDetailPage() {
         </div>
       </div>
 
-      <Modal open={editing} onClose={() => setEditing(false)} title="Edit details" size="lg">
+      <Modal open={editing} onClose={closeEdit} title="Edit details" size="lg">
         <ApplicationForm
           mode="edit"
           defaults={a}
           submitLabel="Save changes"
-          onCancel={() => setEditing(false)}
+          onCancel={closeEdit}
+          onDirtyChange={setEditDirty}
           onSubmit={(v) =>
             update
               .mutateAsync({ id: a.id, ...v })
               .then(() => {
-                setEditing(false);
+                stopEditing();
                 toast({ text: 'Details saved.' });
               })
           }
@@ -274,7 +291,7 @@ export default function ApplicationDetailPage() {
             size="sm"
             variant="danger"
             onClick={() => {
-              setEditing(false);
+              stopEditing(); // deleting is its own confirmed choice
               setRemoving(true);
             }}
           >

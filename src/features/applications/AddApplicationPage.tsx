@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCreateApplication } from '@/shared/api/queries';
 import type { Application } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { Card, Note, PageHeader } from '@/shared/ui/Display';
+import { useLeaveControl, useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { useToast } from '@/shared/ui/Overlay';
 import { ApplicationForm } from './ApplicationForm';
 
@@ -12,6 +14,15 @@ export default function AddApplicationPage() {
   const toast = useToast();
   const [params] = useSearchParams();
   const create = useCreateApplication();
+  const leave = useLeaveControl();
+  const [dirty, setDirty] = useState(false);
+  useLeaveGuard({
+    when: dirty,
+    busy: create.isPending,
+    title: 'Leave without saving?',
+    message: 'This application has not been saved. The details you entered will be lost.',
+    leaveLabel: 'Discard and leave',
+  });
 
   return (
     <>
@@ -31,11 +42,12 @@ export default function AddApplicationPage() {
             }}
             submitLabel="Save application"
             onCancel={() => nav(-1)}
+            onDirtyChange={setDirty}
             onSubmit={(v) =>
               create.mutateAsync(v).then((res) => {
                 const a = res as Application;
                 toast({ text: `${a.company} added.` });
-                nav(`/app/applications/${a.id}`, { replace: true });
+                leave.bypass(() => nav(`/app/applications/${a.id}`, { replace: true }));
               })
             }
           />

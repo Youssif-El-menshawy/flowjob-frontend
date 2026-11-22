@@ -13,6 +13,7 @@ import {
 import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { Input, Select } from '@/shared/ui/Field';
+import { useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { Modal } from '@/shared/ui/Overlay';
 
 const CUSTOM = '__custom__';
@@ -29,6 +30,18 @@ function LanguageDialog({ entries, index, onApply, onClose }: {
   const [custom, setCustom] = useState(initial?.name ?? '');
   const [proficiency, setProficiency] = useState<Proficiency>(initial?.proficiency ?? '');
   const [error, setError] = useState('');
+  const openedChoice = initial ? catalogName(initial.name) ?? CUSTOM : '';
+  const changed = choice !== openedChoice || custom !== (initial?.name ?? '')
+    || proficiency !== (initial?.proficiency ?? '');
+  const guard = useLeaveGuard({
+    when: changed,
+    dialog: true,
+    title: index < 0 ? 'Discard this language?' : 'Discard your changes?',
+    message: index < 0 ? 'This language has not been added yet.' : 'Your changes to this language have not been saved.',
+    leaveLabel: 'Discard',
+    stayLabel: 'Keep editing',
+  });
+  const requestClose = () => guard.confirm(onClose);
 
   const apply = () => {
     const name = (choice === CUSTOM ? custom : choice).trim();
@@ -59,13 +72,13 @@ function LanguageDialog({ entries, index, onApply, onClose }: {
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={requestClose}
       showCloseButton={false}
       dismissOnBackdrop={false}
       title={index < 0 ? 'Add language' : 'Edit language'}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={requestClose}>Cancel</Button>
           <Button onClick={apply}>{index < 0 ? 'Add language' : 'Save language'}</Button>
         </>
       }

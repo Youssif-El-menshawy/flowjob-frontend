@@ -10,6 +10,7 @@ import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { EmptyState, PageHeader } from '@/shared/ui/Display';
 import { Input, Select, Textarea } from '@/shared/ui/Field';
+import { useLeaveControl, useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { RecentMatches } from './RecentMatches';
 
@@ -69,6 +70,32 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
   const [jobUrl, setJobUrl] = useState(recovery?.jobUrl ?? '');
   const [text, setText] = useState(() => recovery ? '' : pendingJob.get());
   const [error, setError] = useState<FormError | null>(null);
+  const leave = useLeaveControl();
+  // What the form opened with (a recovered draft or a post pasted on the landing page) is not a change.
+  const [initial] = useState(() => ({ jobTitle, company, jobUrl, text }));
+  const edited = jobTitle !== initial.jobTitle || company !== initial.company || jobUrl !== initial.jobUrl
+    || text !== initial.text;
+  // Both AI runs continue on the server if the page goes away; the wording says what happens to the result.
+  useLeaveGuard({
+    when: edited || run.isPending || tailor.isPending,
+    ...(run.isPending
+      ? {
+        title: 'Leave while your match is checked?',
+        message: 'Your match is still being checked on the server. It will finish and appear under Recent matches, '
+          + 'but the job post you pasted will not be kept with it.',
+      }
+      : tailor.isPending
+        ? {
+          title: 'Leave while your draft is created?',
+          message: 'Your tailored draft is still being created on the server. It is not lost: tailoring the same CV '
+            + 'with the same job details again opens it without using another try.',
+        }
+        : {
+          title: 'Leave Job Match?',
+          message: 'The job details you entered will be lost.',
+          leaveLabel: 'Discard and leave',
+        }),
+  });
   const matchLabel = useStepLabel(MATCH_STEPS, run.isPending);
   const tailorLabel = useStepLabel(TAILOR_STEPS, tailor.isPending);
 
@@ -137,7 +164,7 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
       {
         onSuccess: (d) => {
           pendingJob.clear();
-          nav(`/app/tailor/${d.id}`);
+          leave.bypass(() => nav(`/app/tailor/${d.id}`));
         },
         // Tailoring 422s can be about the CV itself (e.g. empty), so show them as an alert.
         onError: (e) => {
@@ -165,7 +192,7 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
           pendingJob.clear();
           jobPosts.remember(m.id, text);
           // A normal (push) navigation, so the browser Back button returns to this form.
-          nav(`/app/match/${m.id}`);
+          leave.bypass(() => nav(`/app/match/${m.id}`));
         },
         onError: (e) => {
           submitting.current = false;

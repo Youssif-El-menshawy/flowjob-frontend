@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { createRoutesFromElements, Navigate, Outlet, Route, useLocation } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { LeaveGuardProvider } from '@/shared/ui/LeaveGuard';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { AppLayout } from './AppLayout';
 import { ServerStatusBanner, ServerUnavailablePage } from './ServerUnavailable';
@@ -40,7 +41,15 @@ function GuestOnly({ children }: { children: ReactNode }) {
 }
 
 export const appRoutes = createRoutesFromElements(
-  <Route element={<><ServerStatusBanner /><Suspense fallback={<PageLoader />}><Outlet /></Suspense></>}>
+  <Route
+    element={
+      // One interruption guard for every page, inside the data router so it can block navigation.
+      <LeaveGuardProvider>
+        <ServerStatusBanner />
+        <Suspense fallback={<PageLoader />}><Outlet /></Suspense>
+      </LeaveGuardProvider>
+    }
+  >
     <Route path="/" element={<Landing />} />
     <Route
       path="/login"
