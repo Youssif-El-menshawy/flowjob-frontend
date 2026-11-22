@@ -645,26 +645,30 @@ function ReviewForm({
         </div>
       </div>
 
-      <Card className="mt-6 flex flex-col gap-4">
+      {/* One row from md up: the confirmation on the left, the actions on the right. Stacked below that, with the
+          save button first and both buttons full width. */}
+      <section className="mt-6 flex flex-col gap-3 rounded-2xl border border-line bg-surface px-5 py-4">
         {error}
-        <label className="flex cursor-pointer items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            onChange={(event) => setConfirmed(event.target.checked)}
-            className="mt-0.5 size-[18px] shrink-0 accent-primary"
-          />
-          I have reviewed this information and it is accurate. Save it to my Profile.
-        </label>
-        <div className="flex flex-wrap justify-end gap-2.5">
-          <Button variant="danger" onClick={onDiscard} disabled={saving}>
-            Discard import
-          </Button>
-          <Button onClick={save} disabled={!confirmed} loading={saving}>
-            Save to my Profile
-          </Button>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-6">
+          <label className="flex min-w-0 cursor-pointer items-start gap-2.5 text-sm leading-snug">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(event) => setConfirmed(event.target.checked)}
+              className="mt-px size-[18px] shrink-0 accent-primary"
+            />
+            I have reviewed this information and it is accurate. Save it to my Profile.
+          </label>
+          <div className="flex shrink-0 flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+            <Button variant="danger" onClick={onDiscard} disabled={saving}>
+              Discard import
+            </Button>
+            <Button onClick={save} disabled={!confirmed} loading={saving}>
+              Save to my Profile
+            </Button>
+          </div>
         </div>
-      </Card>
+      </section>
     </>
   );
 }
