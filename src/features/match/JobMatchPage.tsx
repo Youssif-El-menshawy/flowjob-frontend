@@ -4,7 +4,6 @@ import { ApiError } from '@/shared/api/client';
 import { useCvs, useRunMatch, useTailorDirect } from '@/shared/api/queries';
 import type { TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
-import { jobPosts } from '@/shared/lib/jobPosts';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
@@ -54,21 +53,26 @@ type Recovery = Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company' | 'jobUr
 export default function JobMatchPage() {
   useDocumentTitle('Job match');
   const location = useLocation();
-  const recovery = (location.state as { freshTailoringDraft?: Recovery } | null)?.freshTailoringDraft;
-  return <JobMatchForm key={recovery ? location.key : 'job-form'} recovery={recovery} />;
+  const state = location.state as { freshTailoringDraft?: Recovery; checkSavedCv?: Recovery } | null;
+  const recovery = state?.freshTailoringDraft;
+  // From a saved tailored CV whose job post this tab no longer has: that CV and the job's title, company and link
+  // are filled in; the person pastes the post themselves.
+  const check = recovery ? undefined : state?.checkSavedCv;
+  return <JobMatchForm key={recovery || check ? location.key : 'job-form'} recovery={recovery} check={check} />;
 }
 
-function JobMatchForm({ recovery }: { recovery?: Recovery }) {
+function JobMatchForm({ recovery, check }: { recovery?: Recovery; check?: Recovery }) {
+  const prefill = recovery ?? check;
   const nav = useNavigate();
   const cvs = useCvs();
   const run = useRunMatch();
   const tailor = useTailorDirect();
   const submitting = useRef(false);
-  const [cvId, setCvId] = useState(recovery?.sourceCvId ?? '');
-  const [jobTitle, setJobTitle] = useState(recovery?.jobTitle ?? '');
-  const [company, setCompany] = useState(recovery?.company ?? '');
-  const [jobUrl, setJobUrl] = useState(recovery?.jobUrl ?? '');
-  const [text, setText] = useState(() => recovery ? '' : pendingJob.get());
+  const [cvId, setCvId] = useState(prefill?.sourceCvId ?? '');
+  const [jobTitle, setJobTitle] = useState(prefill?.jobTitle ?? '');
+  const [company, setCompany] = useState(prefill?.company ?? '');
+  const [jobUrl, setJobUrl] = useState(prefill?.jobUrl ?? '');
+  const [text, setText] = useState(() => prefill ? '' : pendingJob.get());
   const [error, setError] = useState<FormError | null>(null);
   const leave = useLeaveControl();
   // What the form opened with (a recovered draft or a post pasted on the landing page) is not a change.
@@ -81,8 +85,7 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
     ...(run.isPending
       ? {
         title: 'Leave while your match is checked?',
-        message: 'Your match is still being checked on the server. It will finish and appear under Recent matches, '
-          + 'but the job post you pasted will not be kept with it.',
+        message: 'Your match is still being checked on the server. It will finish and appear under Recent matches.',
       }
       : tailor.isPending
         ? {
@@ -163,9 +166,7 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
       },
       {
         onSuccess: (d) => {
-          pendingJob.clear();
-          // The exact post this draft was tailored from, so a saved version can be re-checked against it.
-          jobPosts.rememberDraft(d.id, text.trim());
+          pendingJob.clear(); // the post itself is kept with the draft by the tailoring request
           leave.bypass(() => nav(`/app/tailor/${d.id}`));
         },
         // Tailoring 422s can be about the CV itself (e.g. empty), so show them as an alert.
@@ -191,8 +192,7 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
       },
       {
         onSuccess: (m) => {
-          pendingJob.clear();
-          jobPosts.remember(m.id, text);
+          pendingJob.clear(); // the post itself is kept with the match by the match request
           // A normal (push) navigation, so the browser Back button returns to this form.
           leave.bypass(() => nav(`/app/match/${m.id}`));
         },
@@ -212,6 +212,7 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
       />
 
       {recovery && <p className="mb-4 text-sm text-soft">Paste the job description and select Tailor my CV to create a fresh draft.</p>}
+      {check && <p className="mb-4 text-sm text-soft">Paste the job post again, then select Check my match to see how your new CV fits.</p>}
 
       <fieldset disabled={busy} className="m-0 flex min-w-0 flex-col gap-5 border-0 p-0">
         <legend className="sr-only">Job details</legend>

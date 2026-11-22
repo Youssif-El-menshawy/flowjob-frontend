@@ -342,15 +342,23 @@ it('prefills a direct recovery and requests a fresh draft only on submit', () =>
   }, expect.anything());
 });
 
-describe('the post behind a tailored draft', () => {
-  it('is kept with the draft so a saved version can be re-checked against the same post', () => {
-    sessionStorage.clear();
-    mocks.tailor.mutate = vi.fn((_input: unknown, opts: { onSuccess: (d: { id: string }) => void }) => opts.onSuccess({ id: 'd5' }));
-    renderPage();
-    fill();
-    fireEvent.click(tailorBtn());
-    expect(screen.getByText('DRAFT PAGE d5')).toBeInTheDocument();
-    expect(JSON.parse(sessionStorage.getItem('flowjob.jobPosts')!)).toEqual({ 'draft:d5': JOB });
+describe('checking a saved tailored CV whose post this tab no longer has', () => {
+  it('opens with that CV and the job details filled in, and the post left for the person to paste', () => {
+    mocks.cvs = {
+      data: [
+        { id: 'cv1', name: 'My CV', kind: 'original', updatedAt: '2026-01-01' },
+        { id: 'cv9', name: 'Acme v3', kind: 'tailored', updatedAt: '2026-01-02' },
+      ],
+      isLoading: false,
+    };
+    sessionStorage.setItem('flowjob.pendingJob', 'A different post pasted on the landing page.');
+    renderPage({ pathname: '/app/match', state: { checkSavedCv: { sourceCvId: 'cv9', jobTitle: 'Backend Engineer', company: 'Acme', jobUrl: 'https://jobs.example/1' } } });
+    expect(screen.getByLabelText('CV to use')).toHaveValue('cv9');
+    expect(screen.getByLabelText('Job title')).toHaveValue('Backend Engineer');
+    expect(screen.getByLabelText(/Company/)).toHaveValue('Acme');
+    expect(screen.getByLabelText('Job description')).toHaveValue(''); // never filled from anywhere else
+    expect(screen.getByText(/Paste the job post again, then select Check my match/)).toBeVisible();
+    expect(analyse()).toBeDisabled();
     sessionStorage.clear();
   });
 });

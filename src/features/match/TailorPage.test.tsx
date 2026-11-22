@@ -351,8 +351,8 @@ describe('TailorPage review', () => {
     fireEvent.click(done.getByRole('button', { name: 'Re-check my match' }));
     expect(mocks.runMatch.mock.calls[0][0]).toEqual({
       cvId: 'new-cv', jobTitle: 'Backend Engineer', jobDescription: 'We need Python.', company: 'Acme', jobUrl: undefined });
-    // The re-check opens the new report and carries the earlier score for the before/after line.
-    expect(JSON.parse(sessionStorage.getItem('flowjob.jobPosts')!)).toMatchObject({ m2: 'We need Python.' });
+    // The re-check opens the new report (the match request itself keeps the post for it).
+    expect(screen.getByText('MATCH REPORT')).toBeInTheDocument();
   });
 
   describe('the saved dialog', () => {
@@ -791,7 +791,6 @@ describe('Re-check my match in the saved dialog', () => {
     expect(mocks.runMatch.mock.calls[0][0]).toEqual({
       cvId: 'new-cv', jobTitle: 'Backend Engineer', jobDescription: POST, company: 'Acme', jobUrl: undefined });
     expect(screen.getByText('MATCH REPORT')).toBeInTheDocument();
-    expect(JSON.parse(sessionStorage.getItem('flowjob.jobPosts')!)).toMatchObject({ m1: POST, m2: POST });
   });
 
   it('offers it for a draft tailored straight from a pasted post, with exactly that post', () => {
@@ -802,7 +801,7 @@ describe('Re-check my match in the saved dialog', () => {
   });
 
   it.each([
-    ['a match whose post this tab no longer has', draft, '/app/tailor/d1', { 'draft:d1': POST }],
+    ['a match whose post this tab no longer has', draft, '/app/tailor/d1', { m9: POST, 'draft:d5': POST }],
     ['a pasted-post draft whose post is gone', directDraft, '/app/tailor/d9', { m1: POST }],
   ])('is not offered for %s, and nothing is substituted', (_label, data, path, posts) => {
     mocks.draftQuery = { data, isError: false, error: null };
@@ -814,6 +813,22 @@ describe('Re-check my match in the saved dialog', () => {
     expect(dialog.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
     expect(dialog.getByRole('link', { name: 'Go to My CVs' })).toBeVisible();
     expect(mocks.runMatch).not.toHaveBeenCalled();
+  });
+
+  it('uses the draft’s own post when its match entry is gone from this tab', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    const dialog = saveFrom('/app/tailor/d1', { 'draft:d1': POST });
+    fireEvent.click(recheck(dialog)!);
+    expect(mocks.runMatch.mock.calls[0][0]).toMatchObject({ cvId: 'new-cv', jobDescription: POST });
+  });
+
+  it('explains a missing post and offers Job Match with the new CV, without filling in any post', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    const dialog = saveFrom('/app/tailor/d1', {});
+    expect(recheck(dialog)).toBeNull();
+    expect(dialog.getByText(/FlowJob does not keep job posts after you sign out or open a new tab/)).toBeVisible();
+    fireEvent.click(dialog.getByRole('link', { name: 'Job Match' }));
+    expect(screen.getByText('JOB FORM')).toBeInTheDocument();
   });
 
   it('sends one request however fast it is clicked', () => {
