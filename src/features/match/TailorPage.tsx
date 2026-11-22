@@ -561,49 +561,74 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
       <p className="leading-relaxed text-soft">
         It is in My CVs as a new version. Your original CV has not changed.
       </p>
-      <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
-        <ButtonLink to={`/app/applications/new?${application}`} data-autofocus>Add to Applications</ButtonLink>
-        <Button variant="secondary" disabled={!canDownload} loading={downloading} onClick={onDownload}>
-          {downloading ? 'Preparing PDF…' : 'Download PDF'}
-        </Button>
-        {post && (
-          <Button variant="secondary" loading={run.isPending} onClick={recheck}>
-            {run.isPending ? 'Checking…' : 'Re-check my match'}
-          </Button>
+
+      {/* The main next step: check the new version against the same job, with the earlier score beside it. */}
+      <section aria-label="Check your match" className="mt-5 rounded-2xl border border-line bg-tint p-4">
+        {typeof previousScore === 'number' && (
+          <p className="mb-3 flex items-baseline justify-between gap-3">
+            <span className="text-sm text-soft">Match before tailoring</span>
+            <span className="text-xl font-semibold tabular-nums text-ink">{previousScore}%</span>
+          </p>
         )}
-        <ButtonLink to="/app/cvs" variant="ghost">Go to My CVs</ButtonLink>
+        {post ? (
+          <>
+            <Button full loading={run.isPending} onClick={recheck}>
+              {run.isPending ? 'Checking…' : 'Re-check my match'}
+            </Button>
+            <p className="mt-2 text-[13px] leading-snug text-soft">
+              Compares this version with the same job post. Your earlier match result is kept.
+            </p>
+          </>
+        ) : (
+          // FlowJob never stores job posts, and this tab no longer has this one (for example after signing in again
+          // or in a new tab). Nothing is guessed: Job Match opens with this CV so the person can paste the post.
+          <>
+            <ButtonLink
+              full
+              to="/app/match"
+              state={{ checkSavedCv: { sourceCvId: cv.id, jobTitle: draft.jobTitle, company: draft.company, jobUrl: draft.jobUrl } }}
+            >
+              Open Job Match
+            </ButtonLink>
+            <p className="mt-2 text-[13px] leading-snug text-soft">
+              Paste the job post again to check this CV. FlowJob does not keep job posts after you sign out or open a
+              new tab.
+            </p>
+          </>
+        )}
+      </section>
+
+      {/* Focus starts here rather than on Re-check, so Enter never starts an AI analysis by accident. */}
+      <ButtonLink full variant="secondary" className="mt-3" to={`/app/applications/new?${application}`} data-autofocus>
+        Add to Applications
+      </ButtonLink>
+
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+        <button
+          type="button"
+          onClick={onDownload}
+          disabled={!canDownload || downloading}
+          aria-busy={downloading || undefined}
+          className="min-h-9 font-medium text-primary underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
+        >
+          {downloading ? 'Preparing PDF…' : 'Download PDF'}
+        </button>
+        <Link to="/app/cvs" className="inline-flex min-h-9 items-center font-medium text-primary underline-offset-2 hover:underline">
+          Go to My CVs
+        </Link>
       </div>
-      {post && (
-        <p className="mt-3 text-[13px] text-soft">
-          Re-check compares this new version with the same job post{typeof previousScore === 'number' ? ` (it was ${previousScore}% before)` : ''}.
-          {' '}Your earlier match result is kept.
-        </p>
-      )}
+
       {run.isPending && (
         <p role="status" className="sr-only">Checking your new CV against the same job post…</p>
       )}
-      {!post && (
-        // FlowJob never stores job posts, and this tab no longer has this one (for example after signing in again
-        // or in a new tab). Nothing is guessed: the person can paste the post to check the new CV.
-        <p className="mt-3 text-[13px] text-soft">
-          To re-check your match, paste the job post again in{' '}
-          <Link
-            to="/app/match"
-            state={{ checkSavedCv: { sourceCvId: cv.id, jobTitle: draft.jobTitle, company: draft.company, jobUrl: draft.jobUrl } }}
-            className="font-medium text-primary underline-offset-2 hover:underline"
-          >
-            Job Match
-          </Link>
-          . FlowJob does not keep job posts after you sign out or open a new tab.
-        </p>
-      )}
+      {downloading && <p role="status" className="sr-only">Preparing the PDF…</p>}
       {downloadError && <p role="alert" className="mt-3 text-sm text-danger">{downloadError}</p>}
       {run.isError && (
         <p role="alert" className="mt-3 text-sm text-danger">
           {run.error instanceof ApiError ? run.error.message : 'Could not check the match. Please try again.'}
         </p>
       )}
-      <div className="mt-6 flex justify-end border-t border-line pt-4">
+      <div className="mt-5 flex justify-end border-t border-line pt-3">
         <Button variant="ghost" onClick={onClose}>Close</Button>
       </div>
     </Modal>

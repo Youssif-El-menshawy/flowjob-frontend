@@ -344,7 +344,7 @@ describe('TailorPage review', () => {
       'href', '/app/applications/new?company=Acme&jobTitle=Backend+Engineer&cvId=new-cv');
     expect(done.getByRole('link', { name: 'Go to My CVs' })).toHaveAttribute('href', '/app/cvs');
     expect(done.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
-    expect(done.getByText(/it was 59% before/)).toBeVisible();
+    expect(within(done.getByRole('region', { name: 'Check your match' })).getByText('59%')).toBeVisible();
     // The review stays underneath the dialog.
     expect(screen.getByRole('heading', { name: 'AI suggestions' })).toBeInTheDocument();
     expect(sessionStorage.getItem('flowjob.tailorReview.d1')).toBeNull();
@@ -826,8 +826,8 @@ describe('Re-check my match in the saved dialog', () => {
     mocks.draftQuery = { data: draft, isError: false, error: null };
     const dialog = saveFrom('/app/tailor/d1', {});
     expect(recheck(dialog)).toBeNull();
-    expect(dialog.getByText(/FlowJob does not keep job posts after you sign out or open a new tab/)).toBeVisible();
-    fireEvent.click(dialog.getByRole('link', { name: 'Job Match' }));
+    expect(dialog.getByText(/FlowJob does not keep job posts after you sign out or open a\s+new tab/)).toBeVisible();
+    fireEvent.click(dialog.getByRole('link', { name: 'Open Job Match' }));
     expect(screen.getByText('JOB FORM')).toBeInTheDocument();
   });
 
@@ -948,5 +948,83 @@ describe('TailorPage interruption protection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start tailoring' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByRole('heading', { name: 'AI suggestions' })).toBeInTheDocument();
+  });
+});
+
+describe('saved dialog layout', () => {
+  const POST = 'We need Python and REST APIs. Three years of backend experience with MongoDB.';
+  function saveWith(posts: Record<string, string>, data: TailorDraft = draft) {
+    sessionStorage.setItem('flowjob.jobPosts', JSON.stringify(posts));
+    mocks.draftQuery = { data, isError: false, error: null };
+    mocks.create.mutate = vi.fn((input: { name: string }, opts: { onSuccess: (cv: unknown) => void; onSettled?: () => void }) => {
+      opts.onSuccess({ id: 'new-cv', name: input.name });
+      opts.onSettled?.();
+    });
+    renderPage(`/app/tailor/${data.id}`);
+    decide('Experience', 'Apply suggestion');
+    confirm();
+    fireEvent.click(save());
+    return screen.getByRole('dialog', { name: /is saved$/ });
+  }
+
+  it('leads with Re-check as the one green button, the earlier score above it, and lighter actions below', () => {
+    mocks.match = { score: 59, scoreAvailable: true, matched: [], partiallyMatched: [], missing: [] };
+    const dialog = saveWith({ m1: POST });
+    const check = within(dialog).getByRole('region', { name: 'Check your match' });
+    const score = within(check).getByText('59%');
+    const recheck = within(check).getByRole('button', { name: 'Re-check my match' });
+    expect(within(check).getByText('Match before tailoring')).toBeVisible();
+    // The score is shown above the button.
+    expect(score.compareDocumentPosition(recheck) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(recheck.className).toContain('bg-primary');
+    expect(recheck.className).toContain('w-full');
+
+    const apps = within(dialog).getByRole('link', { name: 'Add to Applications' });
+    expect(apps.className).toContain('border'); // outlined, not filled
+    expect(apps.className).not.toContain('bg-primary');
+    // Only one filled (green) action in the whole dialog.
+    expect(Array.from(dialog.querySelectorAll('a, button')).filter((el) => el.className.includes('bg-primary'))).toHaveLength(1);
+
+    // Download PDF and Go to My CVs are plain text links, not buttons with a frame.
+    const download = within(dialog).getByRole('button', { name: 'Download PDF' });
+    const myCvs = within(dialog).getByRole('link', { name: 'Go to My CVs' });
+    for (const el of [download, myCvs]) {
+      expect(el.className).toContain('text-primary');
+      expect(el.className).not.toContain('rounded-full');
+    }
+    // Close stays in the footer, last in the dialog.
+    const buttons = within(dialog).getAllByRole('button');
+    expect(buttons[buttons.length - 1]).toHaveTextContent('Close');
+  });
+
+  it('offers Open Job Match as the main action when the post is not available', () => {
+    mocks.match = { score: 59, scoreAvailable: true, matched: [], partiallyMatched: [], missing: [] };
+    const dialog = saveWith({});
+    const check = within(dialog).getByRole('region', { name: 'Check your match' });
+    expect(within(check).queryByRole('button', { name: 'Re-check my match' })).toBeNull();
+    const open = within(check).getByRole('link', { name: 'Open Job Match' });
+    expect(open.className).toContain('bg-primary');
+    expect(within(check).getByText('59%')).toBeVisible();
+    expect(within(dialog).getByRole('link', { name: 'Add to Applications' })).toBeVisible();
+  });
+
+  it('shows no score line when there was no earlier match', () => {
+    const dialog = saveWith({ 'draft:d9': POST }, directDraft);
+    expect(within(dialog).queryByText('Match before tailoring')).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Re-check my match' })).toBeEnabled();
+  });
+
+  it('keeps Download PDF working as a link-style action with its loading state', async () => {
+    let release!: (b: Blob) => void;
+    mocks.preview.mockImplementation(() => new Promise<Blob>((resolve) => { release = resolve; }));
+    const dialog = saveWith({ m1: POST });
+    mocks.preview.mockClear();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Download PDF' }));
+    const busy = within(dialog).getByRole('button', { name: 'Preparing PDF…' });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    await act(async () => release(new Blob(['%PDF-'], { type: 'application/pdf' })));
+    await waitFor(() => expect(mocks.download).toHaveBeenCalledWith(expect.any(Blob), 'Acme_v1.pdf'));
+    expect(within(dialog).getByRole('button', { name: 'Download PDF' })).toBeEnabled();
   });
 });
