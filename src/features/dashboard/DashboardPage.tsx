@@ -372,12 +372,13 @@ function Onboarding({
     // Always listed, so the progress counts it: done once the saved Profile meets the completeness criteria.
     {
       done: profileComplete,
-      t: 'Complete your profile',
+      t: 'Set up your profile',
       d: canImport
-        ? 'Import your existing CV or add your experience, education and skills. Your CVs are made from your Profile.'
+        ? 'Import your existing CV, or add your experience, education and skills yourself. Your CVs are made from your Profile.'
         : 'Add your experience, education and skills. Your CVs are made from your Profile.',
       to: '/app/profile',
-      cta: 'Complete profile',
+      cta: 'Complete manually',
+      // Smart CV Import, offered only while this account has not used it (once per account).
       alt: canImport ? { to: '/app/profile/import', cta: 'Import CV' } : undefined,
     },
     {

@@ -178,13 +178,13 @@ describe('DashboardPage (regression: must never blank-crash)', () => {
     expect(refetch).toHaveBeenCalled();
   });
 
-  it('shows "Complete your profile" as the first open step while the saved profile is incomplete', () => {
+  it('shows "Set up your profile" as the first open step while the saved profile is incomplete', () => {
     mocks.cvs = { data: [] };
     mocks.profile = { data: { ...completeProfile, skills: [] }, isLoading: false }; // incomplete (no skills)
     renderDashboard();
-    const step = screen.getByText('Complete your profile').closest('li')!;
+    const step = screen.getByText('Set up your profile').closest('li')!;
     expect(step).toHaveTextContent('1');
-    expect(within(step).getByRole('link', { name: 'Complete profile' })).toHaveAttribute('href', '/app/profile');
+    expect(within(step).getByRole('link', { name: 'Complete manually' })).toHaveAttribute('href', '/app/profile');
     expect(screen.getByText('0 of 4 done')).toBeVisible();
   });
 
@@ -192,7 +192,7 @@ describe('DashboardPage (regression: must never blank-crash)', () => {
     mocks.cvs = { data: [] };
     mocks.profile = { data: completeProfile, isLoading: false };
     renderDashboard();
-    const step = screen.getByText('Complete your profile').closest('li')!;
+    const step = screen.getByText('Set up your profile').closest('li')!;
     expect(step).toHaveTextContent('✓');
     expect(within(step).queryByRole('link')).not.toBeInTheDocument();
     expect(screen.getByText('1 of 4 done')).toBeVisible();
@@ -200,23 +200,36 @@ describe('DashboardPage (regression: must never blank-crash)', () => {
     expect(screen.getByRole('link', { name: 'Start my CV' })).toHaveAttribute('href', '/app/cv-builder');
   });
 
-  it('offers the CV import on the profile step only while the account can use it', () => {
+  it('offers Import CV and Complete manually on the profile step, the import only while the account can use it', () => {
     mocks.cvs = { data: [] };
     mocks.importStatus = { data: { available: true } };
     renderDashboard();
-    expect(screen.getByRole('link', { name: 'Import CV' })).toHaveAttribute('href', '/app/profile/import');
+    let step = screen.getByText('Set up your profile').closest('li')!;
+    expect(within(step).getAllByRole('link').map((l) => [l.textContent, l.getAttribute('href')])).toEqual([
+      ['Import CV', '/app/profile/import'],
+      ['Complete manually', '/app/profile'],
+    ]);
     cleanup();
     mocks.importStatus = { data: { available: false } };
     renderDashboard();
-    expect(screen.queryByRole('link', { name: 'Import CV' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Complete profile' })).toBeVisible();
+    step = screen.getByText('Set up your profile').closest('li')!;
+    expect(within(step).queryByRole('link', { name: 'Import CV' })).not.toBeInTheDocument();
+    expect(within(step).getByRole('link', { name: 'Complete manually' })).toBeVisible();
+  });
+
+  it('keeps all four setup steps', () => {
+    mocks.cvs = { data: [] };
+    renderDashboard();
+    const steps = within(screen.getByText('Let’s get you set up').closest('section, div')!.parentElement!)
+      .getAllByRole('listitem').map((li) => li.querySelector('p')?.textContent);
+    expect(steps).toEqual(['Set up your profile', 'Create your CV', 'Check a job match', 'Add an application']);
   });
 
   it('waits for the saved profile instead of briefly showing it as incomplete', () => {
     mocks.cvs = { data: [] };
     mocks.profile = { data: undefined, isLoading: true };
     renderDashboard();
-    expect(screen.queryByText('Complete your profile')).not.toBeInTheDocument();
+    expect(screen.queryByText('Set up your profile')).not.toBeInTheDocument();
   });
 
   it('after a Profile import, recommends creating the original CV from the Profile', () => {

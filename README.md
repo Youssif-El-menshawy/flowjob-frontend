@@ -20,8 +20,8 @@ data.
   anything left out or missing clearly marked, before it is saved to your Profile. Values already in your Profile
   are kept unless you choose the CV's, and your account name and email always stay. Each account can import once
   (failed, cancelled or discarded imports don't count); the Profile stays editable. No CV is created: after saving,
-  the Dashboard suggests creating your original CV from the Profile. Offered after registration, on the Profile page
-  and on the Dashboard.
+  the Dashboard suggests creating your original CV from the Profile. Offered in the Dashboard's first setup step
+  (Set up your profile) and on the Profile page.
 - **Job Match**: paste a job post and get a match score with the requirements your CV meets, partly meets or
   misses, each backed by quotes from your CV.
 - **CV Tailoring**: review suggested changes for a specific job, apply them one by one or all at once, confirm
