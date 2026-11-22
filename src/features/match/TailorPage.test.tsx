@@ -992,9 +992,32 @@ describe('saved dialog layout', () => {
       expect(el.className).toContain('text-primary');
       expect(el.className).not.toContain('rounded-full');
     }
-    // Close stays in the footer, last in the dialog.
-    const buttons = within(dialog).getAllByRole('button');
-    expect(buttons[buttons.length - 1]).toHaveTextContent('Close');
+    // Close is a red X in the header beside the title; there is no footer Close or divider any more.
+    const close = within(dialog).getByRole('button', { name: 'Close' });
+    expect(close).toHaveTextContent('');
+    expect(close.querySelector('svg')).not.toBeNull();
+    expect(close.className).toContain('text-danger');
+    const header = close.parentElement!;
+    expect(within(header).getByRole('heading', { name: 'Acme v1 is saved' })).toBeInTheDocument();
+    expect(within(dialog).getAllByRole('button')[0]).toBe(close);
+    expect(dialog.querySelector('.border-t')).toBeNull();
+  });
+
+  it('closes from the X, Escape or the background and returns to the review', async () => {
+    const dialog = saveWith({ m1: POST });
+    await waitFor(() => expect(within(dialog).getByRole('link', { name: 'Add to Applications' })).toHaveFocus());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Saved to My CVs' })).toHaveFocus());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Saved to My CVs' }));
+    fireEvent.click(screen.getByRole('dialog').previousElementSibling!); // the dimmed background
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Saved to My CVs' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'AI suggestions' })).toBeInTheDocument();
   });
 
   it('offers Open Job Match as the main action when the post is not available', () => {

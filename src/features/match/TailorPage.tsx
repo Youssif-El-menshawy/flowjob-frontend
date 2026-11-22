@@ -549,7 +549,8 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
       onClose={onClose}
       title={`${cv.name} is saved`}
       size="confirm"
-      showCloseButton={false}
+      iconClose
+      closeTone="danger"
       icon={
         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-accent-ink" aria-hidden>
           <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -628,9 +629,6 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
           {run.error instanceof ApiError ? run.error.message : 'Could not check the match. Please try again.'}
         </p>
       )}
-      <div className="mt-5 flex justify-end border-t border-line pt-3">
-        <Button variant="ghost" onClick={onClose}>Close</Button>
-      </div>
     </Modal>
   );
 }

@@ -19,6 +19,7 @@ export function Modal({
   showCloseButton = true,
   icon,
   iconClose,
+  closeTone = 'neutral',
   dismissOnBackdrop = true,
   stackFooter,
 }: {
@@ -34,6 +35,8 @@ export function Modal({
   icon?: ReactNode;
   /** Use an accessible X icon button instead of the "Close" text button. */
   iconClose?: boolean;
+  /** Colour of the X icon button: the default soft grey, or red. */
+  closeTone?: 'neutral' | 'danger';
   /** When false, clicking the backdrop does nothing (Escape and the close button still work). */
   dismissOnBackdrop?: boolean;
   /** Footer buttons stack full-width on narrow screens (primary on top) and sit in one row from sm up. */
@@ -128,7 +131,12 @@ export function Modal({
             <button
               type="button"
               onClick={onClose}
-              className="-mt-1 -mr-2 grid size-10 shrink-0 place-items-center rounded-full text-soft hover:bg-tint hover:text-ink focus-visible:outline-2 focus-visible:outline-primary"
+              className={cn(
+                '-mt-1 -mr-2 grid size-10 shrink-0 place-items-center rounded-full focus-visible:outline-2',
+                closeTone === 'danger'
+                  ? 'text-danger hover:bg-danger-soft focus-visible:outline-danger'
+                  : 'text-soft hover:bg-tint hover:text-ink focus-visible:outline-primary',
+              )}
               aria-label={closeLabel}
             >
               <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
