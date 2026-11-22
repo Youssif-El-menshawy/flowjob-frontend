@@ -326,16 +326,16 @@ function Review({ result, base, onRestart }: {
   };
 
   const notes = useMemo(() => result.warnings.map(describeWarning), [result.warnings]);
-  const counts = useMemo(() => {
-    const byWarning = countBySection(result);
-    for (const key of clashes) byWarning[CHOICE_SECTION[key]] = (byWarning[CHOICE_SECTION[key]] ?? 0) + 1;
-    return byWarning;
-  }, [result, clashes]);
-  // Not found in the CV, and not in the Profile either.
+  // Not found in the CV, and not in the Profile (or the account) either.
   const missing = useMemo(
     () => new Set<string>(result.missing.filter((field) => isEmptyValue(c[field] as Profile[ChoiceKey]))),
     [result.missing, c],
   );
+  const counts = useMemo(() => {
+    const bySection = countBySection({ ...result, missing: result.missing.filter((field) => missing.has(field)) });
+    for (const key of clashes) bySection[CHOICE_SECTION[key]] = (bySection[CHOICE_SECTION[key]] ?? 0) + 1;
+    return bySection;
+  }, [result, missing, clashes]);
   const identityDiffers =
     (!!result.content.fullName && result.content.fullName.trim() !== mine.fullName.trim())
     || (!!result.content.email && result.content.email.trim().toLowerCase() !== mine.email.trim().toLowerCase());

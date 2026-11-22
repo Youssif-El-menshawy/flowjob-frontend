@@ -429,7 +429,7 @@ function Onboarding({
             >
               {s.done ? '✓' : i + 1}
             </span>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-[min(100%,14rem)] flex-1">
               <p className={cn('font-medium', s.done && 'text-soft line-through')}>{s.t}</p>
               <p className="text-sm text-soft">{s.d}</p>
             </div>

@@ -271,6 +271,13 @@ describe('review of a new account', () => {
     expect(screen.getByText('Nothing found in your CV for this section.')).toBeVisible();
   });
 
+  it('counts only what is still empty: the account fills the name and email', async () => {
+    const noContact = { ...RESULT, warnings: [], missing: ['fullName', 'email', 'phone'] as CvImportResult['missing'] };
+    await reachReview((path) => (path === '/profile/import/pdf' ? Response.json(noContact) : undefined));
+    expect(screen.getByRole('tab', { name: /Personal/ })).toHaveTextContent(/^Personal1$/);
+    expect(screen.getByText(/Not found in your CV: Phone\./)).toBeVisible();
+  });
+
   it('keeps the account name and email instead of the PDF’s', async () => {
     await reachReview();
     expect(screen.getByLabelText('Full name')).toHaveValue('Ana Nowak');
