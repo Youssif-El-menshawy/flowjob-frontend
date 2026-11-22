@@ -639,9 +639,10 @@ function ReviewForm({
             />
           </div>
         </div>
-        <div className="min-w-0 xl:sticky xl:top-8">
+        {/* The same card as the form beside it. Each column keeps its own height (the grid aligns them to the top). */}
+        <Card className="min-w-0 xl:sticky xl:top-8">
           <CvLivePreview content={c} />
-        </div>
+        </Card>
       </div>
 
       {/* One row from md up: the confirmation on the left, the actions on the right. Stacked below that, with the
