@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
+import { Link, RouterProvider, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CvImportResult, Profile, ProfileImportStatus } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
+import { guardedRouter, unload } from '@/test/guardedRouter';
 import ImportProfilePage from './ImportProfilePage';
 
 // The real page, API client and React Query hooks; only fetch (the FlowJob API) and the PDF canvas are replaced.
@@ -74,11 +75,13 @@ function Dashboard() {
 }
 
 function renderPage() {
-  const router = createMemoryRouter([
-    { path: '/app/profile/import', element: <ImportProfilePage /> },
+  // With the app's interruption guard, as in the real routes. The link stands in for the sidebar.
+  const router = guardedRouter([
+    { path: '/app/profile/import', element: <><Link to="/app/cvs">Sidebar: My CVs</Link><ImportProfilePage /></> },
     { path: '/app/profile', element: <p>PROFILE</p> },
+    { path: '/app/cvs', element: <p>MY CVS</p> },
     { path: '/app', element: <Dashboard /> },
-  ], { initialEntries: ['/app/profile/import'] });
+  ], ['/app/profile/import']);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
       <ToastProvider>
@@ -567,5 +570,79 @@ describe('leaving the review', () => {
     for (const text of ['Ada Example', 'ada@example.com', 'Acme Ltd', 'Kubernetes', 'synthetic test CV']) {
       expect(stored).not.toContain(text);
     }
+  });
+});
+
+describe('interruption protection', () => {
+  const sidebar = () => fireEvent.click(screen.getByRole('link', { name: 'Sidebar: My CVs' }));
+  function holdImport() {
+    stubApi((path, init) => (path === '/profile/import/pdf' ? new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    }) : undefined));
+  }
+
+  it('does not warn before an import starts, even with a file chosen', async () => {
+    stubApi();
+    renderPage();
+    fireEvent.change(await screen.findByLabelText('CV PDF file'), { target: { files: [pdfFile()] } });
+    await screen.findByText('cv.pdf');
+    fireEvent.click(consentBox());
+    expect(unload()).toBe(true);
+    sidebar();
+    expect(screen.getByText('MY CVS')).toBeInTheDocument();
+  });
+
+  it('explains while processing that leaving loses the result and may use a try, and Leave stops waiting', async () => {
+    holdImport();
+    renderPage();
+    await chooseAndImport();
+    await screen.findByRole('button', { name: 'Reading your CV…' });
+    expect(unload()).toBe(false);
+    sidebar();
+    const dialog = screen.getByRole('dialog', { name: 'Leave while your CV is being read?' });
+    expect(dialog).toHaveTextContent('still organizing your CV on the server');
+    expect(dialog).toHaveTextContent('the result is lost');
+    expect(dialog).toHaveTextContent('may still count toward today’s tries');
+    expect(dialog).not.toHaveTextContent(/cancel/i); // the server is not cancelled, so nothing claims it is
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stay' }));
+    expect(screen.getByRole('button', { name: 'Reading your CV…' })).toBeDisabled();
+    const call = requests.find((r) => r.path === '/profile/import/pdf')!;
+    expect(call.init.signal?.aborted).toBe(false);
+
+    sidebar();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Leave' }));
+    expect(screen.getByText('MY CVS')).toBeInTheDocument();
+    expect(call.init.signal?.aborted).toBe(true);
+    expect(saves()).toEqual([]);
+  });
+
+  it('protects the unsaved review on navigation and refresh', async () => {
+    await reachReview();
+    expect(unload()).toBe(false);
+    sidebar();
+    const dialog = screen.getByRole('dialog', { name: 'Leave without saving?' });
+    expect(dialog).toHaveTextContent('has not been saved to your Profile');
+    expect(dialog).toHaveTextContent('uses another of today’s tries');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stay' }));
+    expect(screen.getByRole('heading', { name: 'Review your Profile' })).toBeVisible();
+  });
+
+  it('never asks after a successful save, or a second time after Discard import', async () => {
+    const router = await reachReview((path, init) => (path === '/profile/import' && init.method === 'POST'
+      ? Response.json({ ...BLANK, ...RESULT.content, fullName: BLANK.fullName, email: BLANK.email })
+      : undefined));
+    await confirmAndSave();
+    expect(await screen.findByText(/DASHBOARD/)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(router.state.location.pathname).toBe('/app');
+    expect(unload()).toBe(true);
+
+    cleanup();
+    await reachReview();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard import' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Discard this import?' }))
+      .getByRole('button', { name: 'Discard import' }));
+    expect(screen.getByText('PROFILE')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

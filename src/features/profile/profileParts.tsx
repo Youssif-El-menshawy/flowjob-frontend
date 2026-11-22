@@ -4,6 +4,7 @@ import type { Education, Experience, Project } from '@/shared/api/types';
 import { uid } from '@/shared/lib/uid';
 import { Button } from '@/shared/ui/Button';
 import { controlClass, Input, Textarea } from '@/shared/ui/Field';
+import { useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { Modal } from '@/shared/ui/Overlay';
 import { MonthYearPicker } from '@/shared/ui/MonthYearPicker';
 import { parseDate, validateRange } from '@/shared/lib/dates';
@@ -45,21 +46,34 @@ export function ItemEditor({
   const [showDateErrors, setShowDateErrors] = useState(false);
   // A month picked without a year can't be stored, so each picker reports it here.
   const [incomplete, setIncomplete] = useState({ start: false, end: false });
+  // What the editor opened with, to tell real changes from an untouched form.
+  const [opened, setOpened] = useState<{ v: Record<string, string>; present: boolean } | null>(null);
   useEffect(() => {
     if (!item) return;
     const r = item as unknown as Record<string, unknown>;
-    setV(
-      Object.fromEntries(
-        Object.entries(r).map(([k, x]) => [k, Array.isArray(x) ? x.join('\n') : String(x ?? '')]),
-      ),
+    const values = Object.fromEntries(
+      Object.entries(r).map(([k, x]) => [k, Array.isArray(x) ? x.join('\n') : String(x ?? '')]),
     );
+    setV(values);
     setErr('');
     setShowDateErrors(false);
     setIncomplete({ start: false, end: false });
     const end = parseDate(String(r.end ?? '')).kind;
     setPresent(end === 'empty' || end === 'present');
+    setOpened({ v: values, present: end === 'empty' || end === 'present' });
   }, [item]);
+  const changed = !!opened && (present !== opened.present
+    || Object.keys({ ...opened.v, ...v }).some((k) => (v[k] ?? '') !== (opened.v[k] ?? '')));
+  const guard = useLeaveGuard({
+    when: !!item && changed,
+    dialog: true,
+    title: isNew ? 'Discard this entry?' : 'Discard your changes?',
+    message: isNew ? 'This entry has not been added yet.' : 'Your changes to this entry have not been saved.',
+    leaveLabel: 'Discard',
+    stayLabel: 'Keep editing',
+  });
   if (!item) return null;
+  const requestClose = () => guard.confirm(onClose);
   const set = (k: string) => (e: { target: { value: string } }) =>
     setV((s) => ({ ...s, [k]: e.target.value }));
   const required =
@@ -139,12 +153,12 @@ export function ItemEditor({
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={requestClose}
       title={`${isNew ? 'Add' : 'Edit'} ${label}`}
       size="lg"
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={requestClose}>
             Cancel
           </Button>
           <Button onClick={save}>Save</Button>

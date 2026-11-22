@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { matchPath, useBlocker, type BlockerFunction } from 'react-router-dom';
 import { z } from 'zod';
 import { useProfile, useProfileImportStatus, useSaveProfile } from '@/shared/api/queries';
 import type { Education, Experience, Profile, Project } from '@/shared/api/types';
@@ -8,6 +7,7 @@ import { profileStrength } from '@/shared/lib/profile';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, Note, PageHeader, ProgressBar, Tabs } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
+import { useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { ContactLinksInputs, useContactLinks } from './ContactLinksFields';
@@ -78,10 +78,14 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
   const phoneField = usePhoneField(saved.phone);
   const location = useLocationField(p.location, (value) => set('location', value));
   const dirty = contact.isDirty || phoneField.isDirty || !!skillInput.trim() || JSON.stringify(p) !== JSON.stringify(saved);
-  const blocker = useBlocker(useCallback<BlockerFunction>(
-    ({ nextLocation }) => dirty && !matchPath('/app/profile', nextLocation.pathname),
-    [dirty],
-  ));
+  // Leaving the page (a link, Back, log out, refresh or closing the tab) asks first while edits are unsaved.
+  useLeaveGuard({
+    when: dirty,
+    busy: save.isPending,
+    title: 'Leave profile?',
+    message: 'Your unsaved profile changes will be lost if you leave.',
+    leaveLabel: 'Discard and leave',
+  });
   const strength = profileStrength(p);
   const invalidEmail = p.email !== saved.email && !!p.email.trim() && !EMAIL.safeParse(p.email.trim()).success;
 
@@ -90,16 +94,6 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
     seenQuery.current = latest;
     if (!dirty && !saving.current) reset(latest);
   }, [dirty, latest, reset]);
-
-  useEffect(() => {
-    if (!dirty) return;
-    const beforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', beforeUnload);
-    return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [dirty]);
 
   const doSave = (next = p) => {
     if (saving.current) return;
@@ -305,20 +299,6 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
         </aside>
       </div>
 
-      <ConfirmDialog
-        open={blocker.state === 'blocked'}
-        onClose={() => {
-          if (blocker.state === 'blocked') blocker.reset();
-        }}
-        onConfirm={() => {
-          if (!saving.current && blocker.state === 'blocked') blocker.proceed();
-        }}
-        loading={save.isPending}
-        title="Leave profile?"
-        text="Your unsaved profile changes will be lost if you leave."
-        confirmLabel="Discard and leave"
-        danger
-      />
       {editing && (
         <ItemEditor
           kind={editing.kind}

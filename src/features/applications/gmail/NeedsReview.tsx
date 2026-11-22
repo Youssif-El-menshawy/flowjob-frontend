@@ -4,6 +4,7 @@ import { qk, useGmail, useGmailReviews } from '@/shared/api/queries';
 import type { GmailStatus } from '@/shared/api/types';
 import { buttonClass, Button } from '@/shared/ui/Button';
 import { Icon } from '@/shared/ui/Icons';
+import { useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { Modal } from '@/shared/ui/Overlay';
 import { ReviewCard } from './ReviewCard';
 
@@ -49,6 +50,17 @@ export function ReviewDialog({ open, onClose }: { open: boolean; onClose: () => 
   const latestClose = useRef(onClose);
   latestClose.current = onClose;
   const close = useCallback(() => latestClose.current(), []);
+  // Edits or a choice on the current suggestion are lost when moving to another one, closing, or leaving the page.
+  const [cardDirty, setCardDirty] = useState(false);
+  const guard = useLeaveGuard({
+    when: open && cardDirty,
+    dialog: true,
+    title: 'Discard your changes?',
+    message: 'Your changes to this suggestion have not been saved. Nothing is approved or dismissed until you choose.',
+    leaveLabel: 'Discard changes',
+    stayLabel: 'Keep editing',
+  });
+  const requestClose = useCallback(() => guard.confirm(close), [guard, close]);
 
   useEffect(() => {
     if (!open) {
@@ -78,7 +90,7 @@ export function ReviewDialog({ open, onClose }: { open: boolean; onClose: () => 
   };
 
   return (
-    <Modal open={open && !empty} onClose={close} title="Needs review" size="lg" iconClose closeLabel="Close review">
+    <Modal open={open && !empty} onClose={requestClose} title="Needs review" size="lg" iconClose closeLabel="Close review">
       {reviews.isLoading ? (
         <p className="text-sm text-soft" role="status">
           Loading suggestions…
@@ -109,7 +121,7 @@ export function ReviewDialog({ open, onClose }: { open: boolean; onClose: () => 
                   size="sm"
                   variant="secondary"
                   disabled={i === 0}
-                  onClick={() => setIndex(i - 1)}
+                  onClick={() => guard.confirm(() => setIndex(i - 1))}
                   aria-label="Previous suggestion"
                 >
                   <Icon.arrowLeft /> Previous
@@ -118,7 +130,7 @@ export function ReviewDialog({ open, onClose }: { open: boolean; onClose: () => 
                   size="sm"
                   variant="secondary"
                   disabled={i >= list.length - 1}
-                  onClick={() => setIndex(i + 1)}
+                  onClick={() => guard.confirm(() => setIndex(i + 1))}
                   aria-label="Next suggestion"
                 >
                   Next <Icon.arrowRight />
@@ -128,7 +140,7 @@ export function ReviewDialog({ open, onClose }: { open: boolean; onClose: () => 
           </div>
           <ul aria-label="Suggestion">
             {/* Keyed by id: moving to another suggestion drops any unsaved edits on this one. */}
-            <ReviewCard key={current.id} r={current} onDone={onDone} />
+            <ReviewCard key={current.id} r={current} onDone={onDone} onDirtyChange={setCardDirty} />
           </ul>
           <p className="text-[13px] text-soft">
             Nothing changes until you approve, save or dismiss. Closing keeps every suggestion for later.

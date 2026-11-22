@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
+import { Link, Outlet, RouterProvider, useParams } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
 import type { MatchResult } from '@/shared/api/types';
@@ -21,22 +21,25 @@ vi.mock('@/shared/api/queries', () => ({
   useTailorDirect: () => mocks.tailor,
 }));
 
+import { guardedRouter, unload } from '@/test/guardedRouter';
 import JobMatchPage from './JobMatchPage';
 
 function LocationProbe() {
   return <div>DRAFT PAGE {useParams().draftId}</div>;
 }
 
+// Under the app's interruption guard: a successful run must open its result without any question.
 function renderPage(entry: string | { pathname: string; state: unknown } = '/app/match') {
-  return render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Routes>
-        <Route path="/app/match" element={<JobMatchPage />} />
-        <Route path="/app/match/:matchId" element={<div>REPORT PAGE</div>} />
-        <Route path="/app/tailor/:draftId" element={<LocationProbe />} />
-      </Routes>
-    </MemoryRouter>,
-  );
+  const router = guardedRouter([{
+    element: <><Outlet /><Link to="/app/cvs">Sidebar: My CVs</Link></>,
+    children: [
+      { path: '/app/match', element: <JobMatchPage /> },
+      { path: '/app/match/:matchId', element: <div>REPORT PAGE</div> },
+      { path: '/app/tailor/:draftId', element: <LocationProbe /> },
+      { path: '/app/cvs', element: <div>MY CVS</div> },
+    ],
+  }], [entry]);
+  return render(<RouterProvider router={router} />);
 }
 
 const JOB =
@@ -337,4 +340,60 @@ it('prefills a direct recovery and requests a fresh draft only on submit', () =>
     cvId: 'cv1', jobTitle: 'Product Quality Analyst', company: 'Example Analytics',
     jobDescription: JOB, jobUrl: 'example.com/jobs/1', fresh: true,
   }, expect.anything());
+});
+
+describe('leaving Job Match', () => {
+  const sidebar = () => fireEvent.click(screen.getByRole('link', { name: 'Sidebar: My CVs' }));
+
+  it('does not ask for an untouched form, including a post brought over from the landing page', () => {
+    sessionStorage.setItem('flowjob.pendingJob', JOB);
+    renderPage();
+    expect(screen.getByLabelText('Job description')).toHaveValue(JOB);
+    expect(unload()).toBe(true);
+    sidebar();
+    expect(screen.getByText('MY CVS')).toBeInTheDocument();
+    sessionStorage.clear();
+  });
+
+  it('asks before typed job details are lost', () => {
+    renderPage();
+    fill();
+    expect(unload()).toBe(false);
+    sidebar();
+    const dialog = screen.getByRole('dialog', { name: 'Leave Job Match?' });
+    expect(dialog).toHaveTextContent('The job details you entered will be lost.');
+    fireEvent.click(screen.getByRole('button', { name: 'Stay' }));
+    expect(screen.getByLabelText('Job description')).toHaveValue(JOB);
+    sidebar();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and leave' }));
+    expect(screen.getByText('MY CVS')).toBeInTheDocument();
+  });
+
+  it('says a running match continues on the server and where to find it', () => {
+    mocks.run = { mutate: vi.fn(), isPending: true };
+    renderPage();
+    sidebar();
+    const dialog = screen.getByRole('dialog', { name: 'Leave while your match is checked?' });
+    expect(dialog).toHaveTextContent('still being checked on the server');
+    expect(dialog).toHaveTextContent('appear under Recent matches');
+    expect(dialog).not.toHaveTextContent(/cancel/i);
+  });
+
+  it('says a draft being created is not lost and can be reopened without another try', () => {
+    mocks.tailor = { mutate: vi.fn(), isPending: true };
+    renderPage();
+    sidebar();
+    const dialog = screen.getByRole('dialog', { name: 'Leave while your draft is created?' });
+    expect(dialog).toHaveTextContent('still being created on the server');
+    expect(dialog).toHaveTextContent('without using another try');
+  });
+
+  it('opens the result of a successful run without asking', () => {
+    mocks.run.mutate = vi.fn((_input: unknown, opts: { onSuccess: (m: { id: string }) => void }) => opts.onSuccess({ id: 'm9' }));
+    renderPage();
+    fill();
+    fireEvent.click(analyse());
+    expect(screen.getByText('REPORT PAGE')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });

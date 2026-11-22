@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
 import type { Cv, TailorDraft, TailorMatchInput } from '@/shared/api/types';
@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   create: { mutate: vi.fn(), isPending: false },
   tailorMutate: vi.fn(),
   tailorError: null as unknown,
+  tailorPending: false,
   draftQuery: { data: undefined as unknown, isError: false, error: null as unknown },
   draftIds: [] as (string | undefined)[],
   source: undefined as Cv | undefined,
@@ -46,6 +47,7 @@ vi.mock('@/shared/api/queries', () => ({
     refetch: mocks.refetchSource,
   }),
   useTailor: () => ({
+    isPending: mocks.tailorPending,
     isError: !!mocks.tailorError,
     error: mocks.tailorError,
     mutate: (input: TailorMatchInput, opts: { onSuccess: (d: TailorDraft) => void }) => {
@@ -72,6 +74,7 @@ vi.mock('@/features/cv/HarvardPdfViewer', () => ({
   HarvardPdfViewer: ({ blob }: { blob: Blob | null }) => <div data-testid="pdf">{blob?.type ?? 'empty'}</div>,
 }));
 
+import { guardedRouter, unload } from '@/test/guardedRouter';
 import TailorPage from './TailorPage';
 
 function page(path = '/app/match/m1/tailor') {
@@ -112,6 +115,8 @@ afterEach(() => {
   mocks.create.mutate = vi.fn();
   mocks.tailorMutate = vi.fn();
   mocks.tailorError = null;
+  mocks.tailorPending = false;
+  mocks.create.isPending = false;
   mocks.match = undefined;
   mocks.draftQuery = { data: undefined, isError: false, error: null };
   mocks.draftIds = [];
@@ -747,4 +752,68 @@ it('sends a direct legacy draft back to the job form to re-enter the description
   fireEvent.click(screen.getByRole('link', { name: 'Start a fresh draft' }));
   expect(screen.getByText('JOB FORM')).toBeVisible();
   expect(mocks.tailorMutate).not.toHaveBeenCalled();
+});
+
+describe('TailorPage interruption protection', () => {
+  function renderGuarded(path: string) {
+    const router = guardedRouter([{
+      element: <><Outlet /><Link to="/app/cvs">Sidebar: My CVs</Link></>,
+      children: [
+        { path: '/app/match/:matchId/tailor', element: <TailorPage /> },
+        { path: '/app/tailor/:draftId', element: <TailorPage /> },
+        { path: '/app/cvs', element: <div>MY CVS</div> },
+      ],
+    }], [path]);
+    render(<RouterProvider router={router} />);
+    return router;
+  }
+  const sidebar = () => fireEvent.click(screen.getByRole('link', { name: 'Sidebar: My CVs' }));
+
+  it('does not ask while reviewing: decisions are kept in this tab and the draft can be reopened', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    renderGuarded('/app/tailor/d1');
+    decide('Experience', 'Apply suggestion');
+    expect(unload()).toBe(true);
+    sidebar();
+    expect(screen.getByText('MY CVS')).toBeInTheDocument();
+    expect(JSON.parse(sessionStorage.getItem('flowjob.tailorReview.d1')!).decisions.s1).toBeTruthy();
+  });
+
+  it('remembers the new CV name with the review', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    renderGuarded('/app/tailor/d1');
+    fireEvent.change(screen.getByLabelText('New CV name'), { target: { value: 'Acme backend' } });
+    cleanup();
+    renderGuarded('/app/tailor/d1');
+    expect(screen.getByLabelText('New CV name')).toHaveValue('Acme backend');
+  });
+
+  it('while saving, says the save continues on the server and where the CV will be', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    mocks.create.isPending = true;
+    renderGuarded('/app/tailor/d1');
+    expect(unload()).toBe(false);
+    sidebar();
+    const dialog = screen.getByRole('dialog', { name: 'Leave while your CV is saved?' });
+    expect(dialog).toHaveTextContent('Saving continues on the server');
+    expect(dialog).toHaveTextContent('My CVs');
+  });
+
+  it('while a draft is created from a match, says it finishes and reopens without another try', () => {
+    mocks.tailorPending = true;
+    mocks.tailorMutate = vi.fn();
+    renderGuarded('/app/match/m1/tailor');
+    sidebar();
+    const dialog = screen.getByRole('dialog', { name: 'Leave while your draft is created?' });
+    expect(dialog).toHaveTextContent('will finish even if you leave');
+    expect(dialog).toHaveTextContent('will not use another try');
+    expect(dialog).not.toHaveTextContent(/cancel/i);
+  });
+
+  it('opens the finished draft without asking', () => {
+    renderGuarded('/app/match/m1/tailor');
+    fireEvent.click(screen.getByRole('button', { name: 'Start tailoring' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'AI suggestions' })).toBeInTheDocument();
+  });
 });

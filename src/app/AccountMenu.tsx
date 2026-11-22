@@ -4,6 +4,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { cn, initials } from '@/shared/lib/utils';
 import { useTheme } from '@/shared/lib/theme';
 import { Icon } from '@/shared/ui/Icons';
+import { useLeaveControl } from '@/shared/ui/LeaveGuard';
 import { useToast } from '@/shared/ui/Overlay';
 
 /**
@@ -25,6 +26,7 @@ export function AccountMenu({
   const nav = useNavigate();
   const loc = useLocation();
   const toast = useToast();
+  const leave = useLeaveControl();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -75,14 +77,17 @@ export function AccountMenu({
     onNavigate?.();
     nav(to);
   };
-  const doLogout = async () => {
+  const doLogout = () => {
     setOpen(false);
-    try {
-      await logout();
-      nav('/', { replace: true });
-    } catch {
-      toast({ text: 'Could not log out. Please try again.', tone: 'error' });
-    }
+    // Asked BEFORE the session ends, so choosing Stay keeps the person signed in with their work intact.
+    leave.confirmExit(async () => {
+      try {
+        await logout();
+        nav('/', { replace: true });
+      } catch {
+        toast({ text: 'Could not log out. Please try again.', tone: 'error' });
+      }
+    }, { title: 'Log out?', leaveLabel: 'Log out' });
   };
 
   const itemClass = 'flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors';

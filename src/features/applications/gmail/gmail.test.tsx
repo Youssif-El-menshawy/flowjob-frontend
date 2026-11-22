@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, Outlet, RouterProvider, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ApplicationDetailPage from '@/features/applications/ApplicationDetailPage';
 import ApplicationsPage from '@/features/applications/ApplicationsPage';
 import { GmailSettingsCard } from '@/features/applications/gmail/GmailSettingsCard';
 import type { Application, GmailReview, GmailStatus } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
+import { guardedRouter, unload } from '@/test/guardedRouter';
+import { useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { goTo } from './useGmailOAuth';
 import { fromLocalInput, reviewReason, safeGmailUrl } from './gmailLabels';
 
@@ -94,18 +96,29 @@ function Where() {
   return <output data-testid="location">{loc.pathname + loc.search}</output>;
 }
 
+/** Unsaved work elsewhere on the page (like the Settings account form), to check the Google redirect asks first. */
+function UnsavedElsewhere() {
+  useLeaveGuard({ when: true, title: 'Leave without saving?', message: 'Your account changes have not been saved.' });
+  return null;
+}
+
+// Under the app's interruption guard, as in the real routes.
 function renderAt(path: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = guardedRouter([{
+    element: <><Outlet /><Link to="/app/cvs">Sidebar: My CVs</Link></>,
+    children: [
+      { path: '/app/applications', element: <><ApplicationsPage /><Where /></> },
+      { path: '/app/applications/:id', element: <ApplicationDetailPage /> },
+      { path: '/app/settings', element: <GmailSettingsCard /> },
+      { path: '/app/settings-unsaved', element: <><UnsavedElsewhere /><GmailSettingsCard /></> },
+      { path: '/app/cvs', element: <p>MY CVS</p> },
+    ],
+  }], [path]);
   return render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/app/applications" element={<><ApplicationsPage /><Where /></>} />
-            <Route path="/app/applications/:id" element={<ApplicationDetailPage />} />
-            <Route path="/app/settings" element={<GmailSettingsCard />} />
-          </Routes>
-        </MemoryRouter>
+        <RouterProvider router={router} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -325,13 +338,15 @@ describe('Needs Review', () => {
     expect(screen.queryByRole('button', { name: /^Needs review/ })).toBeNull();
   });
 
-  it('closing without acting changes nothing, and drops unsaved edits', async () => {
+  it('closing without acting changes nothing, and drops unsaved edits after asking', async () => {
     backend(active({}, 3));
     renderAt('/app/applications');
     let dialog = await openReview();
     fireEvent.click(await within(dialog).findByRole('button', { name: 'Edit' }));
     fireEvent.change(within(dialog).getByLabelText('Job title'), { target: { value: 'Changed title' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close review' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Discard your changes?' }))
+      .getByRole('button', { name: 'Discard changes' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(requests.filter((r) => r.method === 'POST')).toEqual([]);
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/app\/applications$/);
@@ -639,5 +654,71 @@ describe('pre-merge hardening', () => {
     expect(await screen.findByText('Date saved.')).toBeVisible();
     const body = sent('POST', '/gmail/reviews/r-time/approve')[0].body as { scheduledAt: string };
     expect(body.scheduledAt).toMatch(/^2026-11-19T20:00:00[+-]\d{2}:\d{2}$/);
+  });
+});
+
+describe('interruption protection with Gmail', () => {
+  const openReview = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: /^Needs review/ }));
+    return screen.getByRole('dialog', { name: 'Needs review' });
+  };
+
+  it('asks before Next, Close or leaving drops edits on a suggestion; untouched ones move freely', async () => {
+    backend(active({}, 3));
+    renderAt('/app/applications');
+    const dialog = await openReview();
+    expect(await within(dialog).findByText('1 of 3')).toBeVisible();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    expect(within(dialog).getByText('2 of 3')).toBeVisible(); // nothing changed: no question
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Previous suggestion' }));
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(dialog).getByLabelText('Job title'), { target: { value: 'Changed title' } });
+    expect(unload()).toBe(false);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    const ask = screen.getByRole('dialog', { name: 'Discard your changes?' });
+    expect(ask).toHaveTextContent('Nothing is approved or dismissed until you choose.');
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep editing' }));
+    expect(within(dialog).getByText('1 of 3')).toBeVisible();
+    expect(within(dialog).getByLabelText('Job title')).toHaveValue('Changed title');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next suggestion' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(within(dialog).getByText('2 of 3')).toBeVisible();
+    expect(unload()).toBe(true);
+    expect(requests.filter((r) => r.method === 'POST')).toEqual([]);
+  });
+
+  it('never interrupts a running sync: no question on leaving or refreshing, and the status comes back on reload', async () => {
+    backend(active({ running: true, remaining: 7 }));
+    renderAt('/app/applications');
+    expect(await screen.findByRole('button', { name: 'Syncing… 7 left' })).toBeDisabled();
+    expect(unload()).toBe(true);
+    fireEvent.click(screen.getByRole('link', { name: 'Sidebar: My CVs' }));
+    expect(screen.getByText('MY CVS')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(sent('POST', '/gmail/sync')).toEqual([]);
+
+    cleanup(); // a refresh: a fresh page reads the sync state from the server again
+    renderAt('/app/applications');
+    expect(await screen.findByRole('button', { name: 'Syncing… 7 left' })).toBeDisabled();
+    expect(sent('POST', '/gmail/sync')).toEqual([]);
+  });
+
+  it('asks once before Connect Gmail leaves unsaved work for Google, without a second browser warning', async () => {
+    backend(disconnected, (path, method) => (path === '/gmail/oauth/start' && method === 'POST'
+      ? Response.json({ authorizationUrl: 'https://accounts.google.com/o/oauth2/auth?fixture=1' })
+      : undefined));
+    renderAt('/app/settings-unsaved');
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+    const consent = screen.getByRole('dialog');
+    const proceed = within(consent).getAllByRole('button').find((b) => /Google|Continue|Connect/.test(b.textContent ?? ''))!;
+    fireEvent.click(proceed);
+    const ask = await screen.findByRole('dialog', { name: 'Continue to Google?' });
+    expect(ask).toHaveTextContent('Your account changes have not been saved.');
+    expect(goTo.assign).not.toHaveBeenCalled();
+    fireEvent.click(within(ask).getByRole('button', { name: 'Continue to Google' }));
+    await waitFor(() => expect(goTo.assign).toHaveBeenCalledWith('https://accounts.google.com/o/oauth2/auth?fixture=1'));
+    expect(unload()).toBe(true);
   });
 });

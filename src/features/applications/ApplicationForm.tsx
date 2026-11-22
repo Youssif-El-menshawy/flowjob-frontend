@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -49,13 +50,15 @@ type ApplicationFormProps = {
   defaults?: Partial<ApplicationInput>;
   submitLabel: string;
   onCancel: () => void;
+  /** Called when the form gains or loses unsaved changes, so the page or dialog can protect them. */
+  onDirtyChange?: (dirty: boolean) => void;
 } & (
   | { mode?: 'create'; onSubmit: (v: ApplicationInput) => Promise<unknown> }
   | { mode: 'edit'; onSubmit: (v: ApplicationPatch) => Promise<unknown> }
 );
 
 export function ApplicationForm(props: ApplicationFormProps) {
-  const { defaults, submitLabel, onCancel } = props;
+  const { defaults, submitLabel, onCancel, onDirtyChange } = props;
   const editing = props.mode === 'edit';
   const cvs = useCvs();
   const { control, register, handleSubmit, watch, setValue, setError, formState } = useForm<FormValues>({
@@ -75,6 +78,10 @@ export function ApplicationForm(props: ApplicationFormProps) {
     },
   });
   const status = watch('status');
+  const { isDirty } = formState;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
   const { dirtyFields, errors: e } = formState;
   const available = (id?: string) => cvs.data?.some((cv) => cv.id === id);
 

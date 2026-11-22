@@ -14,6 +14,7 @@ import { useDocumentTitle } from '@/shared/lib/hooks';
 import { cn } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, Note, PageHeader } from '@/shared/ui/Display';
+import { useLeaveControl, useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { useContactLinks } from '@/features/profile/ContactLinksFields';
@@ -56,6 +57,18 @@ export default function ImportProfilePage() {
   const status = useProfileImportStatus();
   const [stage, setStage] = useState<Stage>({ name: 'choose' });
   const [notice, setNotice] = useState('');
+
+  // The server keeps organizing the CV even if this page goes away, and the result is never stored, so leaving now
+  // loses it while the attempt may still count. Leave only stops this tab from waiting for the answer.
+  useLeaveGuard({
+    when: stage.name === 'importing',
+    title: 'Leave while your CV is being read?',
+    message: 'FlowJob is still organizing your CV on the server. If you leave now, the result is lost, and this '
+      + 'attempt may still count toward today’s tries. Your Profile will not change.',
+    onLeave: () => {
+      if (stage.name === 'importing') stage.controller.abort();
+    },
+  });
 
   // The review always starts from the Profile as it is now (and its revision), never from an older copy.
   const freshStatus = () => qc.fetchQuery({ queryKey: qk.profileImport, queryFn: fetchProfileImportStatus, staleTime: 0 });
@@ -333,12 +346,15 @@ function Review({ result, base, onRestart }: {
     if (key === 'phone' || key === 'links') setFormKey((k) => k + 1);
   };
 
-  // Leaving or reloading the page drops the import; ask the browser to warn first.
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, []);
+  // Nothing is stored until Save to my Profile, so leaving (a link, Back, refresh, closing the tab) drops the result.
+  const leave = useLeaveControl();
+  useLeaveGuard({
+    when: true,
+    busy: save.isPending,
+    title: 'Leave without saving?',
+    message: 'Your imported CV has not been saved to your Profile. If you leave, the result is lost. You can import '
+      + 'again later, which uses another of today’s tries.',
+  });
 
   const onSave = (profile: Profile) => {
     setSaveError(null);
@@ -347,7 +363,7 @@ function Review({ result, base, onRestart }: {
       {
         onSuccess: () => {
           toast({ text: 'Your Profile is saved.' });
-          nav('/app', { replace: true, state: { profileImported: true } });
+          leave.bypass(() => nav('/app', { replace: true, state: { profileImported: true } }));
         },
         onError: (error) => {
           if (error instanceof ApiError && error.status === 409) setSaveError({ kind: 'used', message: error.message });
@@ -480,7 +496,7 @@ function Review({ result, base, onRestart }: {
       <ConfirmDialog
         open={discarding}
         onClose={() => setDiscarding(false)}
-        onConfirm={() => nav('/app/profile', { replace: true })}
+        onConfirm={() => leave.bypass(() => nav('/app/profile', { replace: true }))}
         title="Discard this import?"
         text="Nothing has been saved and your Profile stays as it is. You can still import your CV later."
         confirmLabel="Discard import"

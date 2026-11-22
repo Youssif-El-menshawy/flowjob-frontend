@@ -4,6 +4,10 @@ import { cn } from '@/shared/lib/utils';
 import { Button } from './Button';
 
 // ---------- Modal ----------
+// Open dialogs, innermost last. Only the top one answers Escape and keeps Tab inside, so a confirmation shown over
+// an editor never closes the editor too.
+const openModals: symbol[] = [];
+
 export function Modal({
   open,
   onClose,
@@ -37,12 +41,27 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const fullscreen = size === 'fullscreen';
+  // Its place in the stack is kept for as long as it stays open.
+  const [self] = useState(() => Symbol('modal'));
+  // The latest onClose, so a new function on each render never re-runs the focus setup below (which would move
+  // focus out of the field being typed in).
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const close = useCallback(() => closeRef.current(), []);
+  useEffect(() => {
+    if (!open) return;
+    openModals.push(self);
+    return () => {
+      openModals.splice(openModals.indexOf(self), 1);
+    };
+  }, [open, self]);
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (openModals[openModals.length - 1] !== self) return;
+      if (e.key === 'Escape') closeRef.current();
       if (e.key === 'Tab' && ref.current) {
         const f = Array.from(ref.current.querySelectorAll<HTMLElement>(
           'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
@@ -75,7 +94,7 @@ export function Modal({
       document.body.style.overflow = previousOverflow;
       prev?.focus();
     };
-  }, [open, onClose]);
+  }, [open, self]);
   if (!open) return null;
   return createPortal(
     <div className={cn(
@@ -84,7 +103,7 @@ export function Modal({
     )}>
       <div
         className="absolute inset-0 bg-[#06140d]/50 backdrop-blur-[2px] animate-in"
-        onClick={dismissOnBackdrop ? onClose : undefined}
+        onClick={dismissOnBackdrop ? close : undefined}
         aria-hidden
       />
       <div
