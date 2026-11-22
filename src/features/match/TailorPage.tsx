@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import { fetchCvPreviewPdf, useCreateCv, useCv, useCvs, useMatch, useRunMatch, useTailor, useTailorDraft } from '@/shared/api/queries';
 import { TAILORING_BACKEND_INCOMPATIBLE } from '@/shared/api/tailoring';
@@ -532,7 +532,6 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
       { cvId: cv.id, jobTitle: draft.jobTitle, jobDescription: post, company: draft.company || undefined, jobUrl: draft.jobUrl || undefined },
       {
         onSuccess: (m) => {
-          jobPosts.remember(m.id, post);
           const report = () => nav(`/app/match/${m.id}`, { state: { previousScore } });
           // Closed while checking: stay put and offer the result instead of moving the page.
           if (openRef.current) report();
@@ -582,6 +581,21 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
       )}
       {run.isPending && (
         <p role="status" className="sr-only">Checking your new CV against the same job post…</p>
+      )}
+      {!post && (
+        // FlowJob never stores job posts, and this tab no longer has this one (for example after signing in again
+        // or in a new tab). Nothing is guessed: the person can paste the post to check the new CV.
+        <p className="mt-3 text-[13px] text-soft">
+          To re-check your match, paste the job post again in{' '}
+          <Link
+            to="/app/match"
+            state={{ checkSavedCv: { sourceCvId: cv.id, jobTitle: draft.jobTitle, company: draft.company, jobUrl: draft.jobUrl } }}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            Job Match
+          </Link>
+          . FlowJob does not keep job posts after you sign out or open a new tab.
+        </p>
       )}
       {downloadError && <p role="alert" className="mt-3 text-sm text-danger">{downloadError}</p>}
       {run.isError && (

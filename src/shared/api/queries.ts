@@ -3,6 +3,7 @@ import { useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiBlob } from './client';
 import { fetchTailorDraft, requestTailorDraft } from './tailoring';
+import { jobPosts } from '@/shared/lib/jobPosts';
 import type {
   Application,
   ApplicationInput,
@@ -157,7 +158,9 @@ export function useRunMatch() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: RunMatchInput) => api<MatchResult>('/matches', { method: 'POST', json: b }),
-    onSuccess: (m) => {
+    onSuccess: (m, input) => {
+      // Kept for this tab (the backend never stores posts), even when the page that started it was left.
+      jobPosts.remember(m.id, input.jobDescription);
       qc.setQueryData(qk.match(m.id), m);
       qc.invalidateQueries({ queryKey: qk.matches });
     },
@@ -169,7 +172,11 @@ function useTailorMutation<Input extends TailorMatchInput | TailorDirectInput>()
   const mutation = useMutation({
     mutationFn: (input: Input) => requestTailorDraft(input),
     retry: false,
-    onSuccess: (draft) => qc.setQueryData(qk.tailorDraft(draft.id), draft),
+    onSuccess: (draft, input) => {
+      // The exact post this draft was made from, if one was sent, so a CV saved from it can be re-checked.
+      if (input.jobDescription) jobPosts.rememberDraft(draft.id, input.jobDescription);
+      qc.setQueryData(qk.tailorDraft(draft.id), draft);
+    },
     onSettled: () => { pending.current = false; },
   });
   const mutate: typeof mutation.mutate = (...args) => {

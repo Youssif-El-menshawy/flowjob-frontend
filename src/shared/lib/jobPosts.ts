@@ -1,7 +1,8 @@
 // The job post a match was run on, kept for this browser tab only. The backend never stores the post, so
 // this is what lets the report show it again and lets tailoring read the employer's own wording.
 import { JOB_POSTS_KEY as KEY } from './sessionData';
-const MAX_POSTS = 8;
+// Matches, re-checks and drafts each keep one entry, so a single tailoring session can use several.
+const MAX_POSTS = 20;
 
 type Store = Record<string, string>;
 
@@ -25,16 +26,20 @@ export const jobPosts = {
   remember(matchId: string, text: string) {
     if (!matchId || !text.trim()) return;
     try {
-      const entries = Object.entries({ ...read(), [matchId]: text.trim() });
-      sessionStorage.setItem(KEY, JSON.stringify(Object.fromEntries(entries.slice(-MAX_POSTS))));
+      // Most recently used last, so the oldest unused posts are the ones dropped. (Re-assigning an existing key
+      // would keep its old position and could drop the post that is in use right now.)
+      const store = read();
+      delete store[matchId];
+      store[matchId] = text.trim();
+      sessionStorage.setItem(KEY, JSON.stringify(Object.fromEntries(Object.entries(store).slice(-MAX_POSTS))));
     } catch {
       /* storage unavailable or full: tailoring then simply works without the post */
     }
   },
-  /** The post a tailoring draft was made from, when this tab still has it: its match's post, or the post pasted
-   * for a draft tailored without a match. Never anything else. */
+  /** The post a tailoring draft was made from, when this tab still has it: its match's post, or the exact post
+   * that was sent when the draft was created. Never anything else. */
   forDraft(draft: { id: string; matchId?: string | null }): string | undefined {
-    return draft.matchId ? jobPosts.get(draft.matchId) : jobPosts.get(draftKey(draft.id));
+    return (draft.matchId ? jobPosts.get(draft.matchId) : undefined) ?? jobPosts.get(draftKey(draft.id));
   },
   rememberDraft(draftId: string, text: string) {
     jobPosts.remember(draftKey(draftId), text);
