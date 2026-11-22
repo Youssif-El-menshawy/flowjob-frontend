@@ -24,3 +24,17 @@ describe('jobPosts', () => {
     expect(jobPosts.get('m20')).toBeUndefined();
   });
 });
+
+describe('jobPosts.forDraft', () => {
+  it('returns only the post the draft was really made from', () => {
+    jobPosts.clear();
+    jobPosts.remember('m1', 'Post for the match.');
+    jobPosts.rememberDraft('d9', 'Post pasted for the draft.');
+    expect(jobPosts.forDraft({ id: 'd1', matchId: 'm1' })).toBe('Post for the match.');
+    expect(jobPosts.forDraft({ id: 'd9', matchId: null })).toBe('Post pasted for the draft.');
+    // Never substituted from elsewhere.
+    expect(jobPosts.forDraft({ id: 'd9', matchId: 'm-other' })).toBeUndefined();
+    expect(jobPosts.forDraft({ id: 'd-other' })).toBeUndefined();
+    jobPosts.clear();
+  });
+});

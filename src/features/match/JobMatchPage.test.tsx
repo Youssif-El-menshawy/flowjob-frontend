@@ -342,6 +342,19 @@ it('prefills a direct recovery and requests a fresh draft only on submit', () =>
   }, expect.anything());
 });
 
+describe('the post behind a tailored draft', () => {
+  it('is kept with the draft so a saved version can be re-checked against the same post', () => {
+    sessionStorage.clear();
+    mocks.tailor.mutate = vi.fn((_input: unknown, opts: { onSuccess: (d: { id: string }) => void }) => opts.onSuccess({ id: 'd5' }));
+    renderPage();
+    fill();
+    fireEvent.click(tailorBtn());
+    expect(screen.getByText('DRAFT PAGE d5')).toBeInTheDocument();
+    expect(JSON.parse(sessionStorage.getItem('flowjob.jobPosts')!)).toEqual({ 'draft:d5': JOB });
+    sessionStorage.clear();
+  });
+});
+
 describe('leaving Job Match', () => {
   const sidebar = () => fireEvent.click(screen.getByRole('link', { name: 'Sidebar: My CVs' }));
 
