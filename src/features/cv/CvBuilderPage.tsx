@@ -5,7 +5,7 @@ import { fetchCvPdfBlob, useCreateCv, useCvs, useProfile, useUpdateCv } from '@/
 import type { Cv, CvContent } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { downloadBlob, fmtRelative } from '@/shared/lib/utils';
-import { Button, ButtonLink } from '@/shared/ui/Button';
+import { Button } from '@/shared/ui/Button';
 import { EmptyState, PageHeader } from '@/shared/ui/Display';
 import { Modal, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
@@ -301,9 +301,6 @@ export default function CvBuilderPage() {
             >
               {hasProfile ? 'Start from my profile' : 'Start my CV'}
             </Button>
-            <ButtonLink to="/app/cvs/import" variant="secondary">
-              Import CV (PDF)
-            </ButtonLink>
             {!hasProfile && (
               <Link
                 to="/app/profile"

@@ -8,6 +8,7 @@ import { ToastProvider } from '@/shared/ui/Overlay';
 const mocks = vi.hoisted(() => ({
   register: vi.fn(async () => ({ id: 'u1', name: 'Ada Example', email: 'ada@example.com', createdAt: '' })),
   cvs: { data: [] as Cv[], isLoading: false, isError: false, refetch: vi.fn() },
+  importAvailable: true as boolean | undefined,
 }));
 
 vi.mock('@/features/auth/AuthProvider', () => ({
@@ -21,6 +22,9 @@ vi.mock('@/shared/api/queries', () => ({
   useDeleteCv: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateCv: () => ({ mutate: vi.fn(), isPending: false }),
   fetchCvPdfBlob: vi.fn(),
+  useProfileImportStatus: () => ({
+    data: mocks.importAvailable === undefined ? undefined : { available: mocks.importAvailable },
+  }),
 }));
 
 vi.mock('@/features/cv/HarvardPdfViewer', () => ({ HarvardPdfViewer: () => <div data-testid="pdf" /> }));
@@ -41,7 +45,8 @@ function renderAt(path: string) {
             <Route path="/app/welcome" element={<GetStartedPage />} />
             <Route path="/app/cvs" element={<MyCvsPage />} />
             <Route path="/app/cv-builder" element={<CvBuilderPage />} />
-            <Route path="/app/cvs/import" element={<p>IMPORT PAGE</p>} />
+            <Route path="/app/profile/import" element={<p>IMPORT PAGE</p>} />
+            <Route path="/app/profile" element={<p>PROFILE PAGE</p>} />
             <Route path="/app" element={<p>DASHBOARD</p>} />
           </Routes>
         </MemoryRouter>
@@ -53,6 +58,7 @@ function renderAt(path: string) {
 beforeEach(() => {
   sessionStorage.clear();
   mocks.cvs.data = [];
+  mocks.importAvailable = true;
 });
 afterEach(() => cleanup());
 
@@ -68,14 +74,32 @@ describe('after registration', () => {
     expect(mocks.register).toHaveBeenCalledOnce();
   });
 
+  it('starts with the Profile', () => {
+    renderAt('/app/welcome');
+    expect(screen.getByText('Start with your Profile. Your CVs and job matches are made from it.')).toBeVisible();
+    expect(screen.getByRole('link', { name: /Import my existing CV/ })).toHaveTextContent('FlowJob fills in your Profile');
+    expect(screen.getByRole('link', { name: /Skip for now/ })).toHaveTextContent('You can import your CV or fill in your Profile any time');
+  });
+
   it.each([
     ['Import my existing CV', 'IMPORT PAGE'],
-    ['Create my CV manually', 'Let’s make your first CV'],
+    ['Complete my Profile manually', 'PROFILE PAGE'],
     ['Skip for now', 'DASHBOARD'],
   ])('"%s" leads to the right place', async (choice, destination) => {
     renderAt('/app/welcome');
     fireEvent.click(screen.getByRole('link', { name: new RegExp(choice) }));
     expect(await screen.findByText(destination)).toBeVisible();
+  });
+
+  it('offers the import while the availability is loading, but not once it is used', () => {
+    mocks.importAvailable = undefined;
+    renderAt('/app/welcome');
+    expect(screen.getByRole('link', { name: /Import my existing CV/ })).toBeVisible();
+    cleanup();
+    mocks.importAvailable = false;
+    renderAt('/app/welcome');
+    expect(screen.queryByRole('link', { name: /Import my existing CV/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Complete my Profile manually/ })).toBeVisible();
   });
 
   it('mentions a job post saved before signing up', () => {
@@ -85,21 +109,21 @@ describe('after registration', () => {
   });
 });
 
-describe('Import CV entry points', () => {
-  it('appears in My CVs when there are no CVs and when there are some', () => {
+describe('CV pages do not import into a new CV', () => {
+  it('My CVs has no import button, with or without CVs', () => {
     renderAt('/app/cvs');
-    expect(screen.getAllByRole('link', { name: 'Import CV' }).every((l) => l.getAttribute('href') === '/app/cvs/import'))
-      .toBe(true);
+    expect(screen.queryByRole('link', { name: /Import/ })).not.toBeInTheDocument();
     cleanup();
     mocks.cvs.data = [{ id: 'cv1', name: 'Original CV', kind: 'original', createdAt: '2026-01-01', updatedAt: '2026-01-01',
       content: { fullName: '', email: '', phone: '', location: '', links: [], summary: '', experience: [],
                  education: [], projects: [], skills: [], languages: '' } }];
     renderAt('/app/cvs');
-    expect(screen.getByRole('link', { name: 'Import CV' })).toHaveAttribute('href', '/app/cvs/import');
+    expect(screen.queryByRole('link', { name: /Import/ })).not.toBeInTheDocument();
   });
 
-  it('appears in the empty CV Builder', () => {
+  it('the empty CV Builder creates the CV from the Profile, not from a PDF', () => {
     renderAt('/app/cv-builder');
-    expect(screen.getByRole('link', { name: 'Import CV (PDF)' })).toHaveAttribute('href', '/app/cvs/import');
+    expect(screen.queryByRole('link', { name: /Import/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start my CV' })).toBeVisible();
   });
 });

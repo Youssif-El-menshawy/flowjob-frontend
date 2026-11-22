@@ -19,7 +19,8 @@ const mocks = vi.hoisted(() => ({
   cvs: { data: [{ id: 'cv1', name: 'My CV' }] } as Q<{ id: string; name: string }[]>,
   matches: { data: [] } as Q<MatchResult[]>,
   gmail: { data: undefined } as Q<GmailStatus>,
-  profile: { data: undefined as unknown },
+  profile: { data: undefined as unknown, isLoading: false },
+  importStatus: { data: undefined as { available: boolean } | undefined },
   startOAuth: vi.fn(),
   sync: vi.fn(),
 }));
@@ -31,6 +32,7 @@ vi.mock('@/shared/api/queries', async (importOriginal) => ({
   useMatches: () => ({ refetch: vi.fn(), ...mocks.matches }),
   useGmail: () => ({ refetch: vi.fn(), ...mocks.gmail }),
   useProfile: () => mocks.profile,
+  useProfileImportStatus: () => mocks.importStatus,
   useStartGmailOAuth: () => ({ mutate: mocks.startOAuth, isPending: false }),
   useSyncGmail: () => ({ mutate: mocks.sync, isPending: false }),
 }));
@@ -95,11 +97,11 @@ const match = (over: Partial<MatchResult> = {}): MatchResult => ({
   createdAt: '2026-02-01T00:00:00Z', ...over,
 });
 
-function renderDashboard() {
+function renderDashboard(state?: unknown) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[{ pathname: '/app', state }]}>
         <ToastProvider>
           <DashboardPage />
         </ToastProvider>
@@ -116,7 +118,8 @@ beforeEach(() => {
   mocks.cvs = { data: [{ id: 'cv1', name: 'My CV' }] };
   mocks.matches = { data: [] };
   mocks.gmail = { data: { available: true, pendingReviewCount: 0, connection: { state: 'not_connected' }, sync: null } };
-  mocks.profile = { data: undefined };
+  mocks.profile = { data: undefined, isLoading: false };
+  mocks.importStatus = { data: undefined };
   mocks.startOAuth.mockReset();
   mocks.sync.mockReset();
   vi.spyOn(goTo, 'assign').mockImplementation(() => {});
@@ -175,17 +178,64 @@ describe('DashboardPage (regression: must never blank-crash)', () => {
     expect(refetch).toHaveBeenCalled();
   });
 
-  it('shows "Complete your profile" onboarding when the profile is incomplete', () => {
-    mocks.profile = { data: { ...completeProfile, skills: [] } }; // incomplete (no skills)
-    const { container } = renderDashboard();
-    expect(container.textContent).toContain('Complete your profile');
+  it('shows "Complete your profile" as the first open step while the saved profile is incomplete', () => {
+    mocks.cvs = { data: [] };
+    mocks.profile = { data: { ...completeProfile, skills: [] }, isLoading: false }; // incomplete (no skills)
+    renderDashboard();
+    const step = screen.getByText('Complete your profile').closest('li')!;
+    expect(step).toHaveTextContent('1');
+    expect(within(step).getByRole('link', { name: 'Complete profile' })).toHaveAttribute('href', '/app/profile');
+    expect(screen.getByText('0 of 4 done')).toBeVisible();
   });
 
-  it('hides the profile step once the profile is complete', () => {
-    mocks.profile = { data: completeProfile };
-    const { container } = renderDashboard();
-    expect(container.textContent).not.toContain('Complete your profile');
-    expect(container.textContent).toContain('Create your CV'); // other steps remain
+  it('counts the profile step as done once the saved profile is complete', () => {
+    mocks.cvs = { data: [] };
+    mocks.profile = { data: completeProfile, isLoading: false };
+    renderDashboard();
+    const step = screen.getByText('Complete your profile').closest('li')!;
+    expect(step).toHaveTextContent('✓');
+    expect(within(step).queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.getByText('1 of 4 done')).toBeVisible();
+    // The next step is creating the CV from the Profile.
+    expect(screen.getByRole('link', { name: 'Start my CV' })).toHaveAttribute('href', '/app/cv-builder');
+  });
+
+  it('offers the CV import on the profile step only while the account can use it', () => {
+    mocks.cvs = { data: [] };
+    mocks.importStatus = { data: { available: true } };
+    renderDashboard();
+    expect(screen.getByRole('link', { name: 'Import CV' })).toHaveAttribute('href', '/app/profile/import');
+    cleanup();
+    mocks.importStatus = { data: { available: false } };
+    renderDashboard();
+    expect(screen.queryByRole('link', { name: 'Import CV' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Complete profile' })).toBeVisible();
+  });
+
+  it('waits for the saved profile instead of briefly showing it as incomplete', () => {
+    mocks.cvs = { data: [] };
+    mocks.profile = { data: undefined, isLoading: true };
+    renderDashboard();
+    expect(screen.queryByText('Complete your profile')).not.toBeInTheDocument();
+  });
+
+  it('after a Profile import, recommends creating the original CV from the Profile', () => {
+    mocks.cvs = { data: [] };
+    mocks.profile = { data: completeProfile, isLoading: false };
+    renderDashboard({ profileImported: true });
+    const saved = screen.getByText('Your Profile is saved.').closest('[role="status"]')!;
+    expect(saved).toHaveTextContent('Next, create your original CV from it');
+    expect(within(saved as HTMLElement).getByRole('link', { name: 'Create my CV from my Profile' }))
+      .toHaveAttribute('href', '/app/cv-builder');
+    fireEvent.click(within(saved as HTMLElement).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText('Your Profile is saved.')).not.toBeInTheDocument();
+  });
+
+  it('after a Profile import with existing CVs, says they were not changed', () => {
+    mocks.profile = { data: completeProfile, isLoading: false };
+    renderDashboard({ profileImported: true });
+    expect(screen.getByText(/Your existing CVs and tailored CVs were not changed/)).toBeVisible();
+    expect(screen.queryByText('Your Profile is saved.')).toBeVisible();
   });
 });
 

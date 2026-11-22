@@ -1,6 +1,6 @@
 import { ApiError, ServerUnavailableError } from '@/shared/api/client';
-import type { CvImportResult, CvImportWarning } from '@/shared/api/types';
-import type { Section } from '../CvForm';
+import type { CvContent, CvImportResult, CvImportWarning, Profile } from '@/shared/api/types';
+import type { Section } from '@/features/cv/CvForm';
 
 export const MAX_CV_PDF_BYTES = 5 * 1024 * 1024;
 
@@ -37,7 +37,7 @@ export interface ImportFailure {
   message: string;
 }
 
-/** What to tell the user when POST /cvs/import fails. The backend's own message is kept where it is specific. */
+/** What to tell the user when POST /profile/import/pdf fails. The backend's own message is kept where it is specific. */
 export function describeImportError(error: unknown): ImportFailure {
   if (error instanceof ServerUnavailableError) return { title: 'FlowJob is unavailable', message: error.message };
   if (!(error instanceof ApiError)) {
@@ -45,6 +45,8 @@ export function describeImportError(error: unknown): ImportFailure {
   }
   const message = error.message;
   switch (error.status) {
+    case 409:
+      return { title: 'Your CV is already imported', message };
     case 413:
       return { title: 'This PDF is too large', message: 'The limit is 5 MB. Export a smaller PDF and try again.' };
     case 415:
@@ -132,4 +134,79 @@ export function countBySection(result: CvImportResult): Partial<Record<Section, 
   }
   for (const field of result.missing) counts[MISSING_SECTION[field]] = (counts[MISSING_SECTION[field]] ?? 0) + 1;
   return counts;
+}
+
+// --- combining the import with the Profile ------------------------------------------------------------------------
+
+/** Profile values the review can take from the CV. Full name and email always stay the account's (Profile's). */
+export type ChoiceKey = 'phone' | 'location' | 'links' | 'summary' | 'experience' | 'education' | 'projects' | 'skills' | 'languages';
+export const CHOICE_KEYS: ChoiceKey[] = [
+  'phone', 'location', 'links', 'summary', 'experience', 'education', 'projects', 'skills', 'languages',
+];
+export const CHOICE_SECTION: Record<ChoiceKey, Section> = {
+  phone: 'personal', location: 'personal', links: 'personal', summary: 'summary', experience: 'experience',
+  education: 'education', projects: 'projects', skills: 'skills', languages: 'skills',
+};
+export const CHOICE_LABEL: Record<ChoiceKey, string> = {
+  phone: 'Phone', location: 'Location', links: 'Links', summary: 'Summary', experience: 'Experience',
+  education: 'Education', projects: 'Projects', skills: 'Skills', languages: 'Languages',
+};
+
+/** Which version of a value the review keeps: the Profile's (the default) or the CV's. */
+export type Source = 'profile' | 'cv';
+export type Choices = Partial<Record<ChoiceKey, Source>>;
+
+type Value = Profile[ChoiceKey];
+
+export const isEmptyValue = (value: Value) =>
+  Array.isArray(value) ? value.length === 0 : !String(value ?? '').trim();
+
+/** Compared without entry ids (the import numbers its own) and surrounding whitespace. */
+const comparable = (value: Value) =>
+  JSON.stringify(
+    Array.isArray(value)
+      ? value.map((item) => (item && typeof item === 'object' ? { ...item, id: undefined } : item))
+      : String(value ?? '').trim(),
+  );
+
+/** Values the Profile and the CV both have and that differ: the user decides, and the Profile's is kept by default. */
+export function conflicts(profile: Profile, imported: CvContent): ChoiceKey[] {
+  return CHOICE_KEYS.filter(
+    (key) => !isEmptyValue(profile[key]) && !isEmptyValue(imported[key]) && comparable(profile[key]) !== comparable(imported[key]),
+  );
+}
+
+/** One value as the review keeps it: the CV's where the Profile has none, the Profile's where the CV has none, and
+ *  otherwise the chosen one (the Profile's unless the user chose the CV's). */
+export function pick(key: ChoiceKey, profile: Profile, imported: CvContent, choice: Source | undefined): Value {
+  const mine = profile[key];
+  const theirs = imported[key];
+  const value = isEmptyValue(mine) ? theirs : isEmptyValue(theirs) || choice !== 'cv' ? mine : theirs;
+  return structuredClone(value);
+}
+
+/** The Profile the review starts with. Full name and email are always the Profile's (the account's). */
+export function combine(profile: Profile, imported: CvContent, choices: Choices = {}): Profile {
+  const out = structuredClone(profile);
+  for (const key of CHOICE_KEYS) (out as Record<ChoiceKey, Value>)[key] = pick(key, profile, imported, choices[key]);
+  return out;
+}
+
+/** A short description of a value for the conflict choice, e.g. "2 jobs" or "“+48 600 123 456”". */
+export function describeValue(key: ChoiceKey, value: Value): string {
+  if (Array.isArray(value)) {
+    const n = value.length;
+    const noun: Partial<Record<ChoiceKey, [string, string]>> = {
+      experience: ['job', 'jobs'], education: ['entry', 'entries'], projects: ['project', 'projects'],
+      skills: ['skill', 'skills'], links: ['link', 'links'],
+    };
+    const [one, many] = noun[key] ?? ['item', 'items'];
+    const names = key === 'skills' || key === 'links'
+      ? (value as string[])
+      : (value as Array<{ title?: string; degree?: string; name?: string }>).map((x) => x.title || x.degree || x.name || '');
+    const listed = names.filter(Boolean).slice(0, 3).join(', ');
+    return `${n} ${n === 1 ? one : many}${listed ? `: ${listed}${names.length > 3 ? ', …' : ''}` : ''}`;
+  }
+  const text = String(value ?? '').trim();
+  return `“${text.length > 80 ? `${text.slice(0, 79)}…` : text}”`;
 }

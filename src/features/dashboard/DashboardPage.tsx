@@ -1,9 +1,9 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { GmailHeaderAction, GmailHeaderStatus } from '@/features/applications/gmail/GmailHeaderAction';
 import { fmtDateTime } from '@/features/applications/gmail/gmailLabels';
 import { groupRequirements, overviewText, snippet } from '@/features/match/matchReport';
-import { useApplications, useCvs, useGmail, useMatches, useProfile } from '@/shared/api/queries';
+import { useApplications, useCvs, useGmail, useMatches, useProfile, useProfileImportStatus } from '@/shared/api/queries';
 import { isProfileComplete } from '@/shared/lib/profile';
 import type { Application, ApplicationStatus, MatchResult } from '@/shared/api/types';
 import { STATUSES } from '@/shared/api/types';
@@ -345,34 +345,45 @@ function LatestMatch({ match, error, onRetry }: { match?: MatchResult; error: bo
   );
 }
 
+interface Step {
+  done: boolean;
+  t: string;
+  d: string;
+  to: string;
+  cta: string;
+  /** A second way to do the step, e.g. importing a CV into the Profile. */
+  alt?: { to: string; cta: string };
+}
+
 function Onboarding({
   profileComplete,
+  canImport,
   hasCv,
   hasMatch,
   hasApp,
 }: {
   profileComplete: boolean;
+  canImport: boolean;
   hasCv: boolean;
   hasMatch: boolean;
   hasApp: boolean;
 }) {
-  const steps = [
-    // Shown only while the profile is incomplete; disappears once it meets the criteria.
-    ...(profileComplete
-      ? []
-      : [
-          {
-            done: false,
-            t: 'Complete your profile',
-            d: 'Add your experience, education, and skills to make creating CVs faster.',
-            to: '/app/profile',
-            cta: 'Complete profile',
-          },
-        ]),
+  const steps: Step[] = [
+    // Always listed, so the progress counts it: done once the saved Profile meets the completeness criteria.
+    {
+      done: profileComplete,
+      t: 'Complete your profile',
+      d: canImport
+        ? 'Import your existing CV or add your experience, education and skills. Your CVs are made from your Profile.'
+        : 'Add your experience, education and skills. Your CVs are made from your Profile.',
+      to: '/app/profile',
+      cta: 'Complete profile',
+      alt: canImport ? { to: '/app/profile/import', cta: 'Import CV' } : undefined,
+    },
     {
       done: hasCv,
       t: 'Create your CV',
-      d: 'A guided form, about ten minutes. You can download it as PDF.',
+      d: 'Made from your Profile, so most of it is already filled in. You can download it as PDF.',
       to: '/app/cv-builder',
       cta: 'Start my CV',
     },
@@ -423,18 +434,51 @@ function Onboarding({
               <p className="text-sm text-soft">{s.d}</p>
             </div>
             {!s.done && (
-              <ButtonLink
-                to={s.to}
-                variant={i === steps.findIndex((x) => !x.done) ? 'primary' : 'secondary'}
-                size="sm"
-              >
-                {s.cta}
-              </ButtonLink>
+              <div className="flex flex-wrap gap-2">
+                {s.alt && (
+                  <ButtonLink to={s.alt.to} variant="secondary" size="sm">
+                    {s.alt.cta}
+                  </ButtonLink>
+                )}
+                <ButtonLink
+                  to={s.to}
+                  variant={i === steps.findIndex((x) => !x.done) ? 'primary' : 'secondary'}
+                  size="sm"
+                >
+                  {s.cta}
+                </ButtonLink>
+              </div>
             )}
           </li>
         ))}
       </ol>
     </Card>
+  );
+}
+
+/** After a Profile import: the next step is an original CV made from the Profile (existing CVs are untouched). */
+function ProfileSaved({ hasCv, onDismiss }: { hasCv: boolean; onDismiss: () => void }) {
+  return (
+    <div role="status" className="mb-5">
+      <Note tone="success" className="flex flex-wrap items-center justify-between gap-3 p-5">
+        <div className="min-w-0">
+          <p className="font-medium">Your Profile is saved.</p>
+          <p className="mt-1 text-soft">
+            {hasCv
+              ? 'Your existing CVs and tailored CVs were not changed. Edit your Profile any time.'
+              : 'Next, create your original CV from it. Later changes to your Profile won’t change CVs you have already made.'}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {hasCv ? (
+            <ButtonLink to="/app/profile" variant="secondary" size="sm">Open my Profile</ButtonLink>
+          ) : (
+            <ButtonLink to="/app/cv-builder" size="sm">Create my CV from my Profile</ButtonLink>
+          )}
+          <Button variant="ghost" size="sm" onClick={onDismiss}>Dismiss</Button>
+        </div>
+      </Note>
+    </div>
   );
 }
 
@@ -445,13 +489,19 @@ export default function DashboardPage() {
   const cvs = useCvs();
   const matches = useMatches();
   const profile = useProfile();
+  const importStatus = useProfileImportStatus();
   const gmail = useGmail();
+  const location = useLocation();
+  const nav = useNavigate();
+  // Set by the Profile import after a successful save.
+  const justImported = !!(location.state as { profileImported?: boolean } | null)?.profileImported;
   const gmailState = gmail.data?.connection.state;
   const gmailConnected = gmailState === 'active' || gmailState === 'reauth_required';
   const profileComplete = isProfileComplete(profile.data);
   const last = matches.data?.[0];
 
-  const loading = apps.isLoading || cvs.isLoading || matches.isLoading;
+  // The setup steps come from the saved Profile, so wait for it rather than briefly showing it as incomplete.
+  const loading = apps.isLoading || cvs.isLoading || matches.isLoading || profile.isLoading;
   // Without applications or CVs we cannot tell a new user from a failed request, so say so instead of guessing.
   const failed = !loading && (apps.isError || cvs.isError);
   const list = apps.data ?? [];
@@ -466,7 +516,7 @@ export default function DashboardPage() {
     : failed
       ? 'Here is where things stand.'
       : isNew
-        ? 'Three small steps and FlowJob starts working for you.'
+        ? 'A few small steps and FlowJob starts working for you.'
         : [
             `${plural(active, 'active application')}`,
             interviews && `${interviews} at interview`,
@@ -518,6 +568,10 @@ export default function DashboardPage() {
         }
       />
 
+      {justImported && !loading && (
+        <ProfileSaved hasCv={!!cvs.data?.length} onDismiss={() => nav('.', { replace: true, state: null })} />
+      )}
+
       {loading ? (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]" aria-busy="true">
           <Skeleton className="h-64 rounded-2xl" />
@@ -546,6 +600,7 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-5">
             <Onboarding
               profileComplete={profileComplete}
+              canImport={!!importStatus.data?.available}
               hasCv={!!cvs.data?.length}
               hasMatch={!!matches.data?.length}
               hasApp={list.length > 0}

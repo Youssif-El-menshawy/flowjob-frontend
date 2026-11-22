@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { matchPath, useBlocker, type BlockerFunction } from 'react-router-dom';
 import { z } from 'zod';
-import { useProfile, useSaveProfile } from '@/shared/api/queries';
+import { useProfile, useProfileImportStatus, useSaveProfile } from '@/shared/api/queries';
 import type { Education, Experience, Profile, Project } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { profileStrength } from '@/shared/lib/profile';
@@ -58,6 +58,7 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
 }) {
   const toast = useToast();
   const save = useSaveProfile();
+  const importStatus = useProfileImportStatus();
   const saving = useRef(false);
   const seenQuery = useRef(latest);
   const [p, setP] = useState(() => structuredClone(saved));
@@ -205,9 +206,17 @@ function ProfileEditor({ saved, latest, tab, setTab, reset }: {
         title="Profile"
         subtitle="Your details in one place. New CVs and job matches start from here."
         actions={
-          <ButtonLink to="/app/cv-builder" variant="secondary">
-            Open CV builder
-          </ButtonLink>
+          <>
+            {/* Smart CV Import, offered while this account has not used it (once per account). */}
+            {importStatus.data?.available && (
+              <ButtonLink to="/app/profile/import" variant="secondary">
+                Import from my CV
+              </ButtonLink>
+            )}
+            <ButtonLink to="/app/cv-builder" variant="secondary">
+              Open CV builder
+            </ButtonLink>
+          </>
         }
       />
       <Tabs tabs={TABS} value={tab} onChange={setTab} label="Profile sections" />

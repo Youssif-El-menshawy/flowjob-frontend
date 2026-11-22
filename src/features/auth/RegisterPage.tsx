@@ -47,7 +47,7 @@ export default function RegisterPage() {
     setFormError('');
     try {
       await signUp(v.name, v.email, v.password);
-      nav('/app/welcome', { replace: true }); // optional first step: import a CV, create one, or skip
+      nav('/app/welcome', { replace: true }); // optional first step: import a CV into the Profile, fill it in, or skip
     } catch (e) {
       if (e instanceof ApiError && e.fieldErrors) {
         Object.entries(e.fieldErrors).forEach(([k, m]) => setError(k as keyof Form, { message: m }));

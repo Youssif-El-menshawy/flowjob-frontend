@@ -82,7 +82,7 @@ export interface CvImportWarning {
   message: string;
 }
 
-/** POST /cvs/import: content found in the PDF for review. Nothing is saved until POST /cvs. */
+/** POST /profile/import/pdf: content found in the PDF for review. Nothing is saved until POST /profile/import. */
 export interface CvImportResult {
   content: CvContent;
   warnings: CvImportWarning[];
@@ -90,6 +90,22 @@ export interface CvImportResult {
   missing: Array<'fullName' | 'email' | 'phone' | 'location' | 'summary' | 'experience' | 'education' | 'skills'>;
   source: { pages: number; method: string };
   model: string;
+}
+
+/** GET /profile/import: whether this account can still import a CV into its Profile (once per account). */
+export interface ProfileImportStatus {
+  available: boolean;
+  importedAt: string | null;
+  /** The current Profile the review starts from, and its revision (sent back with the save). */
+  profile: Profile;
+  revision: string;
+}
+
+/** POST /profile/import: the reviewed Profile, the revision it was based on, and one id for every retry. */
+export interface ProfileImportSave {
+  profile: Profile;
+  revision: string;
+  requestId: string;
 }
 
 export type CvContentInput = Partial<Omit<CvContent, 'experience' | 'education' | 'projects'>> & {

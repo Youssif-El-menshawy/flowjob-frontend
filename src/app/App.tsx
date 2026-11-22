@@ -14,7 +14,7 @@ const Dashboard = lazy(() => import('@/features/dashboard/DashboardPage'));
 const Profile = lazy(() => import('@/features/profile/ProfilePage'));
 const CvBuilder = lazy(() => import('@/features/cv/CvBuilderPage'));
 const MyCvs = lazy(() => import('@/features/cv/MyCvsPage'));
-const ImportCv = lazy(() => import('@/features/cv/import/ImportCvPage'));
+const ImportProfile = lazy(() => import('@/features/profile/import/ImportProfilePage'));
 const GetStarted = lazy(() => import('@/features/onboarding/GetStartedPage'));
 const JobMatch = lazy(() => import('@/features/match/JobMatchPage'));
 const MatchReport = lazy(() => import('@/features/match/MatchReportPage'));
@@ -90,10 +90,10 @@ export const appRoutes = createRoutesFromElements(
     >
       <Route index element={<Dashboard />} />
       <Route path="profile" element={<Profile />} />
+      <Route path="profile/import" element={<ImportProfile />} />
       <Route path="cv-builder" element={<CvBuilder />} />
       <Route path="cv-builder/:cvId" element={<CvBuilder />} />
       <Route path="cvs" element={<MyCvs />} />
-      <Route path="cvs/import" element={<ImportCv />} />
       <Route path="welcome" element={<GetStarted />} />
       <Route path="match" element={<JobMatch />} />
       <Route path="applications" element={<Applications />} />

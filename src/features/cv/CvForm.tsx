@@ -10,8 +10,8 @@ import { LanguagesEditor } from '@/features/profile/LanguagesEditor';
 import { LocationFields } from '@/features/profile/LocationFields';
 import { PhoneInputs, type usePhoneField } from '@/features/profile/PhoneFields';
 
-// The CV section editor shared by the CV Builder and the Smart CV Import review: section tabs and each section's
-// fields, using the same profile editors (items, skills, languages, links, phone, location).
+// The section editor shared by the CV Builder and the Smart CV Import review of the Profile: section tabs and each
+// section's fields, using the same profile editors (items, skills, languages, links, phone, location).
 
 export const SECTION_LABELS = {
   personal: 'Personal',
@@ -101,6 +101,7 @@ export function CvSectionFields({
   name,
   onNameChange,
   nameHint = 'Only you see this.',
+  identityHint,
   notes,
   missing,
   itemNote,
@@ -110,9 +111,12 @@ export function CvSectionFields({
   set: SetContent;
   contact: ReturnType<typeof useContactLinks>;
   phoneField: ReturnType<typeof usePhoneField>;
-  name: string;
-  onNameChange: (name: string) => void;
+  /** The CV's name. Without it (the Profile import review) there is no name field. */
+  name?: string;
+  onNameChange?: (name: string) => void;
   nameHint?: string;
+  /** When set, full name and email are shown read-only with this hint (they come from the account). */
+  identityHint?: string;
   /** Shown at the top of the section (for example what an import could not confirm). */
   notes?: ReactNode;
   /** Content fields to mark as not found (Smart CV Import). */
@@ -169,18 +173,22 @@ export function CvSectionFields({
         {notes}
         {section === 'personal' && (
           <>
-            <Input label="CV name" hint={nameHint} value={name} onChange={(e) => onNameChange(e.target.value)} />
+            {name !== undefined && (
+              <Input label="CV name" hint={nameHint} value={name} onChange={(e) => onNameChange?.(e.target.value)} />
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
                 label="Full name"
-                hint={notFound('fullName')}
+                hint={identityHint ?? notFound('fullName')}
                 value={c.fullName}
+                readOnly={!!identityHint}
                 onChange={(e) => set('fullName', e.target.value)}
               />
               <Input
                 label="Email"
-                hint={notFound('email')}
+                hint={identityHint ?? notFound('email')}
                 value={c.email}
+                readOnly={!!identityHint}
                 onChange={(e) => set('email', e.target.value)}
               />
               <PhoneInputs state={phoneField} className="sm:col-span-2" />
