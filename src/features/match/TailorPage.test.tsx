@@ -325,18 +325,95 @@ describe('TailorPage review', () => {
     decide('Experience', 'Apply suggestion');
     confirm();
     fireEvent.click(save());
-    const done = within(screen.getByRole('region', { name: 'Acme v1 is saved' }));
+    const done = within(screen.getByRole('dialog', { name: 'Acme v1 is saved' }));
+    expect(done.getByText(/Your original CV has not changed/)).toBeVisible();
     expect(done.getByRole('link', { name: 'Add to Applications' })).toHaveAttribute(
       'href', '/app/applications/new?company=Acme&jobTitle=Backend+Engineer&cvId=new-cv');
+    expect(done.getByRole('link', { name: 'Go to My CVs' })).toHaveAttribute('href', '/app/cvs');
     expect(done.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
     expect(done.getByText(/it was 59% before/)).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'AI suggestions' })).toBeNull();
+    // The review stays underneath the dialog.
+    expect(screen.getByRole('heading', { name: 'AI suggestions' })).toBeInTheDocument();
     expect(sessionStorage.getItem('flowjob.tailorReview.d1')).toBeNull();
     fireEvent.click(done.getByRole('button', { name: 'Re-check my match' }));
     expect(mocks.runMatch.mock.calls[0][0]).toEqual({
       cvId: 'new-cv', jobTitle: 'Backend Engineer', jobDescription: 'We need Python.', company: 'Acme', jobUrl: undefined });
     // The re-check opens the new report and carries the earlier score for the before/after line.
     expect(JSON.parse(sessionStorage.getItem('flowjob.jobPosts')!)).toMatchObject({ m2: 'We need Python.' });
+  });
+
+  describe('the saved dialog', () => {
+    const saveOnce = () => {
+      mocks.create.mutate = vi.fn((input: { name: string }, opts: { onSuccess: (cv: unknown) => void; onSettled?: () => void }) => {
+        opts.onSuccess({ id: 'new-cv', name: input.name });
+        opts.onSettled?.();
+      });
+      renderPage();
+      decide('Experience', 'Apply suggestion');
+      confirm();
+      fireEvent.click(save());
+      return screen.getByRole('dialog', { name: 'Acme v1 is saved' });
+    };
+
+    it('focuses the next step, and Close or Escape return to the review', async () => {
+      const dialog = saveOnce();
+      await waitFor(() => expect(within(dialog).getByRole('link', { name: 'Add to Applications' })).toHaveFocus());
+      expect(document.body.style.overflow).toBe('hidden');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('heading', { name: 'AI suggestions' })).toBeVisible();
+      expect(document.body.style.overflow).toBe('');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Saved to My CVs' })).toHaveFocus());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Saved to My CVs' }));
+      expect(screen.getByRole('dialog', { name: 'Acme v1 is saved' })).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Saved to My CVs' })).toHaveFocus());
+      expect(screen.getByRole('heading', { name: 'AI suggestions' })).toBeVisible();
+    });
+
+    it('never saves the same review twice', () => {
+      saveOnce();
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(screen.queryByRole('button', { name: 'Save as new CV' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Saved to My CVs' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved to My CVs' }));
+      expect(mocks.create.mutate).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('dialog', { name: 'Acme v1 is saved' })).toBeInTheDocument();
+    });
+
+    it('ignores a second click while the save is still running', () => {
+      mocks.create.mutate = vi.fn();
+      renderPage();
+      decide('Experience', 'Apply suggestion');
+      confirm();
+      fireEvent.click(save());
+      fireEvent.click(save());
+      expect(mocks.create.mutate).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('downloads the CV as it was saved, even after the review changes', async () => {
+      const dialog = saveOnce();
+      const savedContent = mocks.create.mutate.mock.calls[0][0].content;
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+      decide('Experience', 'Keep original'); // a change after saving
+      fireEvent.click(screen.getByRole('button', { name: 'Saved to My CVs' }));
+      mocks.preview.mockClear();
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Download PDF' }));
+      await waitFor(() => expect(mocks.download).toHaveBeenCalledWith(expect.any(Blob), 'Acme_v1.pdf'));
+      expect(mocks.preview.mock.calls[0][0]).toEqual(savedContent);
+      expect(mocks.preview.mock.calls[0][2]).toBe('d1');
+    });
+
+    it('Done leaves the review after saving', () => {
+      saveOnce();
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+      expect(screen.getByText('MATCH REPORT')).toBeInTheDocument();
+    });
   });
 
   it('lists what the job asks for from the match report, and nothing for a draft without a match', () => {

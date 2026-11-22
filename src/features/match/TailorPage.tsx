@@ -11,7 +11,7 @@ import { cn, downloadBlob } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, PageHeader, Segmented } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
-import { useToast } from '@/shared/ui/Overlay';
+import { Modal, useToast } from '@/shared/ui/Overlay';
 import { Skeleton } from '@/shared/ui/Spinner';
 import { HarvardPdfViewer } from '@/features/cv/HarvardPdfViewer';
 import { createPreviewEngine, type PreviewState } from '@/features/cv/cvPreview';
@@ -469,14 +469,20 @@ function storeProgress(draftId: string, progress: ReviewProgress | null) {
   }
 }
 
-/** After saving: the three things a person does next with a tailored CV, in one place. */
-function TailoredSaved({ cv, draft, previousScore, canDownload, downloading, onDownload }: {
-  cv: Pick<Cv, 'id' | 'name'>;
+/** A CV saved from this review, and the reviewed content it was saved with. */
+type SavedCv = Pick<Cv, 'id' | 'name'> & { content: CvContent };
+
+/** After saving: the next steps for a tailored CV, in a dialog over the review it came from. */
+function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloading, downloadError, onDownload, onClose }: {
+  open: boolean;
+  cv: SavedCv;
   draft: TailorDraft;
   previousScore?: number;
   canDownload: boolean;
   downloading: boolean;
+  downloadError: string;
   onDownload: () => void;
+  onClose: () => void;
 }) {
   const nav = useNavigate();
   const run = useRunMatch();
@@ -500,13 +506,25 @@ function TailoredSaved({ cv, draft, previousScore, canDownload, downloading, onD
     );
   };
   return (
-    <section aria-labelledby="saved-h" className="mx-auto max-w-[640px] rounded-3xl border border-st-offer bg-surface p-6 sm:p-8">
-      <h2 id="saved-h" className="font-display text-2xl font-semibold break-words">{cv.name} is saved</h2>
-      <p className="mt-2 text-soft">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`${cv.name} is saved`}
+      size="confirm"
+      showCloseButton={false}
+      icon={
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-accent-ink" aria-hidden>
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12.5l4.5 4.5L19 7.5" />
+          </svg>
+        </span>
+      }
+    >
+      <p className="leading-relaxed text-soft">
         It is in My CVs as a new version. Your original CV has not changed.
       </p>
       <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
-        <ButtonLink to={`/app/applications/new?${application}`}>Add to Applications</ButtonLink>
+        <ButtonLink to={`/app/applications/new?${application}`} data-autofocus>Add to Applications</ButtonLink>
         <Button variant="secondary" disabled={!canDownload} loading={downloading} onClick={onDownload}>
           {downloading ? 'Preparing PDF…' : 'Download PDF'}
         </Button>
@@ -522,12 +540,16 @@ function TailoredSaved({ cv, draft, previousScore, canDownload, downloading, onD
           Re-check compares this new version with the same job post{typeof previousScore === 'number' ? ` (it was ${previousScore}% before)` : ''}.
         </p>
       )}
+      {downloadError && <p role="alert" className="mt-3 text-sm text-danger">{downloadError}</p>}
       {run.isError && (
         <p role="alert" className="mt-3 text-sm text-danger">
           {run.error instanceof ApiError ? run.error.message : 'Could not check the match. Please try again.'}
         </p>
       )}
-    </section>
+      <div className="mt-6 flex justify-end border-t border-line pt-4">
+        <Button variant="ghost" onClick={onClose}>Close</Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -544,7 +566,15 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
   const [decisions, setDecisions] = useState<Record<string, Decision>>(initial.decisions);
   const [edits, setEdits] = useState<Record<string, string>>(initial.edits);
   const [confirmed, setConfirmed] = useState(initial.confirmed);
-  const [saved, setSaved] = useState<Pick<Cv, 'id' | 'name'> | null>(null);
+  const [saved, setSaved] = useState<SavedCv | null>(null);
+  const [savedOpen, setSavedOpen] = useState(false);
+  // The save button is disabled while saving, which drops its focus, so the dialog has no element to hand focus back
+  // to. Return it to the saved button explicitly once the dialog has closed.
+  const savedButton = useRef<HTMLButtonElement>(null);
+  const closeSaved = useCallback(() => {
+    setSavedOpen(false);
+    setTimeout(() => savedButton.current?.focus(), 0);
+  }, []);
   useEffect(() => {
     storeProgress(draft.id, saved ? null : { decisions, edits, confirmed });
   }, [draft.id, saved, decisions, edits, confirmed]);
@@ -605,16 +635,16 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
     return () => downloadRequest.current?.abort();
   }, [sourceIsCurrent]);
 
-  const download = async () => {
-    if (!agree || !result || downloadRequest.current) return;
+  const downloadPdf = async (content: CvContent, cvName: string) => {
+    if (downloadRequest.current) return;
     const controller = new AbortController();
     downloadRequest.current = controller;
     setDownloadStatus('loading');
     try {
       // Render the content reviewed at click time, independently of the visible preview.
-      const blob = await fetchCvPreviewPdf(result, controller.signal, draft.id);
+      const blob = await fetchCvPreviewPdf(content, controller.signal, draft.id);
       if (controller.signal.aborted) return;
-      const filename = versionName.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'Tailored_CV';
+      const filename = cvName.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'Tailored_CV';
       downloadBlob(blob, `${filename}.pdf`);
       setDownloadStatus('idle');
     } catch (error) {
@@ -629,8 +659,19 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
       downloadRequest.current = null;
     }
   };
+  const download = () => {
+    if (agree && result) void downloadPdf(result, versionName);
+  };
+  // The dialog downloads the CV exactly as it was saved, even if the review is changed afterwards.
+  const downloadSaved = () => {
+    if (saved && sourceIsCurrent) void downloadPdf(saved.content, saved.name);
+  };
 
   const save = () => {
+    if (saved) { // one save per review: saving again would only make a duplicate copy
+      setSavedOpen(true);
+      return;
+    }
     if (!agree || !result || saving.current || create.isPending) return;
     saving.current = true;
     create.mutate(
@@ -647,7 +688,8 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
       {
         onSuccess: (cv) => {
           toast({ text: `${cv.name} saved to My CVs.` });
-          setSaved({ id: cv.id, name: cv.name });
+          setSaved({ id: cv.id, name: cv.name, content: result });
+          setSavedOpen(true);
         },
         onError: (error) => {
           if (error instanceof ApiError && error.status === 409) rejectSource();
@@ -666,16 +708,20 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
         subtitle={`${draft.jobTitle} · based on ${source?.name ?? 'your CV'}`}
       />
 
-      {saved ? (
+      {saved && (
         <TailoredSaved
+          open={savedOpen}
           cv={saved}
           draft={draft}
           previousScore={match.data && (match.data.scoreAvailable ?? true) ? match.data.score : undefined}
-          canDownload={agree}
+          canDownload={sourceIsCurrent}
           downloading={downloadStatus === 'loading'}
-          onDownload={() => void download()}
+          downloadError={downloadStatus === 'error' ? downloadError : ''}
+          onDownload={downloadSaved}
+          onClose={closeSaved}
         />
-      ) : !source ? (
+      )}
+      {!source ? (
         sourceQuery.isLoading || checkingSource ? (
           <TailorLoading message="Checking the original CV…" />
         ) : (
@@ -776,19 +822,23 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
               />
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="ghost" disabled={create.isPending} onClick={() => nav(back.to)}>
-                  Discard
+                  {saved ? 'Done' : 'Discard'}
                 </Button>
                 <Button
                   variant="secondary"
                   disabled={!agree}
                   loading={sourceIsCurrent && downloadStatus === 'loading'}
-                  onClick={() => void download()}
+                  onClick={download}
                 >
                   {sourceIsCurrent && downloadStatus === 'loading' ? 'Preparing PDF…' : 'Download tailored PDF'}
                 </Button>
-                <Button disabled={!agree} loading={create.isPending} onClick={save}>
-                  Save as new CV
-                </Button>
+                {saved ? (
+                  <Button ref={savedButton} variant="secondary" onClick={save}>Saved to My CVs</Button>
+                ) : (
+                  <Button disabled={!agree} loading={create.isPending} onClick={save}>
+                    Save as new CV
+                  </Button>
+                )}
               </div>
             </div>
             <label className="flex cursor-pointer items-start gap-2 text-sm">
