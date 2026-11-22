@@ -11,10 +11,11 @@ import {
 } from '@/shared/api/queries';
 import type { CvImportResult, Profile, ProfileImportStatus } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
+import { cn } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, Note, PageHeader } from '@/shared/ui/Display';
 import { ConfirmDialog, useToast } from '@/shared/ui/Overlay';
-import { PageLoader, Spinner } from '@/shared/ui/Spinner';
+import { PageLoader } from '@/shared/ui/Spinner';
 import { useContactLinks } from '@/features/profile/ContactLinksFields';
 import { usePhoneField } from '@/features/profile/PhoneFields';
 import { CvLivePreview } from '@/features/cv/CvLivePreview';
@@ -60,6 +61,7 @@ export default function ImportProfilePage() {
   const freshStatus = () => qc.fetchQuery({ queryKey: qk.profileImport, queryFn: fetchProfileImportStatus, staleTime: 0 });
 
   const start = async (file: File) => {
+    if (stage.name === 'importing') return; // one extraction at a time
     const controller = new AbortController();
     setNotice('');
     setStage({ name: 'importing', controller });
@@ -111,45 +113,33 @@ export default function ImportProfilePage() {
         title="Import your CV"
         subtitle="Upload your CV as a PDF. FlowJob fills in your Profile, and you review everything before it is saved."
       />
+      {/* The form stays on screen while the CV is processed, so the chosen file survives a failure or a cancel. */}
       <div className="mx-auto flex max-w-2xl flex-col gap-5">
-        {stage.name === 'importing' ? (
-          <Card className="flex flex-col items-center gap-4 py-10 text-center" aria-busy="true">
-            <Spinner className="size-7 text-primary" />
-            <div role="status">
-              <p className="font-medium">Reading your PDF and organizing it…</p>
-              <p className="mt-1 text-sm text-soft">This usually takes 20 to 60 seconds.</p>
-            </div>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                stage.controller.abort();
-                setNotice(
-                  'Import cancelled. Your Profile was not changed, and you can still import your CV. If it was already '
-                  + 'being organized, it counts toward today’s tries.',
-                );
-                setStage({ name: 'choose' });
-              }}
-            >
-              Cancel
-            </Button>
-          </Card>
-        ) : (
-          <>
-            {stage.name === 'failed' && (
-              <div role="alert" className="rounded-2xl border border-danger/40 bg-danger-soft px-5 py-4">
-                <p className="font-semibold text-danger">{stage.failure.title}</p>
-                <p className="mt-1 text-sm leading-relaxed text-ink">{stage.failure.message}</p>
-                <p className="mt-2 text-sm">
-                  <Link to="/app/profile" className="font-medium text-primary hover:underline">
-                    Fill in your Profile manually instead
-                  </Link>
-                </p>
-              </div>
-            )}
-            {notice && <p role="status" className="text-sm text-soft">{notice}</p>}
-            <Upload onImport={start} />
-          </>
+        {stage.name === 'failed' && (
+          <div role="alert" className="rounded-2xl border border-danger/40 bg-danger-soft px-5 py-4">
+            <p className="font-semibold text-danger">{stage.failure.title}</p>
+            <p className="mt-1 text-sm leading-relaxed text-ink">{stage.failure.message}</p>
+            <p className="mt-2 text-sm">
+              <Link to="/app/profile" className="font-medium text-primary hover:underline">
+                Fill in your Profile manually instead
+              </Link>
+            </p>
+          </div>
         )}
+        {notice && <p role="status" className="text-sm text-soft">{notice}</p>}
+        <Upload
+          busy={stage.name === 'importing'}
+          onImport={start}
+          onCancel={() => {
+            if (stage.name !== 'importing') return;
+            stage.controller.abort();
+            setNotice(
+              'Import cancelled. Your Profile was not changed, and you can still import your CV. If it was already '
+              + 'being organized, it counts toward today’s tries.',
+            );
+            setStage({ name: 'choose' });
+          }}
+        />
       </div>
     </>
   );
@@ -174,15 +164,42 @@ function AlreadyImported({ importedAt }: { importedAt: string | null }) {
   );
 }
 
-function Upload({ onImport }: { onImport: (file: File) => void }) {
+// What the Import CV button says while the CV is processed. These only reassure the user; they do not report the
+// backend's actual progress, so they advance on a timer and stay on the last one until the request finishes.
+const IMPORT_MESSAGES = ['Reading your CV…', 'Organizing your information…', 'Preparing your review…'];
+const IMPORT_MESSAGE_MS = 5000;
+
+function useImportMessage(active: boolean) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(
+      () => setIndex((i) => Math.min(i + 1, IMPORT_MESSAGES.length - 1)),
+      IMPORT_MESSAGE_MS,
+    );
+    return () => {
+      window.clearInterval(timer);
+      setIndex(0); // the next import starts from the first message again
+    };
+  }, [active]);
+  return IMPORT_MESSAGES[index];
+}
+
+function Upload({ busy, onImport, onCancel }: {
+  busy: boolean;
+  onImport: (file: File) => void;
+  onCancel: () => void;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState('');
   const [consent, setConsent] = useState(false);
   const [checking, setChecking] = useState(false);
   const inputId = useId();
   const input = useRef<HTMLInputElement>(null);
+  const message = useImportMessage(busy);
 
   const choose = async (chosen: File | undefined) => {
+    if (busy) return;
     setFile(null);
     setFileError('');
     if (!chosen) return;
@@ -199,11 +216,15 @@ function Upload({ onImport }: { onImport: (file: File) => void }) {
 
   return (
     <>
-      <Card className="flex flex-col gap-4">
+      <Card className="flex flex-col gap-4" aria-busy={busy || undefined}>
         <h2 className="text-lg font-semibold">1. Choose your CV</h2>
         <label
           htmlFor={inputId}
-          className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-line px-6 py-8 text-center hover:bg-tint"
+          aria-disabled={busy || undefined}
+          className={cn(
+            'flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-line px-6 py-8 text-center',
+            busy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-tint',
+          )}
           onDragOver={(event) => event.preventDefault()}
           onDrop={(event) => {
             event.preventDefault();
@@ -220,6 +241,7 @@ function Upload({ onImport }: { onImport: (file: File) => void }) {
           accept="application/pdf,.pdf"
           className="sr-only"
           aria-label="CV PDF file"
+          disabled={busy}
           onChange={(event) => void choose(event.target.files?.[0])}
         />
         {checking && <p role="status" className="text-sm text-soft">Checking the file…</p>}
@@ -243,10 +265,11 @@ function Upload({ onImport }: { onImport: (file: File) => void }) {
           <li>Each account can import a CV into its Profile once. Failed, cancelled or discarded imports don’t count
             (up to 5 tries a day).</li>
         </ul>
-        <label className="mt-1 flex cursor-pointer items-start gap-2 text-sm">
+        <label className={cn('mt-1 flex items-start gap-2 text-sm', busy ? 'cursor-not-allowed' : 'cursor-pointer')}>
           <input
             type="checkbox"
             checked={consent}
+            disabled={busy}
             onChange={(event) => setConsent(event.target.checked)}
             className="mt-0.5 size-[18px] shrink-0 accent-primary"
           />
@@ -259,12 +282,25 @@ function Upload({ onImport }: { onImport: (file: File) => void }) {
           Fill in my Profile manually instead
         </Link>
         <div className="flex gap-2.5">
-          <ButtonLink to="/app/profile" variant="secondary">Cancel</ButtonLink>
-          <Button disabled={!file || !consent || checking} onClick={() => file && onImport(file)}>
-            Import CV
+          {busy ? (
+            <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+          ) : (
+            <ButtonLink to="/app/profile" variant="secondary">Cancel</ButtonLink>
+          )}
+          <Button
+            loading={busy}
+            disabled={!file || !consent || checking}
+            onClick={() => !busy && file && consent && onImport(file)}
+          >
+            {busy ? message : 'Import CV'}
           </Button>
         </div>
       </div>
+      {busy && (
+        <p role="status" className="sr-only">
+          {message}
+        </p>
+      )}
     </>
   );
 }
@@ -603,32 +639,36 @@ function ReviewForm({
             />
           </div>
         </div>
-        <div className="min-w-0 xl:sticky xl:top-8">
-          <p className="mb-2 text-sm text-soft">How a CV made from this Profile will look.</p>
+        {/* The same card as the form beside it. Each column keeps its own height (the grid aligns them to the top). */}
+        <Card className="min-w-0 xl:sticky xl:top-8">
           <CvLivePreview content={c} />
-        </div>
+        </Card>
       </div>
 
-      <Card className="mt-6 flex flex-col gap-4">
+      {/* One row from md up: the confirmation on the left, the actions on the right. Stacked below that, with the
+          save button first and both buttons full width. */}
+      <section className="mt-6 flex flex-col gap-3 rounded-2xl border border-line bg-surface px-5 py-4">
         {error}
-        <label className="flex cursor-pointer items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            onChange={(event) => setConfirmed(event.target.checked)}
-            className="mt-0.5 size-[18px] shrink-0 accent-primary"
-          />
-          I have reviewed this information and it is accurate. Save it to my Profile.
-        </label>
-        <div className="flex flex-wrap justify-end gap-2.5">
-          <Button variant="danger" onClick={onDiscard} disabled={saving}>
-            Discard import
-          </Button>
-          <Button onClick={save} disabled={!confirmed} loading={saving}>
-            Save to my Profile
-          </Button>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-6">
+          <label className="flex min-w-0 cursor-pointer items-start gap-2.5 text-sm leading-snug">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(event) => setConfirmed(event.target.checked)}
+              className="mt-px size-[18px] shrink-0 accent-primary"
+            />
+            I have reviewed this information and it is accurate. Save it to my Profile.
+          </label>
+          <div className="flex shrink-0 flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+            <Button variant="danger" onClick={onDiscard} disabled={saving}>
+              Discard import
+            </Button>
+            <Button onClick={save} disabled={!confirmed} loading={saving}>
+              Save to my Profile
+            </Button>
+          </div>
         </div>
-      </Card>
+      </section>
     </>
   );
 }
