@@ -5,6 +5,9 @@ const MAX_POSTS = 8;
 
 type Store = Record<string, string>;
 
+/** Drafts tailored straight from a pasted post (no match) are kept under their own key. */
+const draftKey = (draftId: string) => `draft:${draftId}`;
+
 function read(): Store {
   try {
     const parsed: unknown = JSON.parse(sessionStorage.getItem(KEY) ?? '{}');
@@ -27,6 +30,14 @@ export const jobPosts = {
     } catch {
       /* storage unavailable or full: tailoring then simply works without the post */
     }
+  },
+  /** The post a tailoring draft was made from, when this tab still has it: its match's post, or the post pasted
+   * for a draft tailored without a match. Never anything else. */
+  forDraft(draft: { id: string; matchId?: string | null }): string | undefined {
+    return draft.matchId ? jobPosts.get(draft.matchId) : jobPosts.get(draftKey(draft.id));
+  },
+  rememberDraft(draftId: string, text: string) {
+    jobPosts.remember(draftKey(draftId), text);
   },
   clear() {
     try {

@@ -137,6 +137,8 @@ function JobMatchForm({ recovery }: { recovery?: Recovery }) {
       {
         onSuccess: (d) => {
           pendingJob.clear();
+          // The exact post this draft was tailored from, so a saved version can be re-checked against it.
+          jobPosts.rememberDraft(d.id, text.trim());
           nav(`/app/tailor/${d.id}`);
         },
         // Tailoring 422s can be about the CV itself (e.g. empty), so show them as an alert.

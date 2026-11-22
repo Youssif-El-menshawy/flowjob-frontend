@@ -485,8 +485,15 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
   onClose: () => void;
 }) {
   const nav = useNavigate();
+  const toast = useToast();
   const run = useRunMatch();
-  const post = jobPosts.get(draft.matchId ?? undefined);
+  // Only the post this draft was really made from (kept in this tab). Without it there is no re-check: job details
+  // are never guessed or taken from anywhere else.
+  const post = jobPosts.forDraft(draft);
+  // A fast second click must not start a second analysis before React re-renders the disabled button.
+  const checking = useRef(false);
+  const openRef = useRef(open);
+  openRef.current = open;
   const application = new URLSearchParams({
     company: draft.company ?? '',
     jobTitle: draft.jobTitle,
@@ -494,13 +501,22 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
     cvId: cv.id,
   }).toString();
   const recheck = () => {
-    if (!post || run.isPending) return;
+    if (!post || run.isPending || checking.current) return;
+    checking.current = true;
+    // The usual Job Match request with the NEW CV: it creates a separate match, so the earlier match report and the
+    // original CV stay exactly as they were.
     run.mutate(
       { cvId: cv.id, jobTitle: draft.jobTitle, jobDescription: post, company: draft.company || undefined, jobUrl: draft.jobUrl || undefined },
       {
         onSuccess: (m) => {
           jobPosts.remember(m.id, post);
-          nav(`/app/match/${m.id}`, { state: { previousScore } });
+          const report = () => nav(`/app/match/${m.id}`, { state: { previousScore } });
+          // Closed while checking: stay put and offer the result instead of moving the page.
+          if (openRef.current) report();
+          else toast({ text: 'Your new match result is ready.', action: { label: 'View', onClick: report } });
+        },
+        onSettled: () => {
+          checking.current = false;
         },
       },
     );
@@ -538,7 +554,11 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
       {post && (
         <p className="mt-3 text-[13px] text-soft">
           Re-check compares this new version with the same job post{typeof previousScore === 'number' ? ` (it was ${previousScore}% before)` : ''}.
+          {' '}Your earlier match result is kept.
         </p>
+      )}
+      {run.isPending && (
+        <p role="status" className="sr-only">Checking your new CV against the same job post…</p>
       )}
       {downloadError && <p role="alert" className="mt-3 text-sm text-danger">{downloadError}</p>}
       {run.isError && (

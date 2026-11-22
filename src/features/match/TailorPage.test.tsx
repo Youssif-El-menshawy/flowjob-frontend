@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   sourceFetching: false,
   refetchSource: vi.fn(),
   runMatch: vi.fn(),
+  runPending: false,
+  runError: null as unknown,
   preview: vi.fn(),
   download: vi.fn(),
 }));
@@ -61,7 +63,9 @@ vi.mock('@/shared/api/queries', () => ({
     return mocks.draftQuery;
   },
   useCreateCv: () => mocks.create,
-  useRunMatch: () => ({ mutate: mocks.runMatch, isPending: false, isError: false, error: null }),
+  useRunMatch: () => ({
+    mutate: mocks.runMatch, isPending: mocks.runPending, isError: !!mocks.runError, error: mocks.runError,
+  }),
   fetchCvPreviewPdf: (...args: unknown[]) => mocks.preview(...args),
 }));
 vi.mock('@/shared/lib/utils', async (original) => ({
@@ -72,6 +76,7 @@ vi.mock('@/features/cv/HarvardPdfViewer', () => ({
   HarvardPdfViewer: ({ blob }: { blob: Blob | null }) => <div data-testid="pdf">{blob?.type ?? 'empty'}</div>,
 }));
 
+import { ToastProvider } from '@/shared/ui/Overlay';
 import TailorPage from './TailorPage';
 
 function page(path = '/app/match/m1/tailor') {
@@ -112,6 +117,9 @@ afterEach(() => {
   mocks.create.mutate = vi.fn();
   mocks.tailorMutate = vi.fn();
   mocks.tailorError = null;
+  mocks.runPending = false;
+  mocks.runError = null;
+  mocks.runMatch = vi.fn();
   mocks.match = undefined;
   mocks.draftQuery = { data: undefined, isError: false, error: null };
   mocks.draftIds = [];
@@ -747,4 +755,114 @@ it('sends a direct legacy draft back to the job form to re-enter the description
   fireEvent.click(screen.getByRole('link', { name: 'Start a fresh draft' }));
   expect(screen.getByText('JOB FORM')).toBeVisible();
   expect(mocks.tailorMutate).not.toHaveBeenCalled();
+});
+
+describe('Re-check my match in the saved dialog', () => {
+  const POST = 'We need Python and REST APIs. Three years of backend experience with MongoDB.';
+  type RunOpts = { onSuccess: (m: { id: string }) => void; onSettled?: () => void };
+
+  function saveFrom(path: string, posts: Record<string, string> = {}) {
+    sessionStorage.setItem('flowjob.jobPosts', JSON.stringify(posts));
+    mocks.create.mutate = vi.fn((input: { name: string }, opts: { onSuccess: (cv: unknown) => void; onSettled?: () => void }) => {
+      opts.onSuccess({ id: 'new-cv', name: input.name });
+      opts.onSettled?.();
+    });
+    render(<ToastProvider>{page(path)}</ToastProvider>);
+    decide('Experience', 'Apply suggestion');
+    confirm();
+    fireEvent.click(save());
+    return within(screen.getByRole('dialog', { name: /is saved$/ }));
+  }
+  const recheck = (dialog: ReturnType<typeof within>) => dialog.queryByRole('button', { name: 'Re-check my match' });
+
+  it('runs Job Match with the new CV and the same post, then opens the new result', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    mocks.match = { score: 59, scoreAvailable: true, matched: [], partiallyMatched: [], missing: [] };
+    mocks.runMatch = vi.fn((_input: unknown, opts: RunOpts) => opts.onSuccess({ id: 'm2' }));
+    const dialog = saveFrom('/app/tailor/d1', { m1: POST });
+    expect(dialog.getByText(/Your earlier match result is kept/)).toBeVisible();
+    fireEvent.click(recheck(dialog)!);
+    // A new analysis for the NEW CV: nothing refers to (or replaces) the earlier match or the original CV.
+    expect(mocks.runMatch.mock.calls[0][0]).toEqual({
+      cvId: 'new-cv', jobTitle: 'Backend Engineer', jobDescription: POST, company: 'Acme', jobUrl: undefined });
+    expect(screen.getByText('MATCH REPORT')).toBeInTheDocument();
+    expect(JSON.parse(sessionStorage.getItem('flowjob.jobPosts')!)).toMatchObject({ m1: POST, m2: POST });
+  });
+
+  it('offers it for a draft tailored straight from a pasted post, with exactly that post', () => {
+    mocks.draftQuery = { data: directDraft, isError: false, error: null };
+    const dialog = saveFrom('/app/tailor/d9', { 'draft:d9': POST });
+    fireEvent.click(recheck(dialog)!);
+    expect(mocks.runMatch.mock.calls[0][0]).toMatchObject({ cvId: 'new-cv', jobDescription: POST, jobTitle: 'Backend Engineer' });
+  });
+
+  it.each([
+    ['a match whose post this tab no longer has', draft, '/app/tailor/d1', { 'draft:d1': POST }],
+    ['a pasted-post draft whose post is gone', directDraft, '/app/tailor/d9', { m1: POST }],
+  ])('is not offered for %s, and nothing is substituted', (_label, data, path, posts) => {
+    mocks.draftQuery = { data, isError: false, error: null };
+    const dialog = saveFrom(path, posts);
+    expect(recheck(dialog)).toBeNull();
+    expect(dialog.queryByText(/Re-check compares/)).toBeNull();
+    // The other next steps stay.
+    expect(dialog.getByRole('link', { name: 'Add to Applications' })).toBeVisible();
+    expect(dialog.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(dialog.getByRole('link', { name: 'Go to My CVs' })).toBeVisible();
+    expect(mocks.runMatch).not.toHaveBeenCalled();
+  });
+
+  it('sends one request however fast it is clicked', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    mocks.runMatch = vi.fn(); // still running
+    const dialog = saveFrom('/app/tailor/d1', { m1: POST });
+    const button = recheck(dialog)!;
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(mocks.runMatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows that it is checking, for sight and screen readers', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    mocks.runPending = true;
+    const dialog = saveFrom('/app/tailor/d1', { m1: POST });
+    expect(dialog.getByRole('button', { name: 'Checking…' })).toBeDisabled();
+    expect(dialog.getByRole('status')).toHaveTextContent('Checking your new CV against the same job post');
+  });
+
+  it.each([
+    [new ApiError(429, { message: 'Daily AI match limit reached. Please try again tomorrow.' }), 'Daily AI match limit reached'],
+    [new ApiError(503, { message: 'The AI service is at capacity today. Please try again tomorrow.' }), 'at capacity today'],
+    [new TypeError('Failed to fetch'), 'Could not check the match. Please try again.'],
+  ])('explains a failure (%s) and keeps every other action working', (error, text) => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    mocks.runError = error;
+    const dialog = saveFrom('/app/tailor/d1', { m1: POST });
+    expect(dialog.getByRole('alert')).toHaveTextContent(text);
+    expect(recheck(dialog)).toBeEnabled(); // it can be tried again
+    expect(dialog.getByRole('link', { name: 'Add to Applications' })).toBeVisible();
+    expect(dialog.getByRole('button', { name: 'Download PDF' })).toBeEnabled();
+    expect(dialog.getByRole('link', { name: 'Go to My CVs' })).toBeVisible();
+    fireEvent.click(dialog.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('closed while checking: stays on the review and offers the result instead of moving the page', () => {
+    mocks.draftQuery = { data: draft, isError: false, error: null };
+    let finish: RunOpts | undefined;
+    mocks.runMatch = vi.fn((_input: unknown, opts: RunOpts) => {
+      finish = opts;
+    });
+    const dialog = saveFrom('/app/tailor/d1', { m1: POST });
+    fireEvent.click(recheck(dialog)!);
+    fireEvent.click(dialog.getByRole('button', { name: 'Close' }));
+    act(() => {
+      finish!.onSuccess({ id: 'm2' });
+      finish!.onSettled?.();
+    });
+    expect(screen.queryByText('MATCH REPORT')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'AI suggestions' })).toBeInTheDocument();
+    expect(screen.getByText('Your new match result is ready.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    expect(screen.getByText('MATCH REPORT')).toBeInTheDocument();
+  });
 });
