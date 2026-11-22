@@ -593,10 +593,13 @@ function ReviewForm({
               identityHint="From your account. Change it in Settings."
               missing={missing}
               notes={notes}
-              itemNote={(kind, item) =>
-                kind !== 'projects' && !(item as { start?: string }).start ? (
-                  <p className="text-xs text-[#7a4f00]">Start date not found in your CV</p>
-                ) : null}
+              itemNote={(kind, item) => {
+                const { start, end } = item as { start?: string; end?: string };
+                // A school with one date (its completion or graduation date) has it as the end date: nothing missing.
+                const note = kind === 'experience' && !start ? 'Start date not found in your CV'
+                  : kind === 'education' && !start && !end ? 'Dates not found in your CV' : '';
+                return note ? <p className="text-xs text-[#7a4f00]">{note}</p> : null;
+              }}
             />
           </div>
         </div>

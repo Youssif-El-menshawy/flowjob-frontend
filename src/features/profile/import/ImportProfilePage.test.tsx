@@ -278,6 +278,27 @@ describe('review of a new account', () => {
     expect(screen.getByText(/Not found in your CV: Phone\./)).toBeVisible();
   });
 
+  it('does not flag a school with only its completion date, and reads a bracketed country code', async () => {
+    const withSchools: CvImportResult = {
+      ...RESULT, warnings: [], missing: [],
+      content: {
+        ...RESULT.content, phone: '(+48) 600 111 222',
+        education: [
+          { id: 'import-education-1', school: 'Example International School', degree: 'High School Diploma',
+            start: '', end: '31/05/2023', note: '' },
+          { id: 'import-education-2', school: 'Example Academy', degree: 'Short Course', start: '', end: '', note: '' },
+        ],
+      },
+    };
+    await reachReview((path) => (path === '/profile/import/pdf' ? Response.json(withSchools) : undefined));
+    expect(screen.getByLabelText(/Phone number/)).toHaveValue('600 111 222');
+    expect(screen.getByText('+48')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: /Education/ }));
+    const school = screen.getByText('High School Diploma').closest('div')!;
+    expect(school).not.toHaveTextContent(/not found/);
+    expect(screen.getByText('Short Course').closest('div')).toHaveTextContent('Dates not found in your CV');
+  });
+
   it('keeps the account name and email instead of the PDF’s', async () => {
     await reachReview();
     expect(screen.getByLabelText('Full name')).toHaveValue('Ana Nowak');
