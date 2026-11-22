@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   save: vi.fn(),
   refetch: vi.fn(),
   profileListeners: new Set<() => void>(),
+  importAvailable: undefined as boolean | undefined,
 }));
 
 function subscribeProfile(listener: () => void) {
@@ -38,6 +39,9 @@ vi.mock('@/shared/api/queries', () => ({
     refetch: mocks.refetch,
   }),
   useSaveProfile: () => ({ mutate: mocks.save, isPending: mocks.isPending }),
+  useProfileImportStatus: () => ({
+    data: mocks.importAvailable === undefined ? undefined : { available: mocks.importAvailable },
+  }),
 }));
 
 function fixture(overrides: Partial<Profile> = {}): Profile {
@@ -91,6 +95,7 @@ const discard = () => fireEvent.click(screen.getByRole('button', { name: 'Discar
 
 beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  mocks.importAvailable = undefined;
 });
 
 afterEach(() => {
@@ -100,6 +105,20 @@ afterEach(() => {
   mocks.profile = undefined;
   mocks.isError = false;
   mocks.isPending = false;
+});
+
+describe('Profile CV import entry point', () => {
+  it('offers the CV import only while the account can still use it', () => {
+    mocks.profile = fixture();
+    mocks.importAvailable = true;
+    renderProfile();
+    expect(screen.getByRole('link', { name: 'Import from my CV' })).toHaveAttribute('href', '/app/profile/import');
+    cleanup();
+    mocks.importAvailable = false;
+    renderProfile();
+    expect(screen.queryByRole('link', { name: 'Import from my CV' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open CV builder' })).toBeVisible();
+  });
 });
 
 describe('Profile location', () => {

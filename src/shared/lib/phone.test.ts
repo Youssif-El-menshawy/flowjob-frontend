@@ -31,7 +31,11 @@ describe('parseStoredPhone (never guesses)', () => {
     expect(parseStoredPhone('+1 415 555 2671')).toMatchObject({ kind: 'parsed', country: 'US', e164: '+14155552671' });
     expect(parseStoredPhone('+1 613 555 0123')).toMatchObject({ kind: 'parsed', country: 'CA' });
   });
-  it.each(['555-0100', '(415) 555-2671', '07911 123456', '+1234', '+15555550123', 'call me', '+441481123456'])(
+  it('reads a country code written in brackets, as CVs often print it', () => {
+    expect(parseStoredPhone('(+48) 600 111 222')).toMatchObject({ kind: 'parsed', country: 'PL', e164: '+48600111222' });
+    expect(parseStoredPhone('( +33 ) 6 12 34 56 78')).toMatchObject({ kind: 'parsed', country: 'FR' });
+  });
+  it.each(['555-0100', '(415) 555-2671', '07911 123456', '+1234', '+15555550123', 'call me', '+441481123456', '(+48) 12'])(
     'keeps %s as unrecognised, unchanged',
     (raw) => expect(parseStoredPhone(raw)).toEqual({ kind: 'unrecognised', raw }),
   );

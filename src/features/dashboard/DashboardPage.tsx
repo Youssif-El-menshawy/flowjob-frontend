@@ -1,17 +1,18 @@
-import { Link } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { GmailHeaderAction, GmailHeaderStatus } from '@/features/applications/gmail/GmailHeaderAction';
 import { fmtDateTime } from '@/features/applications/gmail/gmailLabels';
 import { groupRequirements, overviewText, snippet } from '@/features/match/matchReport';
-import { useApplications, useCvs, useGmail, useMatches, useProfile } from '@/shared/api/queries';
-import { isProfileComplete } from '@/shared/lib/profile';
-import type { Application, ApplicationStatus, MatchResult } from '@/shared/api/types';
+import { useApplications, useCvs, useGmail, useMatches, useProfile, useProfileImportStatus } from '@/shared/api/queries';
+import { isProfileComplete, profileStrength } from '@/shared/lib/profile';
+import type { Application, ApplicationStatus, MatchResult, Profile } from '@/shared/api/types';
 import { STATUSES } from '@/shared/api/types';
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
 import { cn, firstName, fmtDate, greeting } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
-import { Card, CardTitle, Note, PageHeader, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
+import { Card, CardTitle, Note, PageHeader, ProgressBar, STATUS_STYLE, StatusPill } from '@/shared/ui/Display';
 import { Icon } from '@/shared/ui/Icons';
 import { Skeleton } from '@/shared/ui/Spinner';
 
@@ -345,96 +346,266 @@ function LatestMatch({ match, error, onRetry }: { match?: MatchResult; error: bo
   );
 }
 
-function Onboarding({
-  profileComplete,
+type SetupKey = 'profile' | 'cv' | 'match' | 'application';
+
+interface SetupStep {
+  key: SetupKey;
+  title: string;
+  done: boolean;
+}
+
+/** A green check for completed setup steps (decorative; the step's text says it is completed). */
+function CheckMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={3}
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M5 12.5 10 17.5 19 7.5" />
+    </svg>
+  );
+}
+
+/** Add-application link, prefilled from the latest match when there is one (as the activity Dashboard does). */
+function newApplicationLink(last: MatchResult | undefined) {
+  return last
+    ? `/app/applications/new?${new URLSearchParams({ company: last.company ?? '', jobTitle: last.jobTitle }).toString()}`
+    : '/app/applications/new';
+}
+
+/** One way to do the next step, as a tile inside the next-step card. */
+function ChoiceTile({ title, text, action }: { title: string; text: string; action: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl bg-surface p-4">
+      <p className="font-medium">{title}</p>
+      <p className="text-sm leading-relaxed text-soft">{text}</p>
+      <div className="mt-auto pt-2.5">{action}</div>
+    </div>
+  );
+}
+
+/** What the next step involves, then its action. */
+function StepPoints({ points, action }: { points: string[]; action: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-5">
+      <ul className="grid gap-2.5 sm:grid-cols-3">
+        {points.map((point) => (
+          <li key={point} className="rounded-xl bg-surface px-4 py-3 text-sm leading-snug">
+            {point}
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-2.5">{action}</div>
+    </div>
+  );
+}
+
+/**
+ * The Dashboard before the first application: setup progress, the next step and the one after it. Every step is
+ * judged from saved data only: a complete saved Profile, a saved CV, a job match, an application.
+ */
+function SetupDashboard({
+  profile,
+  canImport,
   hasCv,
   hasMatch,
   hasApp,
+  lastMatch,
 }: {
-  profileComplete: boolean;
+  profile: Profile | undefined;
+  canImport: boolean;
   hasCv: boolean;
   hasMatch: boolean;
   hasApp: boolean;
+  lastMatch: MatchResult | undefined;
 }) {
-  const steps = [
-    // Shown only while the profile is incomplete; disappears once it meets the criteria.
-    ...(profileComplete
-      ? []
-      : [
-          {
-            done: false,
-            t: 'Complete your profile',
-            d: 'Add your experience, education, and skills to make creating CVs faster.',
-            to: '/app/profile',
-            cta: 'Complete profile',
-          },
-        ]),
-    {
-      done: hasCv,
-      t: 'Create your CV',
-      d: 'A guided form, about ten minutes. You can download it as PDF.',
-      to: '/app/cv-builder',
-      cta: 'Start my CV',
-    },
-    {
-      done: hasMatch,
-      t: 'Check a job match',
-      d: pendingJob.get()
-        ? `Your saved job is waiting: ${pendingJob.label()}.`
-        : 'Paste a job post and see your fit before you apply.',
-      to: '/app/match',
-      cta: 'Check a job',
-    },
-    {
-      done: hasApp,
-      t: 'Add an application',
-      d: 'Keep every job you applied for in one place.',
-      to: '/app/applications/new',
-      cta: 'Add one',
-    },
+  const steps: SetupStep[] = [
+    { key: 'profile', title: 'Set up your profile', done: isProfileComplete(profile) },
+    { key: 'cv', title: 'Create your CV', done: hasCv },
+    { key: 'match', title: 'Check a job match', done: hasMatch },
+    { key: 'application', title: 'Add an application', done: hasApp },
   ];
-  return (
-    <Card className="animate-in">
-      <CardTitle
-        action={
-          <span className="text-sm text-soft">
-            {steps.filter((s) => s.done).length} of {steps.length} done
-          </span>
-        }
-      >
-        Let’s get you set up
-      </CardTitle>
-      <ol className="flex flex-col">
-        {steps.map((s, i) => (
-          <li
-            key={s.t}
-            className="flex flex-wrap items-center gap-4 border-t border-line py-4 first:border-t-0"
-          >
-            <span
-              className={cn(
-                'grid size-9 shrink-0 place-items-center rounded-full text-sm font-semibold',
-                s.done ? 'bg-primary text-on-primary' : 'bg-tint',
-              )}
-            >
-              {s.done ? '✓' : i + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className={cn('font-medium', s.done && 'text-soft line-through')}>{s.t}</p>
-              <p className="text-sm text-soft">{s.d}</p>
-            </div>
-            {!s.done && (
-              <ButtonLink
-                to={s.to}
-                variant={i === steps.findIndex((x) => !x.done) ? 'primary' : 'secondary'}
-                size="sm"
-              >
-                {s.cta}
+  const open = steps.filter((step) => !step.done);
+  const next = open[0];
+  const later = open[1];
+  const completed = steps.length - open.length;
+  // The Profile sections the completion check still needs (Projects are optional).
+  const missing = profile
+    ? profileStrength(profile).checks.filter((check) => !check.done && check.label !== 'Projects').map((check) => check.label)
+    : [];
+
+  const details: Record<SetupKey, {
+    text: string;
+    body: ReactNode;
+    upcoming: string;
+    link: { to: string; cta: string };
+  }> = {
+    profile: {
+      text: 'Your CVs and job matches are made from your Profile.'
+        + (missing.length && missing.length < 6 ? ` Still missing: ${missing.join(', ')}.` : ''),
+      body: (
+        <div className={cn('grid gap-3', canImport && 'sm:grid-cols-2')}>
+          {canImport && (
+            <ChoiceTile
+              title="Import your CV"
+              text="Upload a PDF. FlowJob fills in your Profile, and you review everything before it is saved."
+              action={<ButtonLink to="/app/profile/import" size="sm">Import CV</ButtonLink>}
+            />
+          )}
+          <ChoiceTile
+            title="Fill it in yourself"
+            text="Add your experience, education and skills, section by section."
+            action={
+              <ButtonLink to="/app/profile" size="sm" variant={canImport ? 'secondary' : 'primary'}>
+                {canImport ? 'Complete manually' : 'Complete my profile'}
               </ButtonLink>
-            )}
-          </li>
-        ))}
-      </ol>
-    </Card>
+            }
+          />
+        </div>
+      ),
+      upcoming: 'Fill in your Profile once. Your CVs start from it.',
+      link: { to: '/app/profile', cta: 'Open my Profile' },
+    },
+    cv: {
+      text: 'Your Profile is ready. Create your original CV from it in the CV Builder.',
+      body: (
+        <StepPoints
+          points={['Starts from your Profile, so most of it is already filled in', 'Edit each section with a preview of the PDF', 'Download it as a PDF when it’s ready']}
+          action={<ButtonLink to="/app/cv-builder">Create my CV</ButtonLink>}
+        />
+      ),
+      upcoming: 'Your original CV is made from your Profile, so most of it is already filled in.',
+      link: { to: '/app/cv-builder', cta: 'Open CV builder' },
+    },
+    match: {
+      text: pendingJob.get()
+        ? `Your saved job is waiting: ${pendingJob.label()}. See how well your CV fits it before you apply.`
+        : 'Found a job you like? See how well your CV fits before you apply.',
+      body: (
+        <StepPoints
+          points={['Paste the job post', 'See which of its requirements your CV shows', 'Tailor a copy of your CV for the job']}
+          action={<ButtonLink to="/app/match">Check a job</ButtonLink>}
+        />
+      ),
+      upcoming: 'Paste a job post and see how well your CV fits before you apply.',
+      link: { to: '/app/match', cta: 'Check a job' },
+    },
+    application: {
+      text: lastMatch
+        ? `Applied for ${lastMatch.jobTitle}${lastMatch.company ? ` at ${lastMatch.company}` : ''}? Add it to keep track of it.`
+        : 'Keep every job you apply for in one place.',
+      body: (
+        <StepPoints
+          points={['Track its status from Saved to Offer', 'Set a follow-up date so nothing slips', 'Attach the CV you sent']}
+          action={<ButtonLink to={newApplicationLink(lastMatch)}>Add application</ButtonLink>}
+        />
+      ),
+      upcoming: 'Keep every job you apply for in one place.',
+      link: { to: newApplicationLink(lastMatch), cta: 'Add application' },
+    },
+  };
+
+  return (
+    // Desktop: the next step fills the left column beside progress and the step after it. Phone: stacked in order.
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+      {next && (
+        <article
+          aria-labelledby="setup-next-step"
+          className="flex flex-col gap-4 rounded-2xl bg-accent-soft p-6 animate-in sm:p-8 lg:row-span-2"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="setup-next-step" className="text-sm font-semibold tracking-wide text-accent-ink uppercase">
+              Your next step
+            </h2>
+            <span className="text-sm text-soft">
+              Step {steps.indexOf(next) + 1} of {steps.length}
+            </span>
+          </div>
+          <h3 className="font-display text-[26px] leading-tight font-semibold sm:text-[30px]">{next.title}</h3>
+          <p className="max-w-[60ch] text-[15px] leading-relaxed text-ink/80">{details[next.key].text}</p>
+          <div className="mt-auto pt-1">{details[next.key].body}</div>
+        </article>
+      )}
+
+      <Card className="animate-in">
+        <CardTitle
+          action={
+            <span className="text-sm text-soft">
+              {completed} of {steps.length} completed
+            </span>
+          }
+        >
+          Your setup progress
+        </CardTitle>
+        <ProgressBar value={Math.round((completed / steps.length) * 100)} tone="primary" label="Setup progress" />
+        <ol className="mt-4 flex flex-col gap-3">
+          {steps.map((step, index) => (
+            <li key={step.key} className="flex items-center gap-3 text-[15px]">
+              <span
+                className={cn(
+                  'grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold',
+                  step.done ? 'bg-primary text-on-primary' : step === next ? 'bg-accent text-[#1c2b22]' : 'bg-tint text-soft',
+                )}
+              >
+                {step.done ? <CheckMark /> : index + 1}
+              </span>
+              <span className={cn('min-w-0 flex-1', step.done || step === next ? 'text-ink' : 'text-soft', step === next && 'font-medium')}>
+                {step.title}
+                {step.done && <span className="sr-only"> (completed)</span>}
+              </span>
+              {step === next && <span className="shrink-0 text-xs font-medium text-primary">Next</span>}
+            </li>
+          ))}
+        </ol>
+      </Card>
+
+      <Card className="animate-in">
+        <CardTitle>Coming up next</CardTitle>
+        {later ? (
+          <>
+            <p className="font-medium">{later.title}</p>
+            <p className="mt-1 text-sm leading-relaxed text-soft">{details[later.key].upcoming}</p>
+            <ButtonLink to={details[later.key].link.to} variant="secondary" size="sm" className="mt-4">
+              {details[later.key].link.cta}
+            </ButtonLink>
+          </>
+        ) : (
+          <>
+            <p className="font-medium">Your activity dashboard</p>
+            <p className="mt-1 text-sm leading-relaxed text-soft">
+              Once you add an application, this page shows your application overview, next actions and latest match.
+            </p>
+            <ButtonLink to="/app/applications" variant="secondary" size="sm" className="mt-4">
+              Open Applications
+            </ButtonLink>
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/** After a Profile import: the next step is an original CV made from the Profile (existing CVs are untouched). */
+function ProfileSaved({ hasCv, onDismiss }: { hasCv: boolean; onDismiss: () => void }) {
+  return (
+    <div role="status" className="mb-5">
+      <Note tone="success" className="flex flex-wrap items-center justify-between gap-3 p-5">
+        <div className="min-w-0">
+          <p className="font-medium">Your Profile is saved.</p>
+          <p className="mt-1 text-soft">
+            {hasCv
+              ? 'Your existing CVs and tailored CVs were not changed. Edit your Profile any time.'
+              : 'Next, create your original CV from it. Later changes to your Profile won’t change CVs you have already made.'}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {hasCv ? (
+            <ButtonLink to="/app/profile" variant="secondary" size="sm">Open my Profile</ButtonLink>
+          ) : (
+            <ButtonLink to="/app/cv-builder" size="sm">Create my CV from my Profile</ButtonLink>
+          )}
+          <Button variant="ghost" size="sm" onClick={onDismiss}>Dismiss</Button>
+        </div>
+      </Note>
+    </div>
   );
 }
 
@@ -445,17 +616,23 @@ export default function DashboardPage() {
   const cvs = useCvs();
   const matches = useMatches();
   const profile = useProfile();
+  const importStatus = useProfileImportStatus();
   const gmail = useGmail();
+  const location = useLocation();
+  const nav = useNavigate();
+  // Set by the Profile import after a successful save.
+  const justImported = !!(location.state as { profileImported?: boolean } | null)?.profileImported;
   const gmailState = gmail.data?.connection.state;
   const gmailConnected = gmailState === 'active' || gmailState === 'reauth_required';
-  const profileComplete = isProfileComplete(profile.data);
   const last = matches.data?.[0];
 
-  const loading = apps.isLoading || cvs.isLoading || matches.isLoading;
+  // The setup steps come from the saved Profile, so wait for it rather than briefly showing it as incomplete.
+  const loading = apps.isLoading || cvs.isLoading || matches.isLoading || profile.isLoading;
   // Without applications or CVs we cannot tell a new user from a failed request, so say so instead of guessing.
   const failed = !loading && (apps.isError || cvs.isError);
   const list = apps.data ?? [];
-  const isNew = !loading && !failed && (list.length === 0 || !cvs.data?.length);
+  // Until the first application exists, the Dashboard guides the setup; after that it shows the activity.
+  const isNew = !loading && !failed && list.length === 0;
 
   const active = list.filter((a) => !isClosed(a.status)).length;
   const interviews = list.filter((a) => a.status === 'Interview').length;
@@ -466,7 +643,7 @@ export default function DashboardPage() {
     : failed
       ? 'Here is where things stand.'
       : isNew
-        ? 'Three small steps and FlowJob starts working for you.'
+        ? 'A few small steps and FlowJob starts working for you.'
         : [
             `${plural(active, 'active application')}`,
             interviews && `${interviews} at interview`,
@@ -518,6 +695,10 @@ export default function DashboardPage() {
         }
       />
 
+      {justImported && !loading && (
+        <ProfileSaved hasCv={!!cvs.data?.length} onDismiss={() => nav('.', { replace: true, state: null })} />
+      )}
+
       {loading ? (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]" aria-busy="true">
           <Skeleton className="h-64 rounded-2xl" />
@@ -542,23 +723,14 @@ export default function DashboardPage() {
           </Button>
         </Card>
       ) : isNew ? (
-        <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-          <div className="flex flex-col gap-5">
-            <Onboarding
-              profileComplete={profileComplete}
-              hasCv={!!cvs.data?.length}
-              hasMatch={!!matches.data?.length}
-              hasApp={list.length > 0}
-            />
-          </div>
-          <Note className="h-fit p-6">
-            <p className="font-display text-lg font-semibold">How FlowJob helps</p>
-            <p className="mt-2 text-soft">
-              Your CV, your matches and your applications all live together, so each step makes the next one
-              easier.
-            </p>
-          </Note>
-        </div>
+        <SetupDashboard
+          profile={profile.data}
+          canImport={!!importStatus.data?.available}
+          hasCv={!!cvs.data?.length}
+          hasMatch={!!matches.data?.length}
+          hasApp={list.length > 0}
+          lastMatch={last}
+        />
       ) : (
         // Phone: one column in this order. Tablet and up: the overview beside next actions, then recent beside match.
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">

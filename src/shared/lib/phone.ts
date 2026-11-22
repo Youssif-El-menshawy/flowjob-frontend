@@ -63,8 +63,10 @@ export type StoredPhone =
 export function parseStoredPhone(value?: string | null): StoredPhone {
   const raw = (value ?? '').trim();
   if (!raw) return { kind: 'empty' };
-  if (raw.startsWith('+')) {
-    const p = parsePhoneNumberFromString(raw);
+  // A country code written in brackets, as many CVs do ("(+48) 600 111 222"), is still an international number.
+  const international = raw.replace(/^\(\s*(\+\d{1,4})\s*\)\s*/, '$1 ');
+  if (international.startsWith('+')) {
+    const p = parsePhoneNumberFromString(international);
     if (p && p.isValid() && p.country) return { kind: 'parsed', country: p.country, national: p.formatNational(), e164: p.number };
   }
   return { kind: 'unrecognised', raw };

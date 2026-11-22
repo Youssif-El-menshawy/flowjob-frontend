@@ -22,7 +22,7 @@ export interface CvPreviewHandle {
  * on keystrokes. Renders via the shared HarvardPdfViewer (PDF.js canvases, no viewer chrome).
  * Read-only; same renderer as the saved preview and download. Never writes to MongoDB.
  */
-export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent; cvId: string }>(
+export const CvLivePreview = forwardRef<CvPreviewHandle, { content: CvContent; cvId?: string }>(
   function CvLivePreview({ content, cvId }, ref) {
     const [engineState, setEngineState] = useState<PreviewState>({
       status: 'idle',

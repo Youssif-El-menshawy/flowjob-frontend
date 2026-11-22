@@ -15,6 +15,13 @@ data.
 - **Profile**: experience, education, projects, skills, languages and contact details, reusable across CVs.
 - **CV Builder**: a guided, section-by-section form with a live Harvard-style PDF preview (zoom and full screen)
   and PDF download. **My CVs** lists saved CVs with preview, download, rename and delete.
+- **Smart CV Import**: fill your Profile from an existing CV as a PDF (after agreeing that its text is sent to
+  OpenAI). The backend checks every extracted value against the PDF, and you review and edit the result, with
+  anything left out or missing clearly marked, before it is saved to your Profile. Values already in your Profile
+  are kept unless you choose the CV's, and your account name and email always stay. Each account can import once
+  (failed, cancelled or discarded imports don't count); the Profile stays editable. No CV is created: after saving,
+  the Dashboard suggests creating your original CV from the Profile. Offered in the Dashboard's first setup step
+  (Set up your profile) and on the Profile page.
 - **Job Match**: paste a job post and get a match score with the requirements your CV meets, partly meets or
   misses, each backed by quotes from your CV.
 - **CV Tailoring**: review suggested changes for a specific job, apply them one by one or all at once, confirm
@@ -124,7 +131,6 @@ tests and the build on every pull request and on pushes to `main` (`.github/work
 
 - Password reset by email, data export and account deletion (the backend has no endpoints for them yet)
 - Word (.docx) export
-- CV upload and parsing
 
 ## Contributing
 

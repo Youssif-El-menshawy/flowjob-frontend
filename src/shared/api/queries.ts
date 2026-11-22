@@ -9,13 +9,16 @@ import type {
   ApplicationPatch,
   Cv,
   CvContentInput,
+  CvImportResult,
   CvWriteInput,
   GmailReview,
   GmailStatus,
   MatchResult,
-  RunMatchInput,
   Profile,
+  ProfileImportSave,
+  ProfileImportStatus,
   ReviewEdits,
+  RunMatchInput,
   TailorDirectInput,
   TailorMatchInput,
   User,
@@ -23,6 +26,7 @@ import type {
 
 export const qk = {
   profile: ['profile'] as const,
+  profileImport: ['profile-import'] as const,
   cvs: ['cvs'] as const,
   cv: (id: string) => ['cvs', id] as const,
   matches: ['matches'] as const,
@@ -40,7 +44,25 @@ export function useSaveProfile() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (p: Profile) => api<Profile>('/profile', { method: 'PUT', json: p }),
-    onSuccess: (p) => qc.setQueryData(qk.profile, p),
+    onSuccess: (p) => {
+      qc.setQueryData(qk.profile, p);
+      qc.invalidateQueries({ queryKey: qk.profileImport }); // its revision changed
+    },
+  });
+}
+
+// Smart CV Import into the Profile (once per account)
+export const fetchProfileImportStatus = () => api<ProfileImportStatus>('/profile/import');
+export const useProfileImportStatus = () =>
+  useQuery({ queryKey: qk.profileImport, queryFn: fetchProfileImportStatus });
+export function useSaveImportedProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (save: ProfileImportSave) => api<Profile>('/profile/import', { method: 'POST', json: save }),
+    onSuccess: (p) => {
+      qc.setQueryData(qk.profile, p);
+      qc.invalidateQueries({ queryKey: qk.profileImport });
+    },
   });
 }
 
@@ -78,6 +100,18 @@ export function useUpdateCv() {
 /** Fetch the backend-rendered Harvard PDF for a saved CV (same document for preview and download). */
 export const fetchCvPdfBlob = (id: string, signal?: AbortSignal) =>
   apiBlob(`/cvs/${id}/pdf`, { signal });
+
+/** Header the backend requires on /profile/import/pdf: sent only after the user agrees to OpenAI processing. */
+export const CV_IMPORT_CONSENT = { 'X-FlowJob-AI-Consent': 'cv-import' } as const;
+
+/** Smart CV Import: the backend extracts the PDF's text and organizes it for review. Nothing is stored. */
+export const importCvPdf = (file: File, signal?: AbortSignal) =>
+  api<CvImportResult>('/profile/import/pdf', {
+    method: 'POST',
+    body: file,
+    headers: { 'Content-Type': 'application/pdf', ...CV_IMPORT_CONSENT },
+    signal,
+  });
 
 /** Render unsaved CV content to a Harvard PDF for the live builder preview (no DB write). */
 export const fetchCvPreviewPdf = (content: CvContentInput, signal?: AbortSignal, tailorDraftId?: string, cvId?: string) =>

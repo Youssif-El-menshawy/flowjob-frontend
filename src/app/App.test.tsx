@@ -37,6 +37,7 @@ vi.mock('@/shared/api/queries', () => ({
   useTailorDirect: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('@/features/auth/LoginPage', () => ({ default: () => <div>LOGIN PAGE</div> }));
+vi.mock('@/features/dashboard/DashboardPage', () => ({ default: () => <div>DASHBOARD PAGE</div> }));
 vi.mock('@/features/match/TailorPage', () => ({ default: () => <div>TAILOR PAGE</div> }));
 
 import { appRoutes } from './App';
@@ -59,6 +60,21 @@ afterEach(() => {
   localStorage.clear();
   mocks.status = 'authenticated';
   mocks.matchIds = [];
+});
+
+describe('setup starts on the Dashboard', () => {
+  it('sends old /app/welcome links to the Dashboard', async () => {
+    const router = renderApp(['/app/welcome']);
+    expect(await screen.findByText('DASHBOARD PAGE')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/app');
+  });
+
+  it('keeps /app/welcome behind authentication', async () => {
+    mocks.status = 'anonymous';
+    renderApp(['/app/welcome']);
+    expect(await screen.findByText('LOGIN PAGE')).toBeInTheDocument();
+    expect(screen.queryByText('DASHBOARD PAGE')).toBeNull();
+  });
 });
 
 describe('Job Match route structure', () => {

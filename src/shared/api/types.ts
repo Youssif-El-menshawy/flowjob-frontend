@@ -72,6 +72,42 @@ export interface Cv {
   contentRevision?: string;
 }
 
+/** A value Smart CV Import left out, and why. `field` uses the AI answer's numbering, e.g. "experience[1].start". */
+export interface CvImportWarning {
+  field: string;
+  value: string;
+  reason:
+    | 'not_in_cv' | 'entry_not_in_cv' | 'date_not_near_entry' | 'date_ambiguous' | 'under_other_entry'
+    | 'outside_entry' | 'unsafe_link' | 'invalid_email' | 'too_long' | 'over_limit';
+  message: string;
+}
+
+/** POST /profile/import/pdf: content found in the PDF for review. Nothing is saved until POST /profile/import. */
+export interface CvImportResult {
+  content: CvContent;
+  warnings: CvImportWarning[];
+  /** Content fields left empty because the CV does not contain them. */
+  missing: Array<'fullName' | 'email' | 'phone' | 'location' | 'summary' | 'experience' | 'education' | 'skills'>;
+  source: { pages: number; method: string };
+  model: string;
+}
+
+/** GET /profile/import: whether this account can still import a CV into its Profile (once per account). */
+export interface ProfileImportStatus {
+  available: boolean;
+  importedAt: string | null;
+  /** The current Profile the review starts from, and its revision (sent back with the save). */
+  profile: Profile;
+  revision: string;
+}
+
+/** POST /profile/import: the reviewed Profile, the revision it was based on, and one id for every retry. */
+export interface ProfileImportSave {
+  profile: Profile;
+  revision: string;
+  requestId: string;
+}
+
 export type CvContentInput = Partial<Omit<CvContent, 'experience' | 'education' | 'projects'>> & {
   experience?: Partial<Experience>[];
   education?: Partial<Education>[];
