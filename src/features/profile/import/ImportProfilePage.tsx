@@ -297,8 +297,8 @@ function Upload({ busy, onImport, onCancel }: {
         </div>
       </div>
       {busy && (
-        <p role="status" className="text-right text-sm text-soft">
-          <span className="sr-only">{message} </span>This usually takes 20 to 60 seconds.
+        <p role="status" className="sr-only">
+          {message}
         </p>
       )}
     </>
@@ -640,7 +640,6 @@ function ReviewForm({
           </div>
         </div>
         <div className="min-w-0 xl:sticky xl:top-8">
-          <p className="mb-2 text-sm text-soft">How a CV made from this Profile will look.</p>
           <CvLivePreview content={c} />
         </div>
       </div>
