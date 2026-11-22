@@ -72,6 +72,26 @@ export interface Cv {
   contentRevision?: string;
 }
 
+/** A value Smart CV Import left out, and why. `field` uses the AI answer's numbering, e.g. "experience[1].start". */
+export interface CvImportWarning {
+  field: string;
+  value: string;
+  reason:
+    | 'not_in_cv' | 'entry_not_in_cv' | 'date_not_near_entry' | 'date_ambiguous' | 'under_other_entry'
+    | 'outside_entry' | 'unsafe_link' | 'invalid_email' | 'too_long' | 'over_limit';
+  message: string;
+}
+
+/** POST /cvs/import: content found in the PDF for review. Nothing is saved until POST /cvs. */
+export interface CvImportResult {
+  content: CvContent;
+  warnings: CvImportWarning[];
+  /** Content fields left empty because the CV does not contain them. */
+  missing: Array<'fullName' | 'email' | 'phone' | 'location' | 'summary' | 'experience' | 'education' | 'skills'>;
+  source: { pages: number; method: string };
+  model: string;
+}
+
 export type CvContentInput = Partial<Omit<CvContent, 'experience' | 'education' | 'projects'>> & {
   experience?: Partial<Experience>[];
   education?: Partial<Education>[];

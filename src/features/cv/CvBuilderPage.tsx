@@ -1,33 +1,19 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import { fetchCvPdfBlob, useCreateCv, useCvs, useProfile, useUpdateCv } from '@/shared/api/queries';
-import type { Cv, CvContent, Education, Experience, Project } from '@/shared/api/types';
+import type { Cv, CvContent } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
-import { cn, downloadBlob, fmtRelative } from '@/shared/lib/utils';
-import { Button } from '@/shared/ui/Button';
-import { Card, EmptyState, PageHeader } from '@/shared/ui/Display';
-import { Input, Textarea } from '@/shared/ui/Field';
+import { downloadBlob, fmtRelative } from '@/shared/lib/utils';
+import { Button, ButtonLink } from '@/shared/ui/Button';
+import { EmptyState, PageHeader } from '@/shared/ui/Display';
 import { Modal, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
-import { blank, ItemEditor, SkillsEditor, type Kind } from '@/features/profile/profileParts';
 import { CvLivePreview, type CvPreviewHandle } from './CvLivePreview';
 import { CvSelector } from './CvSelector';
-import { ContactLinksInputs, useContactLinks } from '@/features/profile/ContactLinksFields';
-import { LanguagesEditor } from '@/features/profile/LanguagesEditor';
-import { LocationFields } from '@/features/profile/LocationFields';
-import { PhoneInputs, usePhoneField } from '@/features/profile/PhoneFields';
-
-const SECTION_LABELS = {
-  personal: 'Personal',
-  summary: 'Summary',
-  experience: 'Experience',
-  education: 'Education',
-  projects: 'Projects',
-  skills: 'Skills',
-} as const;
-type Section = keyof typeof SECTION_LABELS;
-const SECTIONS = Object.keys(SECTION_LABELS) as Section[];
+import { useContactLinks } from '@/features/profile/ContactLinksFields';
+import { usePhoneField } from '@/features/profile/PhoneFields';
+import { CvSectionFields, CvSectionTabs, type Section, useSectionIds } from './CvForm';
 
 /** Subtitle text from real metadata only. */
 function versionLabel(cv: Cv) {
@@ -62,20 +48,13 @@ function Editor({
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const previewRef = useRef<CvPreviewHandle>(null);
-  const tabsId = useId();
-  const tabId = (value: Section) => `${tabsId}-${value}`;
-  const panelId = `${tabsId}-panel`;
+  const { tabId, panelId } = useSectionIds();
   // Refresh on section changes only when the PDF no longer matches the form.
   const goToSection = (value: Section) => {
     if (value === section) return;
     setSection(value);
     previewRef.current?.updateIfStale();
   };
-  const [editing, setEditing] = useState<{
-    kind: Kind;
-    item: Experience | Education | Project;
-    isNew: boolean;
-  } | null>(null);
   const dirty = useMemo(
     () => JSON.stringify(c) !== JSON.stringify(cv.content) || name !== cv.name,
     [c, cv, name],
@@ -178,41 +157,6 @@ function Editor({
     }
   };
 
-  const items = (kind: Kind) => {
-    const list = c[kind] as Array<Experience & Education & Project>;
-    return (
-      <div className="flex flex-col gap-2.5">
-        {list.map((it) => (
-          <div
-            key={it.id}
-            className="flex items-center justify-between gap-3 rounded-xl border border-line px-4 py-3"
-          >
-            <div className="min-w-0">
-              <p className="truncate font-medium">{it.title || it.degree || it.name}</p>
-              <p className="truncate text-sm text-soft">{it.company || it.school || it.tech}</p>
-            </div>
-            <div className="flex shrink-0 gap-1">
-              <Button size="sm" variant="ghost" onClick={() => setEditing({ kind, item: it, isNew: false })}>
-                Edit
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-danger"
-                onClick={() => set(kind, list.filter((x) => x.id !== it.id) as never)}
-              >
-                Remove
-              </Button>
-            </div>
-          </div>
-        ))}
-        <Button variant="secondary" onClick={() => setEditing({ kind, item: blank[kind](), isNew: true })}>
-          + Add {kind === 'projects' ? 'project' : kind}
-        </Button>
-      </div>
-    );
-  };
-
   return (
     <>
       <PageHeader
@@ -234,91 +178,21 @@ function Editor({
           </>
         }
       />
-      <div role="tablist" aria-label="CV sections" className="mb-6 flex gap-1.5 overflow-x-auto pb-1">
-        {SECTIONS.map((value, index) => {
-          const active = value === section;
-          return (
-            <button
-              key={value}
-              id={tabId(value)}
-              type="button"
-              role="tab"
-              aria-controls={panelId}
-              aria-selected={active}
-              tabIndex={active ? 0 : -1}
-              onClick={() => goToSection(value)}
-              onKeyDown={(event) => {
-                let next: number;
-                switch (event.key) {
-                  case 'ArrowRight': next = (index + 1) % SECTIONS.length; break;
-                  case 'ArrowLeft': next = (index - 1 + SECTIONS.length) % SECTIONS.length; break;
-                  case 'Home': next = 0; break;
-                  case 'End': next = SECTIONS.length - 1; break;
-                  default: return;
-                }
-                event.preventDefault();
-                goToSection(SECTIONS[next]);
-                document.getElementById(tabId(SECTIONS[next]))?.focus();
-              }}
-              className={cn(
-                'min-w-[110px] flex-1 rounded-full px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
-                active ? 'bg-accent text-[#1c2b22]' : 'bg-side text-soft hover:text-ink',
-              )}
-            >
-              {SECTION_LABELS[value]}
-            </button>
-          );
-        })}
-      </div>
+      <CvSectionTabs section={section} onSelect={goToSection} tabId={tabId} panelId={panelId} />
 
       <div className="grid items-start gap-6 xl:grid-cols-2">
         <div className="min-w-0">
           <CvSelector cvs={cvs} value={cv.id} onSelect={requestSwitch} disabled={update.isPending || !!pendingId} />
           <div id={panelId} role="tabpanel" aria-labelledby={tabId(section)}>
-            <Card key={section} className="flex flex-col gap-5 animate-in">
-              <h2 className="text-xl font-semibold">{SECTION_LABELS[section]}</h2>
-              {section === 'personal' && (
-                <>
-                  <Input
-                    label="CV name"
-                    hint="Only you see this."
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Input
-                      label="Full name"
-                      value={c.fullName}
-                      onChange={(e) => set('fullName', e.target.value)}
-                    />
-                    <Input label="Email" value={c.email} onChange={(e) => set('email', e.target.value)} />
-                    <PhoneInputs state={phoneField} className="sm:col-span-2" />
-                    <LocationFields value={c.location} onChange={(v) => set('location', v)} />
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <ContactLinksInputs state={contact} />
-                  </div>
-                </>
-              )}
-              {section === 'summary' && (
-                <Textarea
-                  label="Summary"
-                  rows={5}
-                  hint="Two or three sentences. Say what you do and what you want next."
-                  value={c.summary}
-                  onChange={(e) => set('summary', e.target.value)}
-                />
-              )}
-              {section === 'experience' && items('experience')}
-              {section === 'education' && items('education')}
-              {section === 'projects' && items('projects')}
-              {section === 'skills' && (
-                <>
-                  <SkillsEditor skills={c.skills} onChange={(s) => set('skills', s)} />
-                  <LanguagesEditor value={c.languages} onChange={(v) => set('languages', v)} />
-                </>
-              )}
-            </Card>
+            <CvSectionFields
+              section={section}
+              content={c}
+              set={set}
+              contact={contact}
+              phoneField={phoneField}
+              name={name}
+              onNameChange={setName}
+            />
           </div>
         </div>
         <div className="min-w-0 xl:sticky xl:top-8">
@@ -371,24 +245,6 @@ function Editor({
           </p>
         )}
       </Modal>
-      {editing && (
-        <ItemEditor
-          kind={editing.kind}
-          item={editing.item}
-          isNew={editing.isNew}
-          onClose={() => setEditing(null)}
-          onSave={(item) => {
-            const list = c[editing.kind] as Array<{ id: string }>;
-            set(
-              editing.kind,
-              (list.some((x) => x.id === item.id)
-                ? list.map((x) => (x.id === item.id ? item : x))
-                : [...list, item]) as never,
-            );
-            setEditing(null);
-          }}
-        />
-      )}
     </>
   );
 }
@@ -445,6 +301,9 @@ export default function CvBuilderPage() {
             >
               {hasProfile ? 'Start from my profile' : 'Start my CV'}
             </Button>
+            <ButtonLink to="/app/cvs/import" variant="secondary">
+              Import CV (PDF)
+            </ButtonLink>
             {!hasProfile && (
               <Link
                 to="/app/profile"

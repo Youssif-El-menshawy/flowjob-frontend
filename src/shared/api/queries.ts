@@ -9,13 +9,14 @@ import type {
   ApplicationPatch,
   Cv,
   CvContentInput,
+  CvImportResult,
   CvWriteInput,
   GmailReview,
   GmailStatus,
   MatchResult,
-  RunMatchInput,
   Profile,
   ReviewEdits,
+  RunMatchInput,
   TailorDirectInput,
   TailorMatchInput,
   User,
@@ -78,6 +79,18 @@ export function useUpdateCv() {
 /** Fetch the backend-rendered Harvard PDF for a saved CV (same document for preview and download). */
 export const fetchCvPdfBlob = (id: string, signal?: AbortSignal) =>
   apiBlob(`/cvs/${id}/pdf`, { signal });
+
+/** Header the backend requires on /cvs/import: sent only after the user agrees to OpenAI processing. */
+export const CV_IMPORT_CONSENT = { 'X-FlowJob-AI-Consent': 'cv-import' } as const;
+
+/** Smart CV Import: the backend extracts the PDF's text and organizes it for review. Nothing is stored. */
+export const importCvPdf = (file: File, signal?: AbortSignal) =>
+  api<CvImportResult>('/cvs/import', {
+    method: 'POST',
+    body: file,
+    headers: { 'Content-Type': 'application/pdf', ...CV_IMPORT_CONSENT },
+    signal,
+  });
 
 /** Render unsaved CV content to a Harvard PDF for the live builder preview (no DB write). */
 export const fetchCvPreviewPdf = (content: CvContentInput, signal?: AbortSignal, tailorDraftId?: string, cvId?: string) =>

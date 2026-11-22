@@ -52,7 +52,12 @@ export default function MyCvsPage() {
       <PageHeader
         title="My CVs"
         subtitle="Find, preview, and manage your saved CVs."
-        actions={!!cvs.data?.length && <ButtonLink to="/app/match">Tailor for a new job</ButtonLink>}
+        actions={
+          <>
+            <ButtonLink to="/app/cvs/import" variant="secondary">Import CV</ButtonLink>
+            {!!cvs.data?.length && <ButtonLink to="/app/match">Tailor for a new job</ButtonLink>}
+          </>
+        }
       />
       {cvs.isError && !cvs.data ? (
         <EmptyState
@@ -64,7 +69,12 @@ export default function MyCvsPage() {
         <EmptyState
           title="No saved CVs yet"
           text="Create your original CV to get started. Your tailored versions will appear here as you save them."
-          action={<ButtonLink to="/app/cv-builder">Create CV</ButtonLink>}
+          action={
+            <div className="flex flex-wrap justify-center gap-2.5">
+              <ButtonLink to="/app/cv-builder">Create CV</ButtonLink>
+              <ButtonLink to="/app/cvs/import" variant="secondary">Import CV</ButtonLink>
+            </div>
+          }
         />
       ) : (
         <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
