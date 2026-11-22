@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, Outlet, RouterProvider, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Cv, CvContent } from '@/shared/api/types';
 
@@ -47,24 +47,23 @@ vi.mock('./HarvardPdfViewer', () => ({
 
 import CvBuilderPage from './CvBuilderPage';
 import { ToastProvider } from '@/shared/ui/Overlay';
+import { guardedRouter, unload } from '@/test/guardedRouter';
 
 function Where() {
   const l = useLocation();
   return <p data-testid="where">{l.pathname}</p>;
 }
+// Under the app's interruption guard, so every switching test also proves there is never a second prompt.
 function renderAt(path: string) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <ToastProvider>
-        <Routes>
-          <Route path="/app/cv-builder" element={<CvBuilderPage />} />
-          <Route path="/app/cv-builder/:cvId" element={<CvBuilderPage />} />
-          <Route path="/app/cvs" element={<div>MY CVS</div>} />
-        </Routes>
-        <Where />
-      </ToastProvider>
-    </MemoryRouter>,
-  );
+  const router = guardedRouter([{
+    element: <><Outlet /><Where /><Link to="/app/cvs">Sidebar: My CVs</Link></>,
+    children: [
+      { path: '/app/cv-builder', element: <CvBuilderPage /> },
+      { path: '/app/cv-builder/:cvId', element: <CvBuilderPage /> },
+      { path: '/app/cvs', element: <div>MY CVS</div> },
+    ],
+  }], [path]);
+  return render(<ToastProvider><RouterProvider router={router} /></ToastProvider>);
 }
 const select = () => screen.getByLabelText('Editing CV') as HTMLSelectElement;
 const choose = (id: string) => fireEvent.change(select(), { target: { value: id } });
@@ -628,5 +627,43 @@ describe('CV languages', () => {
     expect(screen.getByRole('button', { name: 'Edit German' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit Polish' })).toBeNull();
     expect(lastPreview().languages).toBe('German B2');
+  });
+});
+
+describe('leaving the CV Builder', () => {
+  const sidebar = () => fireEvent.click(screen.getByRole('link', { name: 'Sidebar: My CVs' }));
+  const leaveDialog = () => screen.queryByRole('dialog', { name: 'Leave without saving?' });
+  const makeDirty = () => fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Edited Name' } });
+
+  it('does not ask while nothing is changed', () => {
+    renderAt('/app/cv-builder/o1');
+    expect(unload()).toBe(true);
+    sidebar();
+    expect(screen.getByText('MY CVS')).toBeInTheDocument();
+  });
+
+  it('asks before the sidebar or a refresh drops unsaved edits: Stay keeps them, Leave discards', () => {
+    renderAt('/app/cv-builder/o1');
+    makeDirty();
+    expect(unload()).toBe(false);
+    sidebar();
+    expect(leaveDialog()).toHaveTextContent('Your changes to “Original CV” are not saved');
+    fireEvent.click(within(leaveDialog()!).getByRole('button', { name: 'Stay' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/o1');
+    expect(fullName()).toBe('Edited Name');
+    sidebar();
+    fireEvent.click(within(leaveDialog()!).getByRole('button', { name: 'Discard and leave' }));
+    expect(screen.getByText('MY CVS')).toBeInTheDocument();
+    expect(mocks.update.mutate).not.toHaveBeenCalled();
+  });
+
+  it('keeps the CV switch dialog as the only question when switching', () => {
+    renderAt('/app/cv-builder/o1');
+    makeDirty();
+    choose('t1');
+    expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard & switch' }));
+    expect(leaveDialog()).toBeNull();
+    expect(screen.getByTestId('where')).toHaveTextContent('/app/cv-builder/t1');
   });
 });

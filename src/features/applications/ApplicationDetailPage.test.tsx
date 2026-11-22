@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Application, ApplicationPatch } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
+import { guardedRouter, unload } from '@/test/guardedRouter';
 import ApplicationDetailPage from './ApplicationDetailPage';
 
 const mocks = vi.hoisted(() => ({
@@ -110,4 +111,49 @@ it('deletes after confirmation and returns to Applications', async () => {
   expect(mocks.del.mutate).toHaveBeenCalledWith('app1', expect.anything());
   expect(await screen.findByText('APPLICATIONS LIST')).toBeVisible();
   expect(screen.getByText('Acme deleted.')).toBeVisible();
+});
+
+describe('Edit details with unsaved changes', () => {
+  function renderGuarded() {
+    const router = guardedRouter([{
+      element: <ToastProvider><Outlet /><Link to="/app/applications">Sidebar: Applications</Link></ToastProvider>,
+      children: [
+        { path: '/app/applications/:id', element: <ApplicationDetailPage /> },
+        { path: '/app/applications', element: <p>APPLICATIONS LIST</p> },
+      ],
+    }], ['/app/applications/app1']);
+    render(<RouterProvider router={router} />);
+  }
+  const edit = () => {
+    fireEvent.click(screen.getAllByRole('button', { name: /Edit details/ })[0]);
+    return within(screen.getByRole('dialog', { name: 'Edit details' }));
+  };
+
+  it('closes an untouched dialog at once', () => {
+    renderGuarded();
+    fireEvent.click(edit().getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(unload()).toBe(true);
+  });
+
+  it('asks before Cancel, Escape or leaving the page drops changes, and never after saving', async () => {
+    renderGuarded();
+    const form = edit();
+    fireEvent.change(form.getByLabelText(/Notes/), { target: { value: 'Call back on Friday' } });
+    await waitFor(() => expect(unload()).toBe(false));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    const ask = screen.getByRole('dialog', { name: 'Discard your changes?' });
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep editing' }));
+    expect(form.getByLabelText(/Notes/)).toHaveValue('Call back on Friday');
+
+    fireEvent.click(screen.getByRole('link', { name: 'Sidebar: Applications' }));
+    expect(screen.getByRole('dialog', { name: 'Discard your changes?' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+    fireEvent.click(form.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit details' })).toBeNull());
+    expect(screen.queryByRole('dialog', { name: 'Discard your changes?' })).toBeNull();
+    expect(mocks.mutateAsync).toHaveBeenCalledWith({ id: 'app1', notes: 'Call back on Friday' });
+    expect(unload()).toBe(true);
+  });
 });

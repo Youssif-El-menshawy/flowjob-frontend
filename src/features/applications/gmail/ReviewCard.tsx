@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '@/shared/api/client';
 import { useApproveReview, useDismissReview } from '@/shared/api/queries';
@@ -36,7 +36,12 @@ function Excerpt({ r }: { r: GmailReview }) {
 }
 
 /** One Gmail suggestion with its Approve / Edit / Dismiss actions. `onDone` runs after a decision is saved. */
-export function ReviewCard({ r, onDone }: { r: GmailReview; onDone?: (id: string) => void }) {
+export function ReviewCard({ r, onDone, onDirtyChange }: {
+  r: GmailReview;
+  onDone?: (id: string) => void;
+  /** Called when the card gains or loses choices or edits that are not saved yet. */
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const toast = useToast();
   const approve = useApproveReview();
   const dismiss = useDismissReview();
@@ -53,6 +58,14 @@ export function ReviewCard({ r, onDone }: { r: GmailReview; onDone?: (id: string
   const needsTime = r.kind === 'schedule_change' && !p.scheduledAt;
   const [when, setWhen] = useState(toLocalInput(p.scheduledAt));
   const busy = approve.isPending || dismiss.isPending;
+  const proposedStatus = (r.kind === 'status_change' ? p.to : p.status) ?? 'Applied';
+  const dirty = target !== '' || when !== toLocalInput(p.scheduledAt) || (editing && (
+    company !== (p.company ?? '') || jobTitle !== (p.jobTitle ?? '') || dateApplied !== (p.dateApplied ?? '')
+    || status !== proposedStatus));
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   // Synchronous guard: a fast double click must not send a second decision before React re-renders.
   const inFlight = useRef(false);
   const once = <T,>(run: (done: () => void) => T) => {

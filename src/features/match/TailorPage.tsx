@@ -11,6 +11,7 @@ import { cn, downloadBlob } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { Card, EmptyState, PageHeader, Segmented } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
+import { useLeaveControl, useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { Modal, useToast } from '@/shared/ui/Overlay';
 import { Skeleton } from '@/shared/ui/Spinner';
 import { HarvardPdfViewer } from '@/features/cv/HarvardPdfViewer';
@@ -349,14 +350,27 @@ function TailorError({ error, back, missing, title = 'Could not tailor this CV',
   );
 }
 
+/** A draft from a match is generated and stored on the server even if this page goes away; asking for it again from
+ * the same match returns that stored draft instead of running the AI again. */
+function useDraftInProgressGuard(pending: boolean) {
+  useLeaveGuard({
+    when: pending,
+    title: 'Leave while your draft is created?',
+    message: 'Your tailored draft is still being created on the server and will finish even if you leave. To open '
+      + 'it, choose Tailor on this match again. That will not use another try.',
+  });
+}
+
 /** The old match-tailor link stays usable. Opening or refreshing it never starts AI work. */
 function MatchTailor({ matchId }: { matchId: string }) {
   const nav = useNavigate();
   const tailor = useTailor();
   const back = { to: `/app/match/${matchId}`, label: 'Back to match' };
+  const leave = useLeaveControl();
+  useDraftInProgressGuard(tailor.isPending);
 
   const start = () => tailor.mutate(tailorFromMatch({ matchId }), {
-    onSuccess: (draft) => nav(`/app/tailor/${draft.id}`, { replace: true }),
+    onSuccess: (draft) => leave.bypass(() => nav(`/app/tailor/${draft.id}`, { replace: true })),
   });
   if (tailor.isError) {
     return <TailorError error={tailor.error} back={back}
@@ -401,6 +415,8 @@ export default function TailorPage() {
 function DraftRecovery({ draft, incompatible }: { draft: TailorDraft; incompatible: boolean }) {
   const nav = useNavigate();
   const regenerate = useTailor();
+  const leave = useLeaveControl();
+  useDraftInProgressGuard(regenerate.isPending);
   const { matchId, sourceCvId, jobTitle, company, jobUrl } = draft;
   const recoveryState = { freshTailoringDraft: { sourceCvId, jobTitle, company, jobUrl } };
 
@@ -416,7 +432,7 @@ function DraftRecovery({ draft, incompatible }: { draft: TailorDraft; incompatib
       {!incompatible && (matchId ? (
         <Button size="sm" variant="secondary" className="mt-2" loading={regenerate.isPending}
           onClick={() => regenerate.mutate(tailorFromMatch({ matchId, cvId: sourceCvId, fresh: true }), {
-            onSuccess: (freshDraft) => nav(`/app/tailor/${freshDraft.id}`, { replace: true }),
+            onSuccess: (freshDraft) => leave.bypass(() => nav(`/app/tailor/${freshDraft.id}`, { replace: true })),
           })}
         >
           Create fresh draft
@@ -444,6 +460,8 @@ interface ReviewProgress {
   decisions: Record<string, Decision>;
   edits: Record<string, string>;
   confirmed: boolean;
+  /** The "New CV name" field, when the person changed it. */
+  name?: string | null;
 }
 const progressKey = (draftId: string) => `${TAILOR_REVIEW_PREFIX}${draftId}`;
 
@@ -453,7 +471,12 @@ function loadProgress(draftId: string): ReviewProgress {
     const saved = JSON.parse(sessionStorage.getItem(progressKey(draftId)) ?? 'null') as Partial<ReviewProgress> | null;
     const isRecord = (v: unknown): v is Record<string, never> => !!v && typeof v === 'object' && !Array.isArray(v);
     return saved && isRecord(saved.decisions) && isRecord(saved.edits)
-      ? { decisions: saved.decisions, edits: saved.edits, confirmed: saved.confirmed === true }
+      ? {
+        decisions: saved.decisions,
+        edits: saved.edits,
+        confirmed: saved.confirmed === true,
+        name: typeof saved.name === 'string' ? saved.name : null,
+      }
       : empty;
   } catch {
     return empty;
@@ -595,16 +618,22 @@ function TailorReview({ draft, back, hideHeaderBack }: { draft: TailorDraft; bac
     setSavedOpen(false);
     setTimeout(() => savedButton.current?.focus(), 0);
   }, []);
+  const [name, setName] = useState<string | null>(initial.name ?? null);
   useEffect(() => {
-    storeProgress(draft.id, saved ? null : { decisions, edits, confirmed });
-  }, [draft.id, saved, decisions, edits, confirmed]);
+    storeProgress(draft.id, saved ? null : { decisions, edits, confirmed, name });
+  }, [draft.id, saved, decisions, edits, confirmed, name]);
   const [sourceRejected, setSourceRejected] = useState(false);
-  const [name, setName] = useState<string | null>(null);
   const [view, setView] = useState<'Tailored' | 'Original'>('Tailored');
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [downloadError, setDownloadError] = useState('');
   const downloadRequest = useRef<AbortController | null>(null);
   const saving = useRef(false);
+  // The review itself is kept in this tab and can be reopened, so only a save that is still running is protected.
+  useLeaveGuard({
+    when: create.isPending,
+    title: 'Leave while your CV is saved?',
+    message: 'Your new CV is still being saved. Saving continues on the server, and the CV will appear in My CVs.',
+  });
 
   // The detail query refreshes on mount. Don't apply against cached CV data before it returns.
   const checkingSource = !sourceQuery.isFetchedAfterMount && sourceQuery.isFetching;

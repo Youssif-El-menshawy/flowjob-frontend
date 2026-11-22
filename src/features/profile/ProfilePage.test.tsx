@@ -1,10 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { useSyncExternalStore } from 'react';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Profile } from '@/shared/api/types';
 import { ToastProvider } from '@/shared/ui/Overlay';
 import { AppLayout } from '@/app/AppLayout';
+import { LeaveGuardProvider } from '@/shared/ui/LeaveGuard';
 import ProfilePage from './ProfilePage';
 
 const mocks = vi.hoisted(() => ({
@@ -62,15 +63,19 @@ function fixture(overrides: Partial<Profile> = {}): Profile {
 }
 
 function renderProfile(entries = ['/app/profile'], initialIndex?: number) {
+  // As in the app: one interruption guard around every page.
   const router = createMemoryRouter([{
-    path: '/app',
-    element: <AppLayout />,
-    children: [
-      { path: 'profile', element: <ProfilePage /> },
-      { path: 'cv-builder', element: <h1>CV Builder destination</h1> },
-      { path: 'cvs', element: <h1>My CVs destination</h1> },
-      { path: 'applications', element: <h1>Applications destination</h1> },
-    ],
+    element: <LeaveGuardProvider><Outlet /></LeaveGuardProvider>,
+    children: [{
+      path: '/app',
+      element: <AppLayout />,
+      children: [
+        { path: 'profile', element: <ProfilePage /> },
+        { path: 'cv-builder', element: <h1>CV Builder destination</h1> },
+        { path: 'cvs', element: <h1>My CVs destination</h1> },
+        { path: 'applications', element: <h1>Applications destination</h1> },
+      ],
+    }],
   }], { initialEntries: entries, initialIndex });
   render(<ToastProvider><RouterProvider router={router} /></ToastProvider>);
   return router;
@@ -389,7 +394,7 @@ describe('Profile persistence and navigation', () => {
     const open = () => fireEvent.click(screen.getByRole('link', { name: 'Open CV builder' }));
     open();
     const dialog = within(screen.getByRole('dialog', { name: 'Leave profile?' }));
-    fireEvent.click(dialog.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(dialog.getByRole('button', { name: 'Stay' }));
     tab('Personal details');
     expect(github()).toHaveValue('github.com/fixture');
     expect(screen.getByText('You have unsaved changes')).toBeVisible();
@@ -422,7 +427,7 @@ describe('Profile sidebar and history navigation', () => {
 
     fireEvent.click(sidebarLink('My CVs'));
     expect(leaveDialog().getByText(/unsaved profile changes/)).toBeVisible();
-    fireEvent.click(leaveDialog().getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(leaveDialog().getByRole('button', { name: 'Stay' }));
     expect(router.state.location).toEqual(original);
     expect(screen.getByLabelText('Summary')).toHaveValue('Unsaved sidebar draft');
 
@@ -480,7 +485,7 @@ describe('Profile sidebar and history navigation', () => {
     draftSummary();
 
     await act(() => router.navigate(delta));
-    fireEvent.click(leaveDialog().getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(leaveDialog().getByRole('button', { name: 'Stay' }));
     expect(router.state.location.pathname).toBe('/app/profile');
     expect(screen.getByLabelText('Summary')).toHaveValue('Unsaved sidebar draft');
 

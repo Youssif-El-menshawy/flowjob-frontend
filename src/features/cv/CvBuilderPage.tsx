@@ -7,6 +7,7 @@ import { useDocumentTitle } from '@/shared/lib/hooks';
 import { downloadBlob, fmtRelative } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import { EmptyState, PageHeader } from '@/shared/ui/Display';
+import { useLeaveControl, useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { Modal, useToast } from '@/shared/ui/Overlay';
 import { PageLoader } from '@/shared/ui/Spinner';
 import { CvLivePreview, type CvPreviewHandle } from './CvLivePreview';
@@ -62,6 +63,16 @@ function Editor({
   const set = <K extends keyof CvContent>(k: K, v: CvContent[K]) => setC((x) => ({ ...x, [k]: v }));
   const contact = useContactLinks(c.links, (l) => set('links', l));
   const phoneField = usePhoneField(c.phone, (v) => set('phone', v));
+  const leave = useLeaveControl();
+  // Any other way out of this CV (sidebar, Back, refresh, closing the tab) asks first while edits are unsaved.
+  // Switching CVs keeps its own dialog with Save & switch; its confirmed switch bypasses this one.
+  useLeaveGuard({
+    when: dirty,
+    busy: update.isPending,
+    title: 'Leave without saving?',
+    message: <>Your changes to <strong className="font-semibold text-ink">“{name || cv.name}”</strong> are not saved and will be lost if you leave.</>,
+    leaveLabel: 'Discard and leave',
+  });
 
   // Validates/normalises the contact links first. On a bad link, jump to the Personal section (where the
   // inline error is) instead of saving; nothing is sent.
@@ -96,6 +107,8 @@ function Editor({
   };
 
   const goToCv = (id: string) => nav(`/app/cv-builder/${id}`);
+  // After the switch dialog's own choice (or a save), never ask a second time.
+  const switchTo = (id: string) => leave.bypass(() => goToCv(id));
 
   const requestSwitch = (id: string) => {
     if (id === cv.id || update.isPending) return;
@@ -113,7 +126,7 @@ function Editor({
     // Drops only the local edits; nothing is sent to the backend.
     const id = pendingId;
     setPendingId(null);
-    if (id) goToCv(id);
+    if (id) switchTo(id);
   };
   const saveAndSwitch = async () => {
     const id = pendingId;
@@ -136,7 +149,7 @@ function Editor({
     }
     toast({ text: 'CV saved.' });
     setPendingId(null);
-    goToCv(id);
+    switchTo(id);
   };
 
   // Download the real backend Harvard PDF. Save first so the file matches what's on screen.

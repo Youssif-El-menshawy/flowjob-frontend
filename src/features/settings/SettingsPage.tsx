@@ -9,6 +9,7 @@ import { useTheme } from '@/shared/lib/theme';
 import { Button } from '@/shared/ui/Button';
 import { Card, PageHeader, Segmented } from '@/shared/ui/Display';
 import { Input } from '@/shared/ui/Field';
+import { useLeaveGuard } from '@/shared/ui/LeaveGuard';
 import { Modal, useToast } from '@/shared/ui/Overlay';
 
 function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -17,6 +18,17 @@ function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }
   const [cur, setCur] = useState('');
   const [next, setNext] = useState('');
   const [err, setErr] = useState<Record<string, string>>({});
+  // A typed password is unsaved work: closing the dialog (or leaving the page) asks first.
+  const guard = useLeaveGuard({
+    when: open && (!!cur || !!next),
+    dialog: true,
+    busy: change.isPending,
+    title: 'Discard the password change?',
+    message: 'Your password has not been changed yet.',
+    leaveLabel: 'Discard',
+    stayLabel: 'Keep editing',
+  });
+  const requestClose = () => guard.confirm(onClose);
   useEffect(() => {
     if (open) {
       setCur('');
@@ -27,11 +39,11 @@ function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={requestClose}
       title="Change password"
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={requestClose}>
             Cancel
           </Button>
           <Button
@@ -103,6 +115,13 @@ export default function SettingsPage() {
   const [accErr, setAccErr] = useState<Record<string, string>>({});
   const [pw, setPw] = useState(false);
   const accountDirty = name !== user?.name || email !== user?.email;
+  useLeaveGuard({
+    when: accountDirty || updateMe.isPending,
+    busy: updateMe.isPending,
+    title: 'Leave without saving?',
+    message: 'Your account changes have not been saved.',
+    leaveLabel: 'Discard and leave',
+  });
 
   return (
     <>

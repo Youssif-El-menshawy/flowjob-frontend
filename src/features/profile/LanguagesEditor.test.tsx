@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { RouterProvider } from 'react-router-dom';
+import { guardedRouter } from '@/test/guardedRouter';
 import { LANGUAGE_NAMES } from '@/shared/lib/languageCatalog';
 import { LanguagesEditor } from './LanguagesEditor';
 
@@ -117,5 +119,36 @@ describe('Languages editor', () => {
     fireEvent.change(edit.getByLabelText(/^Proficiency/), { target: { value: '' } });
     fireEvent.click(edit.getByRole('button', { name: 'Save language' }));
     expect(change).toHaveBeenLastCalledWith('Example Dialect, Other Dialect');
+  });
+});
+
+describe('Languages editor with interruption protection', () => {
+  function setupGuarded(value: string) {
+    const change = vi.fn();
+    function Form() {
+      const [languages, setLanguages] = useState(value);
+      return <LanguagesEditor value={languages} onChange={(text) => { change(text); setLanguages(text); }} />;
+    }
+    render(<RouterProvider router={guardedRouter([{ path: '/', element: <Form /> }])} />);
+    return change;
+  }
+
+  it('cancels an untouched dialog at once, and asks before dropping a chosen language', () => {
+    const change = setupGuarded('English (C1)');
+    fireEvent.click(screen.getByRole('button', { name: 'Add language' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Add language' })).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add language' }));
+    const add = within(screen.getByRole('dialog', { name: 'Add language' }));
+    fireEvent.change(add.getByRole('combobox', { name: 'Language' }), { target: { value: 'Polish' } });
+    fireEvent.click(add.getByRole('button', { name: 'Cancel' }));
+    const ask = screen.getByRole('dialog', { name: 'Discard this language?' });
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep editing' }));
+    expect(add.getByRole('combobox', { name: 'Language' })).toHaveValue('Polish');
+    fireEvent.click(add.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(change).not.toHaveBeenCalled();
   });
 });
