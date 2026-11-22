@@ -173,56 +173,108 @@ describe('DashboardPage (regression: must never blank-crash)', () => {
     mocks.apps = { data: undefined, isLoading: false, isError: true, refetch };
     renderDashboard();
     expect(screen.getByRole('alert')).toHaveTextContent('Could not load your applications and CVs.');
-    expect(screen.queryByText('Let’s get you set up')).not.toBeInTheDocument();
+    expect(screen.queryByText('Your setup progress')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(refetch).toHaveBeenCalled();
   });
 
-  it('shows "Set up your profile" as the first open step while the saved profile is incomplete', () => {
+  it('removes the generic "How FlowJob helps" card', () => {
     mocks.cvs = { data: [] };
-    mocks.profile = { data: { ...completeProfile, skills: [] }, isLoading: false }; // incomplete (no skills)
     renderDashboard();
-    const step = screen.getByText('Set up your profile').closest('li')!;
-    expect(step).toHaveTextContent('1');
-    expect(within(step).getByRole('link', { name: 'Complete manually' })).toHaveAttribute('href', '/app/profile');
-    expect(screen.getByText('0 of 4 done')).toBeVisible();
+    expect(screen.getByText('Your setup progress')).toBeVisible();
+    expect(screen.queryByText('How FlowJob helps')).not.toBeInTheDocument();
   });
+});
 
-  it('counts the profile step as done once the saved profile is complete', () => {
-    mocks.cvs = { data: [] };
-    mocks.profile = { data: completeProfile, isLoading: false };
-    renderDashboard();
-    const step = screen.getByText('Set up your profile').closest('li')!;
-    expect(step).toHaveTextContent('✓');
-    expect(within(step).queryByRole('link')).not.toBeInTheDocument();
-    expect(screen.getByText('1 of 4 done')).toBeVisible();
-    // The next step is creating the CV from the Profile.
-    expect(screen.getByRole('link', { name: 'Start my CV' })).toHaveAttribute('href', '/app/cv-builder');
-  });
+const nextStep = () => screen.getByRole('article', { name: 'Your next step' });
+const progressCard = () => screen.getByText('Your setup progress').closest('section')!;
+const comingUp = () => screen.getByText('Coming up next').closest('section')!;
+const links = (el: HTMLElement) => within(el).getAllByRole('link').map((l) => [l.textContent, l.getAttribute('href')]);
+const progressItems = () => within(progressCard()).getAllByRole('listitem').map((li) => li.textContent);
 
-  it('offers Import CV and Complete manually on the profile step, the import only while the account can use it', () => {
+describe('Dashboard setup before the first application (next step follows saved data)', () => {
+  beforeEach(() => {
+    mocks.apps = { data: [], isLoading: false, isError: false };
     mocks.cvs = { data: [] };
+    mocks.matches = { data: [] };
     mocks.importStatus = { data: { available: true } };
+  });
+
+  it('1. no Profile: Import CV or Complete manually', () => {
+    mocks.profile = { data: { ...completeProfile, summary: '', skills: [] }, isLoading: false };
     renderDashboard();
-    let step = screen.getByText('Set up your profile').closest('li')!;
-    expect(within(step).getAllByRole('link').map((l) => [l.textContent, l.getAttribute('href')])).toEqual([
-      ['Import CV', '/app/profile/import'],
-      ['Complete manually', '/app/profile'],
-    ]);
-    cleanup();
+    const card = nextStep();
+    expect(within(card).getByRole('heading', { name: 'Set up your profile' })).toBeVisible();
+    expect(card).toHaveTextContent('Step 1 of 4');
+    expect(card).toHaveTextContent('Still missing: Summary, Skills.');
+    expect(links(card)).toEqual([['Import CV', '/app/profile/import'], ['Complete manually', '/app/profile']]);
+    expect(within(progressCard()).getByText('0 of 4 completed')).toBeVisible();
+    expect(within(progressCard()).getByRole('progressbar', { name: 'Setup progress' })).toHaveAttribute('aria-valuenow', '0');
+    expect(progressItems()).toEqual(['1Set up your profileNext', '2Create your CV', '3Check a job match', '4Add an application']);
+    expect(comingUp()).toHaveTextContent('Create your CV');
+    expect(links(comingUp())).toEqual([['Open CV builder', '/app/cv-builder']]);
+  });
+
+  it('1. no Profile, import already used: only completing it manually', () => {
     mocks.importStatus = { data: { available: false } };
     renderDashboard();
-    step = screen.getByText('Set up your profile').closest('li')!;
-    expect(within(step).queryByRole('link', { name: 'Import CV' })).not.toBeInTheDocument();
-    expect(within(step).getByRole('link', { name: 'Complete manually' })).toBeVisible();
+    expect(links(nextStep())).toEqual([['Complete my profile', '/app/profile']]);
   });
 
-  it('keeps all four setup steps', () => {
-    mocks.cvs = { data: [] };
+  it('2. Profile ready: Create CV, with the Profile step completed (green check, no strikethrough)', () => {
+    mocks.profile = { data: completeProfile, isLoading: false };
     renderDashboard();
-    const steps = within(screen.getByText('Let’s get you set up').closest('section, div')!.parentElement!)
-      .getAllByRole('listitem').map((li) => li.querySelector('p')?.textContent);
-    expect(steps).toEqual(['Set up your profile', 'Create your CV', 'Check a job match', 'Add an application']);
+    expect(within(nextStep()).getByRole('heading', { name: 'Create your CV' })).toBeVisible();
+    expect(nextStep()).toHaveTextContent('Step 2 of 4');
+    expect(links(nextStep())).toEqual([['Create my CV', '/app/cv-builder']]);
+    expect(within(progressCard()).getByText('1 of 4 completed')).toBeVisible();
+    expect(within(progressCard()).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+    const done = within(progressCard()).getAllByRole('listitem')[0];
+    expect(done).toHaveTextContent('Set up your profile (completed)');
+    expect(done.querySelector('svg')).not.toBeNull();
+    expect(progressCard().querySelector('.line-through')).toBeNull();
+    expect(comingUp()).toHaveTextContent('Check a job match');
+  });
+
+  it('3. CV created: Check job match', () => {
+    mocks.profile = { data: completeProfile, isLoading: false };
+    mocks.cvs = { data: [{ id: 'cv1', name: 'My CV' }] };
+    renderDashboard();
+    expect(within(nextStep()).getByRole('heading', { name: 'Check a job match' })).toBeVisible();
+    expect(links(nextStep())).toEqual([['Check a job', '/app/match']]);
+    expect(within(progressCard()).getByText('2 of 4 completed')).toBeVisible();
+    expect(comingUp()).toHaveTextContent('Add an application');
+  });
+
+  it('4. match completed: Add application, prefilled from the latest match', () => {
+    mocks.profile = { data: completeProfile, isLoading: false };
+    mocks.cvs = { data: [{ id: 'cv1', name: 'My CV' }] };
+    mocks.matches = { data: [match()] };
+    renderDashboard();
+    const card = nextStep();
+    expect(within(card).getByRole('heading', { name: 'Add an application' })).toBeVisible();
+    expect(card).toHaveTextContent('Applied for Frontend Engineer at Globex?');
+    expect(links(card)).toEqual([['Add application', '/app/applications/new?company=Globex&jobTitle=Frontend+Engineer']]);
+    expect(within(progressCard()).getByText('3 of 4 completed')).toBeVisible();
+    expect(comingUp()).toHaveTextContent('Your activity dashboard');
+    expect(links(comingUp())).toEqual([['Open Applications', '/app/applications']]);
+  });
+
+  it('highlights the first unfinished step when steps are done out of order', () => {
+    mocks.profile = { data: { ...completeProfile, skills: [] }, isLoading: false };
+    mocks.cvs = { data: [{ id: 'cv1', name: 'My CV' }] };
+    renderDashboard();
+    expect(within(nextStep()).getByRole('heading', { name: 'Set up your profile' })).toBeVisible();
+    expect(within(progressCard()).getByText('1 of 4 completed')).toBeVisible();
+    expect(comingUp()).toHaveTextContent('Check a job match'); // the CV is already done
+  });
+
+  it('5. once applications exist: the existing activity Dashboard, even without a CV', () => {
+    mocks.apps = { data: [realApp()], isLoading: false, isError: false };
+    renderDashboard();
+    expect(screen.getByRole('heading', { name: /Application overview/ })).toBeVisible();
+    expect(screen.queryByText('Your setup progress')).not.toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Your next step' })).not.toBeInTheDocument();
   });
 
   it('waits for the saved profile instead of briefly showing it as incomplete', () => {
@@ -245,6 +297,7 @@ describe('DashboardPage (regression: must never blank-crash)', () => {
   });
 
   it('after a Profile import with existing CVs, says they were not changed', () => {
+    mocks.cvs = { data: [{ id: 'cv1', name: 'My CV' }] };
     mocks.profile = { data: completeProfile, isLoading: false };
     renderDashboard({ profileImported: true });
     expect(screen.getByText(/Your existing CVs and tailored CVs were not changed/)).toBeVisible();
