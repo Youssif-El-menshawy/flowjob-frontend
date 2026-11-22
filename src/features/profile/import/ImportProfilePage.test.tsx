@@ -196,21 +196,105 @@ describe('consent', () => {
 });
 
 describe('progress and errors', () => {
-  it('shows progress and can cancel without using up the import', async () => {
-    let release!: (r: Response) => void;
+  /** Holds the extraction open until the test releases it (or the page aborts it). */
+  function holdImport() {
+    const held: { release: (response: Response) => void } = { release: () => {} };
     stubApi((path, init) => (path === '/profile/import/pdf' ? new Promise<Response>((resolve, reject) => {
-      release = resolve;
+      held.release = resolve;
       init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
     }) : undefined));
+    return held;
+  }
+  const extractions = () => requests.filter((r) => r.path === '/profile/import/pdf');
+  const busyButton = (name: string) => screen.getByRole('button', { name });
+
+  it('keeps the form on screen and shows the progress inside the Import CV button', async () => {
+    holdImport();
     renderPage();
     await chooseAndImport();
-    expect(await screen.findByText('Reading your PDF and organizing it…')).toBeVisible();
+    const button = await screen.findByRole('button', { name: 'Reading your CV…' });
+    expect(button).toBeDisabled();
+    expect(button.querySelector('.animate-spin')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '1. Choose your CV' })).toBeVisible();
+    expect(screen.getByText('cv.pdf')).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('Reading your CV…');
+    expect(screen.getByRole('status')).not.toHaveTextContent('%');
+  });
+
+  it('rotates informational messages without inventing progress', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      holdImport();
+      renderPage();
+      await chooseAndImport();
+      expect(await screen.findByRole('button', { name: 'Reading your CV…' })).toBeDisabled();
+      act(() => vi.advanceTimersByTime(5000));
+      expect(busyButton('Organizing your information…')).toBeDisabled();
+      act(() => vi.advanceTimersByTime(5000));
+      expect(busyButton('Preparing your review…')).toBeDisabled();
+      for (let i = 0; i < 6; i += 1) { // it stays on the last message instead of starting over
+        act(() => vi.advanceTimersByTime(5000));
+        expect(busyButton('Preparing your review…')).toHaveTextContent(/^Preparing your review…$/);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('blocks a second file or a duplicate import while processing', async () => {
+    holdImport();
+    renderPage();
+    await chooseAndImport();
+    const button = await screen.findByRole('button', { name: 'Reading your CV…' });
+    expect(fileInput()).toBeDisabled();
+    expect(consentBox()).toBeDisabled();
+    fireEvent.click(button);
+    fireEvent.change(fileInput(), { target: { files: [pdfFile('other.pdf')] } });
+    fireEvent.drop(screen.getByText('cv.pdf'), { dataTransfer: { files: [pdfFile('dropped.pdf')] } });
+    await act(async () => {});
+    expect(extractions()).toHaveLength(1);
+    expect(screen.getByText('cv.pdf')).toBeVisible();
+    expect(screen.queryByText('other.pdf')).not.toBeInTheDocument();
+    expect(screen.queryByText('dropped.pdf')).not.toBeInTheDocument();
+  });
+
+  it('can cancel without using up the import, keeping the chosen file', async () => {
+    const held = holdImport();
+    renderPage();
+    await chooseAndImport();
+    await screen.findByRole('button', { name: 'Reading your CV…' });
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(await screen.findByText(/Import cancelled. Your Profile was not changed, and you can still import/)).toBeVisible();
-    expect(screen.getByLabelText('CV PDF file')).toBeInTheDocument();
-    release?.(Response.json(RESULT));
+    expect(extractions()[0].init.signal?.aborted).toBe(true);
+    expect(importButton()).toBeEnabled();
+    expect(screen.getByText('cv.pdf')).toBeVisible();
+    expect(fileInput()).toBeEnabled();
+    expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/app/profile');
+    held.release(Response.json(RESULT));
+    await act(async () => {});
     expect(screen.queryByRole('heading', { name: 'Review your Profile' })).not.toBeInTheDocument();
     expect(saves()).toEqual([]);
+  });
+
+  it('restores the button after a failure and keeps the file for another try', async () => {
+    let calls = 0;
+    stubApi((path) => {
+      if (path !== '/profile/import/pdf') return undefined;
+      calls += 1;
+      return calls === 1 ? Response.json({ detail: 'The AI service returned an unusable result.' }, { status: 502 }) : undefined;
+    });
+    renderPage();
+    const file = pdfFile();
+    await chooseAndImport(file);
+    expect(await screen.findByRole('alert')).toHaveTextContent('The CV could not be organized');
+    expect(importButton()).toBeEnabled();
+    expect(screen.getByText('cv.pdf')).toBeVisible();
+    expect(consentBox()).toBeChecked();
+    fireEvent.click(importButton());
+    expect(await screen.findByRole('heading', { name: 'Review your Profile' })).toBeVisible();
+    expect(extractions()).toHaveLength(2);
+    expect(extractions()[1].init.body).toBe(file);
+    expect(new Headers(extractions()[1].init.headers).get('X-FlowJob-AI-Consent')).toBe('cv-import');
   });
 
   it.each([
