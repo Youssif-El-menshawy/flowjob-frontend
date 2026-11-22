@@ -318,6 +318,8 @@ describe('review of a new account', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Summary/ }));
     fireEvent.change(summaryBox(), { target: { value: 'Edited during the review.' } });
     expect(saveButton()).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Discard import' })).toBeEnabled();
+    expect(screen.queryByText(/You can import a CV into your Profile once/)).not.toBeInTheDocument();
     fireEvent.click(saveButton());
     expect(saves()).toEqual([]);
 

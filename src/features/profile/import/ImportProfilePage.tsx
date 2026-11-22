@@ -620,10 +620,6 @@ function ReviewForm({
           />
           I have reviewed this information and it is accurate. Save it to my Profile.
         </label>
-        <p className="text-sm text-soft">
-          You can import a CV into your Profile once, and edit your Profile as often as you like afterwards. Your
-          saved CVs are not changed.
-        </p>
         <div className="flex flex-wrap justify-end gap-2.5">
           <Button variant="danger" onClick={onDiscard} disabled={saving}>
             Discard import
