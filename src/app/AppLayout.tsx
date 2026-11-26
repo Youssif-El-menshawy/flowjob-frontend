@@ -13,6 +13,7 @@ const NAV = [
   { to: '/app', label: 'Dashboard', icon: Icon.dashboard, end: true },
   { to: '/app/cv-builder', label: 'CV Builder', icon: Icon.builder },
   { to: '/app/cvs', label: 'My CVs', icon: Icon.cvs },
+  { to: '/app/jobs', label: 'Jobs', icon: Icon.jobs },
   { to: '/app/match', label: 'Job Match', icon: Icon.match },
   { to: '/app/applications', label: 'Applications', icon: Icon.apps, badge: true },
 ];

@@ -16,6 +16,7 @@ const Profile = lazy(() => import('@/features/profile/ProfilePage'));
 const CvBuilder = lazy(() => import('@/features/cv/CvBuilderPage'));
 const MyCvs = lazy(() => import('@/features/cv/MyCvsPage'));
 const ImportProfile = lazy(() => import('@/features/profile/import/ImportProfilePage'));
+const Jobs = lazy(() => import('@/features/jobs/JobsPage'));
 const JobMatch = lazy(() => import('@/features/match/JobMatchPage'));
 const MatchReport = lazy(() => import('@/features/match/MatchReportPage'));
 const Tailor = lazy(() => import('@/features/match/TailorPage'));
@@ -104,6 +105,7 @@ export const appRoutes = createRoutesFromElements(
       <Route path="cvs" element={<MyCvs />} />
       {/* The former post-registration page: setup now starts on the Dashboard. */}
       <Route path="welcome" element={<Navigate to="/app" replace />} />
+      <Route path="jobs" element={<Jobs />} />
       <Route path="match" element={<JobMatch />} />
       <Route path="applications" element={<Applications />} />
       <Route path="applications/new" element={<AddApplication />} />
