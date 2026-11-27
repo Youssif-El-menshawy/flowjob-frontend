@@ -38,8 +38,8 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      title="A clearer path forward."
-      text="Every application is a step. We keep count, so you can see how far you have come."
+      title="Your job search, right where you left it."
+      text="Your CVs, job matches and applications are all in one place, ready for the next step."
     >
       <h1 className="text-[40px] font-semibold">Welcome back.</h1>
       <p className="mt-2 text-soft">Continue where you left off.</p>

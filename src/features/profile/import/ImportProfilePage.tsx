@@ -264,19 +264,13 @@ function Upload({ busy, onImport, onCancel }: {
       <Card className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">2. How your CV is used</h2>
         <ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-soft">
-          <li>FlowJob reads the text of your PDF on its server.</li>
           <li>
-            <strong className="font-medium text-ink">The extracted text is sent to OpenAI</strong> to sort it into
-            Profile sections.
+            <strong className="font-medium text-ink">The text of your CV is sent to an external AI service</strong>,
+            which may be outside the EU, only to sort it into your Profile.
           </li>
-          <li>FlowJob does not keep your PDF or its text. Nothing is saved until you review the result and choose
-            Save to my Profile. No CV is created.</li>
-          <li>Every value is checked against your PDF. Anything that cannot be confirmed is left out and shown to you,
-            and nothing missing is filled in for you.</li>
-          <li>Anything already in your Profile is kept unless you choose your CV’s version. Your name and email stay as
-            in your account.</li>
-          <li>Each account can import a CV into its Profile once. Failed, cancelled or discarded imports don’t count
-            (up to 5 tries a day).</li>
+          <li>FlowJob doesn’t keep your PDF or its text. Nothing is saved until you review it and choose Save to my
+            Profile.</li>
+          <li>This is optional: you can fill in your Profile yourself instead. Each account can import a CV once.</li>
         </ul>
         <label className={cn('mt-1 flex items-start gap-2 text-sm', busy ? 'cursor-not-allowed' : 'cursor-pointer')}>
           <input
@@ -286,7 +280,7 @@ function Upload({ busy, onImport, onCancel }: {
             onChange={(event) => setConsent(event.target.checked)}
             className="mt-0.5 size-[18px] shrink-0 accent-primary"
           />
-          I agree that the text of this CV is sent to OpenAI to organize it.
+          I agree that the text of this CV is sent to an AI service to fill in my Profile.
         </label>
       </Card>
 

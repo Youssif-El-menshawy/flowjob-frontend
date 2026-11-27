@@ -125,6 +125,18 @@ describe('overview', () => {
     expect(screen.getByText('Score unavailable')).toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).toBeNull();
   });
+
+  it('says plainly that no requirements were found, never "Nice work"', () => {
+    mocks.match.data = {
+      ...base, scoreAvailable: false, verdict: 'Not enough information',
+      matched: [], partiallyMatched: [], missing: [], qualificationCounts: undefined,
+    };
+    renderReport();
+    expect(screen.getByText(/couldn’t find any clear requirements in this post/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nice work/)).toBeNull();
+    expect(screen.queryByText(/Scored qualifications/)).toBeNull();
+    expect(screen.queryByText('Not shown')).toBeNull();
+  });
 });
 
 describe('historical reports', () => {
@@ -185,12 +197,28 @@ describe('How your CV compares', () => {
     expect(within(cmp).getByText(/doesn’t demonstrate it — not that you lack the skill/)).toBeInTheDocument();
   });
 
-  it('has graceful empty states', () => {
-    mocks.match.data = { ...base, matched: [], partiallyMatched: [], missing: [] };
+  it('offers Apply now next to Tailor and Add to Applications when the match has a job link', () => {
+    mocks.match.data = base;
     renderReport();
-    const cmp = section('How your CV compares');
-    expect(within(cmp).getByText(/Nothing from this post is clearly shown/)).toBeInTheDocument();
-    expect(within(cmp).getByText(/Every qualification this post lists is shown in your CV/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Apply now/ })).toHaveAttribute('href', 'https://acme.com/jobs/1');
+    cleanup();
+    mocks.match.data = { ...base, jobUrl: undefined };
+    renderReport();
+    expect(screen.queryByRole('link', { name: /Apply now/ })).toBeNull();
+  });
+
+  it('has graceful empty states', () => {
+    mocks.match.data = { ...base, matched: [], partiallyMatched: [] };
+    renderReport();
+    expect(within(section('How your CV compares')).getByText(/Nothing from this post is clearly shown/)).toBeInTheDocument();
+  });
+
+  it('says "Nice work" only when everything is shown', () => {
+    mocks.match.data = { ...base, partiallyMatched: [], missing: [] };
+    renderReport();
+    expect(
+      within(section('How your CV compares')).getByText(/Every qualification this post lists is shown in your CV/),
+    ).toBeInTheDocument();
   });
 });
 

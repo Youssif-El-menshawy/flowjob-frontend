@@ -14,6 +14,9 @@ import type {
   CvWriteInput,
   GmailReview,
   GmailStatus,
+  JobDetail,
+  JobsPage,
+  JobsQuery,
   MatchResult,
   Profile,
   ProfileImportSave,
@@ -31,6 +34,7 @@ export const qk = {
   cvs: ['cvs'] as const,
   cv: (id: string) => ['cvs', id] as const,
   matches: ['matches'] as const,
+  jobs: (q: JobsQuery) => ['jobs', q] as const,
   match: (id: string) => ['matches', id] as const,
   tailorDraft: (id: string) => ['tailor', id] as const,
   apps: ['applications'] as const,
@@ -102,7 +106,7 @@ export function useUpdateCv() {
 export const fetchCvPdfBlob = (id: string, signal?: AbortSignal) =>
   apiBlob(`/cvs/${id}/pdf`, { signal });
 
-/** Header the backend requires on /profile/import/pdf: sent only after the user agrees to OpenAI processing. */
+/** Header the backend requires on /profile/import/pdf: sent only after the user agrees to AI processing. */
 export const CV_IMPORT_CONSENT = { 'X-FlowJob-AI-Consent': 'cv-import' } as const;
 
 /** Smart CV Import: the backend extracts the PDF's text and organizes it for review. Nothing is stored. */
@@ -338,3 +342,23 @@ export const useChangePassword = () =>
     mutationFn: (b: { current: string; next: string }) =>
       api<void>('/me/password', { method: 'POST', json: b }),
   });
+
+// Jobs (open roles in Poland). While the server refreshes its cache, poll every 3 s.
+function jobsPath(q: JobsQuery) {
+  const p = new URLSearchParams({ level: q.level, page: String(q.page), pageSize: String(q.pageSize ?? 20) });
+  if (q.city) p.set('city', q.city);
+  if (q.company) p.set('company', q.company);
+  if (q.q?.trim()) p.set('q', q.q.trim());
+  if (q.cvId) p.set('cvId', q.cvId);
+  if (q.sort) p.set('sort', q.sort);
+  return `/jobs?${p}`;
+}
+export const useJobs = (q: JobsQuery, enabled = true) =>
+  useQuery({
+    queryKey: qk.jobs(q),
+    queryFn: () => api<JobsPage>(jobsPath(q)),
+    enabled,
+    placeholderData: (previous) => previous,
+    refetchInterval: (query) => (query.state.data?.refreshing ? 3000 : false),
+  });
+export const fetchJob = (id: string) => api<JobDetail>(`/jobs/${id}`);

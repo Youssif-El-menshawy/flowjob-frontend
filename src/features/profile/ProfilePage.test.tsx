@@ -112,6 +112,14 @@ afterEach(() => {
   mocks.isPending = false;
 });
 
+describe('Profile opening tab', () => {
+  it('opens on Personal details, where a new profile starts', () => {
+    mocks.profile = fixture();
+    renderProfile();
+    expect(screen.getByRole('tab', { name: 'Personal details' })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
 describe('Profile CV import entry point', () => {
   it('offers the CV import only while the account can still use it', () => {
     mocks.profile = fixture();

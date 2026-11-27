@@ -445,3 +445,65 @@ export interface ApiErrorBody {
   message: string;
   fieldErrors?: Record<string, string>;
 }
+
+// Job listings (open jobs in Poland from tracked companies)
+export type JobLevel = 'internship' | 'entry' | 'other';
+export type JobLevelFilter = 'entry' | 'internship' | 'all';
+
+export interface JobListing {
+  id: string;
+  title: string;
+  company: string;
+  city: string;
+  location: string;
+  level: JobLevel;
+  url: string | null;
+  postedAt: string | null;
+  source: string;
+  /** Keyword skill fit against the chosen CV (no AI). Only present when a CV is chosen. */
+  fit?: JobFit;
+}
+
+export interface JobFit {
+  /** 0-100, or null when the ad names too few known skills (or has no description). */
+  score: number | null;
+  label: 'High skill overlap' | 'Some skill overlap' | 'Low skill overlap' | 'No skill overlap' | 'Not enough detail' | 'No description';
+  matched: string[];
+  missing: string[];
+  missingOptional: string[];
+  missingLanguages: string[];
+}
+
+export interface JobDetail extends JobListing {
+  description: string | null;
+}
+
+export interface JobFacet {
+  name: string;
+  count: number;
+}
+
+export interface JobsQuery {
+  level: JobLevelFilter;
+  city?: string;
+  company?: string;
+  q?: string;
+  /** Score every job against this CV. */
+  cvId?: string;
+  /** 'fit' needs a cvId. */
+  sort?: 'recent' | 'fit';
+  page: number;
+  pageSize?: number;
+}
+
+export interface JobsPage {
+  items: JobListing[];
+  total: number;
+  page: number;
+  pageSize: number;
+  levels: Partial<Record<JobLevel, number>>;
+  cities: JobFacet[];
+  companies: JobFacet[];
+  refreshing: boolean;
+  refreshedAt: string | null;
+}

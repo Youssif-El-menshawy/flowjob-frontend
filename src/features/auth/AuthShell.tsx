@@ -17,54 +17,42 @@ export function ThemeToggle() {
   );
 }
 
-/** The rising line from the auth panels: "a clearer path forward". */
-export function PathChart() {
-  const d =
-    'M0 170 C 40 170, 60 150, 90 148 S 140 135, 165 128 S 205 100, 230 96 S 270 70, 300 60 S 345 25, 380 0';
+/** The whole job search in FlowJob, step by step: what the app does, shown beside the sign-in forms. */
+const JOURNEY = [
+  { t: 'Find', d: 'Open roles in Poland, ranked by how well they fit your CV' },
+  { t: 'Match', d: 'Your fit for a job, with proof from your own CV' },
+  { t: 'Tailor', d: 'A focused CV for that job. Your original never changes' },
+  { t: 'Apply', d: 'Straight to the employer’s posting with the right CV' },
+  { t: 'Track', d: 'Every application and its status in one place' },
+];
+
+export function JourneySteps() {
   return (
-    <svg viewBox="-10 -20 400 210" className="w-full max-w-[460px]" aria-hidden>
-      <defs>
-        <linearGradient id="fj-area" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#8fd6a8" stopOpacity="0.28" />
-          <stop offset="1" stopColor="#8fd6a8" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[40, 85, 130, 175].map((y) => (
-        <line key={y} x1="0" x2="380" y1={y} y2={y} stroke="#ffffff" strokeOpacity="0.06" />
+    <ol className="relative flex flex-col gap-5" aria-label="Your job search in FlowJob">
+      <span aria-hidden className="absolute top-4 bottom-4 left-[15px] w-px bg-[#9fe0b8]/25" />
+      {JOURNEY.map((step, i) => (
+        <li
+          key={step.t}
+          className="relative flex items-start gap-4 animate-in"
+          style={{ animationDelay: `${0.25 + i * 0.15}s` }}
+        >
+          <span
+            className={
+              'grid size-8 shrink-0 place-items-center rounded-full text-sm font-semibold ' +
+              (i === JOURNEY.length - 1
+                ? 'bg-[#9fe0b8] text-[#10261b]'
+                : 'border border-[#9fe0b8]/50 bg-[#10261b] text-[#9fe0b8]')
+            }
+          >
+            {i + 1}
+          </span>
+          <span className="pt-0.5">
+            <span className="block font-semibold text-[#e8efe6]">{step.t}</span>
+            <span className="block text-sm leading-snug text-[#a3b5a8]">{step.d}</span>
+          </span>
+        </li>
       ))}
-      <path
-        d={`${d} L 380 180 L 0 180 Z`}
-        fill="url(#fj-area)"
-        className="animate-in"
-        style={{ animationDelay: '1s' }}
-      />
-      <path
-        d={d}
-        fill="none"
-        stroke="#9fe0b8"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        pathLength={1}
-        className="animate-draw"
-      />
-      <circle
-        cx="380"
-        cy="0"
-        r="9"
-        fill="#9fe0b8"
-        fillOpacity="0.2"
-        className="animate-pop"
-        style={{ animationDelay: '1.9s' }}
-      />
-      <circle
-        cx="380"
-        cy="0"
-        r="4"
-        fill="#9fe0b8"
-        className="animate-pop"
-        style={{ animationDelay: '1.9s' }}
-      />
-    </svg>
+    </ol>
   );
 }
 
@@ -85,16 +73,16 @@ export function AuthShell({ children, title, text }: { children: ReactNode; titl
           <div className="w-full max-w-[380px] animate-in">{children}</div>
         </div>
         <div className="flex justify-between text-xs text-soft">
-          <span>FlowJob · A little structure for your next chapter.</span>
+          <span>FlowJob · Find, apply and track your next job in one place.</span>
           <span className="hidden sm:inline">Student project, PWr</span>
         </div>
       </div>
-      <aside className="relative hidden w-1/2 max-w-[720px] flex-col overflow-hidden bg-[#10261b] px-16 pt-32 pb-20 text-[#e8efe6] lg:flex">
+      <aside className="relative hidden w-1/2 max-w-[720px] flex-col overflow-hidden bg-[#10261b] px-16 pt-24 pb-16 text-[#e8efe6] lg:flex">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_80%_60%,rgba(143,214,168,0.10),transparent_60%)]" />
         <h2 className="relative max-w-sm text-5xl leading-[1.05] font-semibold">{title}</h2>
         <p className="relative mt-5 max-w-sm text-[15px] text-[#a3b5a8]">{text}</p>
-        <div className="relative mt-auto">
-          <PathChart />
+        <div className="relative mt-14">
+          <JourneySteps />
         </div>
       </aside>
     </div>

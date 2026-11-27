@@ -5,6 +5,7 @@ import { useCvs, useRunMatch, useTailorDirect } from '@/shared/api/queries';
 import type { TailorDraft } from '@/shared/api/types';
 import { useDocumentTitle } from '@/shared/lib/hooks';
 import { pendingJob } from '@/shared/lib/pendingJob';
+import type { PrefilledJob } from '@/features/jobs/JobsPage';
 import { fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
 import { EmptyState, PageHeader } from '@/shared/ui/Display';
@@ -53,16 +54,21 @@ type Recovery = Pick<TailorDraft, 'sourceCvId' | 'jobTitle' | 'company' | 'jobUr
 export default function JobMatchPage() {
   useDocumentTitle('Job match');
   const location = useLocation();
-  const state = location.state as { freshTailoringDraft?: Recovery; checkSavedCv?: Recovery } | null;
+  const state = location.state as { freshTailoringDraft?: Recovery; checkSavedCv?: Recovery; job?: PrefilledJob } | null;
   const recovery = state?.freshTailoringDraft;
   // From a saved tailored CV whose job post this tab no longer has: that CV and the job's title, company and link
   // are filled in; the person pastes the post themselves.
   const check = recovery ? undefined : state?.checkSavedCv;
-  return <JobMatchForm key={recovery || check ? location.key : 'job-form'} recovery={recovery} check={check} />;
+  // From the Jobs page: the listing's title, company, link and description, and the CV chosen there.
+  const job = recovery || check ? undefined : state?.job;
+  return (
+    <JobMatchForm key={recovery || check || job ? location.key : 'job-form'} recovery={recovery} check={check} job={job} />
+  );
 }
 
-function JobMatchForm({ recovery, check }: { recovery?: Recovery; check?: Recovery }) {
-  const prefill = recovery ?? check;
+function JobMatchForm({ recovery, check, job }: { recovery?: Recovery; check?: Recovery; job?: PrefilledJob }) {
+  const prefill: Recovery | undefined = recovery ?? check
+    ?? (job && { sourceCvId: job.cvId ?? '', jobTitle: job.title, company: job.company, jobUrl: job.url });
   const nav = useNavigate();
   const cvs = useCvs();
   const run = useRunMatch();
@@ -72,7 +78,7 @@ function JobMatchForm({ recovery, check }: { recovery?: Recovery; check?: Recove
   const [jobTitle, setJobTitle] = useState(prefill?.jobTitle ?? '');
   const [company, setCompany] = useState(prefill?.company ?? '');
   const [jobUrl, setJobUrl] = useState(prefill?.jobUrl ?? '');
-  const [text, setText] = useState(() => prefill ? '' : pendingJob.get());
+  const [text, setText] = useState(() => (job ? job.description || pendingJob.get() : prefill ? '' : pendingJob.get()));
   const [error, setError] = useState<FormError | null>(null);
   const leave = useLeaveControl();
   // What the form opened with (a recovered draft or a post pasted on the landing page) is not a change.

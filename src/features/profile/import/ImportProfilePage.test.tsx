@@ -94,7 +94,7 @@ function renderPage() {
 
 const fileInput = () => screen.getByLabelText('CV PDF file');
 const importButton = () => screen.getByRole('button', { name: 'Import CV' });
-const consentBox = () => screen.getByRole('checkbox', { name: /sent to OpenAI/ });
+const consentBox = () => screen.getByRole('checkbox', { name: /sent to an AI service/ });
 const confirmBox = () => screen.getByRole('checkbox', { name: /reviewed this information and it is accurate/ });
 const saveButton = () => screen.getByRole('button', { name: 'Save to my Profile' });
 const summaryBox = () => screen.getByRole('textbox', { name: 'Summary' });
@@ -173,13 +173,14 @@ describe('availability', () => {
 });
 
 describe('consent', () => {
-  it('explains OpenAI processing and the one-time import, and sends nothing until the user agrees', async () => {
+  it('explains the AI processing and the one-time import, and sends nothing until the user agrees', async () => {
     stubApi();
     renderPage();
-    expect(await screen.findByText(/The extracted text is sent to OpenAI/)).toBeVisible();
-    expect(screen.getByText(/does not keep your PDF or its text/)).toBeVisible();
-    expect(screen.getByText(/No CV is created/)).toBeVisible();
-    expect(screen.getByText(/Each account can import a CV into its Profile once/)).toBeVisible();
+    expect(await screen.findByText(/The text of your CV is sent to an external AI service/)).toBeVisible();
+    expect(screen.getByText(/may be outside the EU/)).toBeVisible();
+    expect(screen.getByText(/doesn’t keep your PDF or its text/)).toBeVisible();
+    expect(screen.queryByText(/OpenAI/)).toBeNull();
+    expect(screen.getByText(/Each account can import a CV once/)).toBeVisible();
     const file = pdfFile();
     fireEvent.change(fileInput(), { target: { files: [file] } });
     await screen.findByText('cv.pdf');

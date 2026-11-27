@@ -58,8 +58,8 @@ export default function RegisterPage() {
 
   return (
     <AuthShell
-      title="Start with one good CV."
-      text="Build it once, check it against any job, and keep every application in one calm place."
+      title="Your whole job search, in one place."
+      text="Import your CV, find jobs that fit, tailor your CV for each one, apply and keep track. Free for students."
     >
       {job && (
         <p className="mb-5 rounded-2xl bg-accent-soft px-4 py-3 text-sm leading-relaxed animate-in">
