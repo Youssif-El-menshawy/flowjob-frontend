@@ -106,7 +106,7 @@ export function useUpdateCv() {
 export const fetchCvPdfBlob = (id: string, signal?: AbortSignal) =>
   apiBlob(`/cvs/${id}/pdf`, { signal });
 
-/** Header the backend requires on /profile/import/pdf: sent only after the user agrees to OpenAI processing. */
+/** Header the backend requires on /profile/import/pdf: sent only after the user agrees to AI processing. */
 export const CV_IMPORT_CONSENT = { 'X-FlowJob-AI-Consent': 'cv-import' } as const;
 
 /** Smart CV Import: the backend extracts the PDF's text and organizes it for review. Nothing is stored. */

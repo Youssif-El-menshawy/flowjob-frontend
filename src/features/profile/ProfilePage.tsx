@@ -41,7 +41,7 @@ export default function ProfilePage() {
 }
 
 function LoadedProfile({ initial }: { initial: Profile }) {
-  const [tab, setTab] = useState<Tab>('Experience');
+  const [tab, setTab] = useState<Tab>('Personal details');
   const [checkpoint, setCheckpoint] = useState({ saved: initial, version: 0 });
   // A new editor resets the input controllers and the draft together. The selected
   // section stays put, and background query updates cannot replace unsaved edits.

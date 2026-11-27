@@ -9,6 +9,7 @@ import { jobPosts, tailorFromMatch } from '@/shared/lib/jobPosts';
 import { TAILOR_REVIEW_PREFIX } from '@/shared/lib/sessionData';
 import { cn, downloadBlob } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
+import { ApplyNowLink } from './ApplyNowLink';
 import { Card, EmptyState, PageHeader, Segmented } from '@/shared/ui/Display';
 import { Input, Textarea } from '@/shared/ui/Field';
 import { useLeaveControl, useLeaveGuard } from '@/shared/ui/LeaveGuard';
@@ -599,6 +600,8 @@ function TailoredSaved({ open, cv, draft, previousScore, canDownload, downloadin
         )}
       </section>
 
+      {/* Next: apply on the employer's site with this version, then track it. */}
+      <ApplyNowLink jobUrl={draft.jobUrl} full className="mt-3" />
       {/* Focus starts here rather than on Re-check, so Enter never starts an AI analysis by accident. */}
       <ButtonLink full variant="secondary" className="mt-3" to={`/app/applications/new?${application}`} data-autofocus>
         Add to Applications

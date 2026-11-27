@@ -780,6 +780,14 @@ describe('Re-check my match in the saved dialog', () => {
   }
   const recheck = (dialog: ReturnType<typeof within>) => dialog.queryByRole('button', { name: 'Re-check my match' });
 
+  it('offers Apply now for the job after saving, when the job has a link', () => {
+    mocks.draftQuery = { data: { ...draft, jobUrl: 'https://jobs.acme.com/42' }, isError: false, error: null };
+    mocks.match = { score: 59, scoreAvailable: true, matched: [], partiallyMatched: [], missing: [] };
+    const dialog = saveFrom('/app/tailor/d1', { m1: POST });
+    expect(dialog.getByRole('link', { name: /Apply now/ })).toHaveAttribute('href', 'https://jobs.acme.com/42');
+    expect(dialog.getByRole('link', { name: 'Add to Applications' })).toBeVisible();
+  });
+
   it('runs Job Match with the new CV and the same post, then opens the new result', () => {
     mocks.draftQuery = { data: draft, isError: false, error: null };
     mocks.match = { score: 59, scoreAvailable: true, matched: [], partiallyMatched: [], missing: [] };

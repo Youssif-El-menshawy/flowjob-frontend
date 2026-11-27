@@ -10,22 +10,27 @@ import { controlClass } from '@/shared/ui/Field';
 import { Icon } from '@/shared/ui/Icons';
 
 const STEPS = [
-  { t: 'Build', d: 'One CV from a guided form, ready as PDF.', h: '42%', c: 'bg-[#dce8d8] text-[#1c2b22]' },
+  {
+    t: 'Find',
+    d: 'Open jobs in Poland, ranked by how well they fit your CV.',
+    h: '46%',
+    c: 'bg-[#dce8d8] text-[#1c2b22]',
+  },
   {
     t: 'Match',
-    d: 'See your fit, strengths and gaps for a job.',
-    h: '60%',
+    d: 'Your fit for the job, with proof from your own CV.',
+    h: '64%',
     c: 'bg-[#b9d0b8] text-[#1c2b22]',
   },
   {
     t: 'Tailor',
-    d: 'A focused version for that job. Your original stays.',
-    h: '80%',
+    d: 'A focused CV for that job. Your original stays.',
+    h: '82%',
     c: 'bg-[#477558] text-white',
   },
   {
-    t: 'Track',
-    d: 'Track your applications and their current status.',
+    t: 'Apply & track',
+    d: 'Apply on the posting, then follow every reply in one place.',
     h: '100%',
     c: 'bg-[#2e5b44] text-white',
   },
@@ -64,13 +69,13 @@ export default function LandingPage() {
       </header>
 
       <section className="mx-auto grid max-w-[1180px] items-center gap-14 px-6 pt-10 pb-24 lg:grid-cols-[1.05fr_1fr]">
-        <div className="animate-in">
+        <div className="min-w-0 animate-in">
           <h1 className="text-5xl leading-[1.02] font-semibold sm:text-[64px]">
-            Every application, one step closer.
+            From job search to job offer, in one place.
           </h1>
-          <p className="mt-6 max-w-[520px] text-lg leading-relaxed text-soft">
-            Build one strong CV, see how well it fits a job before you apply, tailor it in a minute, and keep
-            track of every reply.
+          <p className="mt-6 max-w-[540px] text-lg leading-relaxed text-soft">
+            Import your CV, find open jobs that fit you, see your match before you apply, tailor your CV in a
+            minute, and keep track of every application and reply. No more switching between tools.
           </p>
           <form
             className="mt-9 max-w-[560px] rounded-3xl border border-line bg-surface p-5"
@@ -103,18 +108,18 @@ export default function LandingPage() {
           </form>
         </div>
         <div
-          className="flex h-[440px] items-end gap-3"
+          className="flex h-[260px] min-w-0 items-end gap-2 sm:h-[440px] sm:gap-3"
           role="img"
-          aria-label="FlowJob in four steps: build, match, tailor, track"
+          aria-label="FlowJob in four steps: find, match, tailor, apply and track"
         >
           {STEPS.map((s, i) => (
             <div
               key={s.t}
-              className={`${s.c} flex flex-1 flex-col justify-between rounded-t-3xl rounded-b-lg p-4 animate-grow transition-transform hover:-translate-y-1.5`}
+              className={`${s.c} flex min-w-0 flex-1 flex-col justify-between rounded-t-3xl rounded-b-lg p-3 animate-grow sm:p-4 transition-transform hover:-translate-y-1.5`}
               style={{ height: s.h, animationDelay: `${0.15 + i * 0.1}s` }}
             >
-              <span className="font-display text-xl font-semibold">{s.t}</span>
-              <span className="text-[13px] leading-snug opacity-90">{s.d}</span>
+              <span className="font-display text-base leading-tight font-semibold sm:text-xl">{s.t}</span>
+              <span className="hidden text-[13px] leading-snug opacity-90 sm:block">{s.d}</span>
             </div>
           ))}
         </div>
@@ -126,18 +131,33 @@ export default function LandingPage() {
             Made for the part of job hunting nobody enjoys.
           </h2>
           <p className="mt-4 max-w-xl text-lg leading-relaxed text-soft">
-            Each tool does one job well, and they all share the same CV and the same list of applications.
+            Every step shares the same CV and the same list of applications, so nothing gets lost between
+            them.
           </p>
-          <div className="mt-12 grid gap-5 md:grid-cols-3">
+          <div className="mt-12 grid gap-5 md:grid-cols-2">
             {[
               {
-                t: 'A CV that is easy to keep up to date',
-                d: 'Fill in a guided form once and download it whenever you need it.',
+                t: 'Your CV, ready in minutes',
+                d: 'Import the PDF you already have, check it, and download a clean CV whenever you need it.',
                 x: <span className="font-display font-semibold">Sara Nowak · Frontend Intern</span>,
               },
               {
-                t: 'Know your fit before you apply',
-                d: 'A match score, what already fits, and what is missing. Then tailor your CV for that job.',
+                t: 'Jobs that fit you',
+                d: 'Open roles in Poland for students and graduates, sorted by how many of your skills they ask for.',
+                x: (
+                  <div className="flex w-full flex-wrap items-center justify-between gap-2 text-sm">
+                    <span>
+                      <strong>Frontend Intern</strong> <span className="text-soft">Warsaw</span>
+                    </span>
+                    <span className="rounded-full bg-success-bg px-2.5 py-0.5 text-xs font-semibold text-success-ink">
+                      High skill overlap
+                    </span>
+                  </div>
+                ),
+              },
+              {
+                t: 'Know your fit, then tailor and apply',
+                d: 'A match score with proof from your CV, a tailored version for that job, then straight to the posting.',
                 x: (
                   <div className="w-full">
                     <div className="mb-2 text-sm">
@@ -148,8 +168,8 @@ export default function LandingPage() {
                 ),
               },
               {
-                t: 'Your applications, kept in order',
-                d: 'Track each application and update its status as you hear back.',
+                t: 'Every application, kept in order',
+                d: 'Track each application on one board and update its status as you hear back, from applied to offer.',
                 x: (
                   <div className="flex flex-wrap gap-2">
                     <StatusPill status="Applied" />
@@ -171,7 +191,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-
       <section id="pricing" className="bg-[#10261b] text-[#e8efe6]">
         <div className="mx-auto max-w-[1180px] px-6 py-24">
           <h2 className="text-4xl font-semibold">Free while you study.</h2>
@@ -180,7 +199,7 @@ export default function LandingPage() {
               <span className="font-medium">Student</span>
               <span className="font-display text-5xl font-semibold">0 zł</span>
               <p className="leading-relaxed text-[#56665b]">
-                CV builder, job matching, CV tailoring and application tracking.
+                CV import and builder, job listings, job matching, CV tailoring and application tracking.
               </p>
               <ButtonLink to={authed ? '/app' : '/register'} className="mt-3 self-start">
                 {authed ? 'Open dashboard' : 'Create free account'}

@@ -197,6 +197,16 @@ describe('How your CV compares', () => {
     expect(within(cmp).getByText(/doesn’t demonstrate it — not that you lack the skill/)).toBeInTheDocument();
   });
 
+  it('offers Apply now next to Tailor and Add to Applications when the match has a job link', () => {
+    mocks.match.data = base;
+    renderReport();
+    expect(screen.getByRole('link', { name: /Apply now/ })).toHaveAttribute('href', 'https://acme.com/jobs/1');
+    cleanup();
+    mocks.match.data = { ...base, jobUrl: undefined };
+    renderReport();
+    expect(screen.queryByRole('link', { name: /Apply now/ })).toBeNull();
+  });
+
   it('has graceful empty states', () => {
     mocks.match.data = { ...base, matched: [], partiallyMatched: [] };
     renderReport();

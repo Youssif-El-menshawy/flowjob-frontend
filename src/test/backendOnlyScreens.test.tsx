@@ -168,7 +168,8 @@ it('advertises only supported features on the landing page, with no demo or inve
   const requests = stubBackend();
   renderAt('/');
 
-  expect(screen.getByText(/track each application and update its status/i)).toBeVisible();
+  expect(screen.getByText(/track each application on one board and update its status/i)).toBeVisible();
+  expect(screen.getByText(/find open jobs that fit you/i)).toBeVisible();
   expect(screen.queryByText(/gmail/i)).not.toBeInTheDocument();
   expect(screen.queryByText(/demo/i)).not.toBeInTheDocument();
   expect(screen.queryByText(/19 zł|Pro \(|no payments are taken/i)).not.toBeInTheDocument();

@@ -22,6 +22,7 @@ import {
 import { useCountUp, useDocumentTitle } from '@/shared/lib/hooks';
 import { cn, fmtDate } from '@/shared/lib/utils';
 import { Button, ButtonLink } from '@/shared/ui/Button';
+import { ApplyNowLink } from './ApplyNowLink';
 import { EmptyState, ProgressBar } from '@/shared/ui/Display';
 import { Skeleton } from '@/shared/ui/Spinner';
 
@@ -470,6 +471,7 @@ function HeaderActions({ m, appQuery }: { m: MatchResult; appQuery: string }) {
       >
         Tailor my CV
       </Button>
+      <ApplyNowLink jobUrl={m.jobUrl} className="w-full sm:w-auto" />
       <ButtonLink to={`/app/applications/new?${appQuery}`} variant="secondary" className="w-full sm:w-auto">
         Add to Applications
       </ButtonLink>
