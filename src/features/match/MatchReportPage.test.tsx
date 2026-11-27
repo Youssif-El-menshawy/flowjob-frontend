@@ -125,6 +125,18 @@ describe('overview', () => {
     expect(screen.getByText('Score unavailable')).toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).toBeNull();
   });
+
+  it('says plainly that no requirements were found, never "Nice work"', () => {
+    mocks.match.data = {
+      ...base, scoreAvailable: false, verdict: 'Not enough information',
+      matched: [], partiallyMatched: [], missing: [], qualificationCounts: undefined,
+    };
+    renderReport();
+    expect(screen.getByText(/couldn’t find any clear requirements in this post/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nice work/)).toBeNull();
+    expect(screen.queryByText(/Scored qualifications/)).toBeNull();
+    expect(screen.queryByText('Not shown')).toBeNull();
+  });
 });
 
 describe('historical reports', () => {
@@ -186,11 +198,17 @@ describe('How your CV compares', () => {
   });
 
   it('has graceful empty states', () => {
-    mocks.match.data = { ...base, matched: [], partiallyMatched: [], missing: [] };
+    mocks.match.data = { ...base, matched: [], partiallyMatched: [] };
     renderReport();
-    const cmp = section('How your CV compares');
-    expect(within(cmp).getByText(/Nothing from this post is clearly shown/)).toBeInTheDocument();
-    expect(within(cmp).getByText(/Every qualification this post lists is shown in your CV/)).toBeInTheDocument();
+    expect(within(section('How your CV compares')).getByText(/Nothing from this post is clearly shown/)).toBeInTheDocument();
+  });
+
+  it('says "Nice work" only when everything is shown', () => {
+    mocks.match.data = { ...base, partiallyMatched: [], missing: [] };
+    renderReport();
+    expect(
+      within(section('How your CV compares')).getByText(/Every qualification this post lists is shown in your CV/),
+    ).toBeInTheDocument();
   });
 });
 

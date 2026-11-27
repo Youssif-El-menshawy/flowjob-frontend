@@ -33,11 +33,12 @@ const LEVEL_BADGE: Record<JobLevel, { label: string; className: string } | null>
   other: null,
 };
 
+// Its own wording on purpose: the quick keyword check must not look like the AI match verdict.
 const FIT_STYLE: Record<string, string> = {
-  'Strong fit': 'bg-success-bg text-success-ink',
-  'Good fit': 'bg-accent-soft text-accent-ink',
-  'Partial fit': 'bg-tint text-ink',
-  'Low fit': 'bg-tint text-soft',
+  'High skill overlap': 'bg-success-bg text-success-ink',
+  'Some skill overlap': 'bg-accent-soft text-accent-ink',
+  'Low skill overlap': 'bg-tint text-ink',
+  'No skill overlap': 'bg-tint text-soft',
 };
 
 /** What the match form needs to start with this job already filled in. */
@@ -75,15 +76,24 @@ function FitSummary({ fit }: { fit: JobFit }) {
         {fit.matched.length > 0 && <span className="text-soft">You have: {list(fit.matched)}</span>}
       </p>
       {fit.missing.length > 0 && <p className="text-soft">Missing: {list(fit.missing)}</p>}
-      {fit.missingOptional.length > 0 && <p className="text-soft">Nice to have: {list(fit.missingOptional)}</p>}
+      {fit.missingOptional.length > 0 && (
+        <p className="text-soft">Nice to have: {list(fit.missingOptional)}</p>
+      )}
       {fit.missingLanguages.length > 0 && (
-        <p className="font-medium text-danger">Asks for {fit.missingLanguages.join(' and ')}, which is not on your CV</p>
+        <p className="font-medium text-danger">
+          Asks for {fit.missingLanguages.join(' and ')}, which is not on your CV
+        </p>
       )}
     </div>
   );
 }
 
-function JobCard({ job, i, onMatch, matching }: {
+function JobCard({
+  job,
+  i,
+  onMatch,
+  matching,
+}: {
   job: JobListing;
   i: number;
   onMatch: (job: JobListing) => void;
@@ -165,10 +175,12 @@ export default function JobsPage() {
   );
 
   // Any filter change starts again at page 1.
-  const change = <T,>(set: (v: T) => void) => (v: T) => {
-    set(v);
-    setPage(1);
-  };
+  const change =
+    <T,>(set: (v: T) => void) =>
+    (v: T) => {
+      set(v);
+      setPage(1);
+    };
 
   async function matchJob(job: JobListing) {
     setMatchingId(job.id);
@@ -216,9 +228,12 @@ export default function JobsPage() {
         }
       />
 
-      <div className="mb-3 flex flex-wrap items-center gap-3">
+      <div className="mb-3 flex items-center gap-3">
         <Segmented label="Experience level" options={TABS} value={tab} onChange={change(setTab)} />
-        <div className="relative w-full max-w-xs">
+        {isFetching && <Spinner className="size-4" />}
+      </div>
+      <div className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_13rem_15rem]">
+        <div className="relative sm:col-span-2 lg:col-span-1">
           <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-soft">
             <Icon.search />
           </span>
@@ -238,7 +253,7 @@ export default function JobsPage() {
           aria-label="Filter by city"
           value={city}
           onChange={(e) => change(setCity)(e.target.value)}
-          className={cn(selectClass, 'sm:w-48')}
+          className={selectClass}
         >
           <option value="">All cities</option>
           {data?.cities.map((c) => (
@@ -251,7 +266,7 @@ export default function JobsPage() {
           aria-label="Filter by company"
           value={company}
           onChange={(e) => change(setCompany)(e.target.value)}
-          className={cn(selectClass, 'sm:w-60')}
+          className={selectClass}
         >
           <option value="">All companies</option>
           {data?.companies.map((c) => (
@@ -260,19 +275,18 @@ export default function JobsPage() {
             </option>
           ))}
         </select>
-        {isFetching && <Spinner className="size-4" />}
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
+      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 text-sm">
         {hasCv ? (
           <>
-            <label className="flex items-center gap-2 text-soft">
-              Compare with
+            <label className="flex w-full items-center gap-2 text-soft sm:w-auto">
+              <span className="shrink-0">Compare with</span>
               <select
                 aria-label="CV to compare with"
                 value={cvId}
                 onChange={(e) => change(setCvId)(e.target.value)}
-                className={cn(selectClass, 'w-auto text-ink sm:w-64')}
+                className={cn(selectClass, 'min-w-0 flex-1 text-ink sm:w-64 sm:flex-none')}
               >
                 {cvs.data?.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -281,19 +295,21 @@ export default function JobsPage() {
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-2 text-soft">
-              Sort by
+            <label className="flex w-full items-center gap-2 text-soft sm:w-auto">
+              <span className="shrink-0">Sort by</span>
               <select
                 aria-label="Sort jobs"
                 value={sort}
                 onChange={(e) => change(setSort)(e.target.value as Sort)}
-                className={cn(selectClass, 'w-auto text-ink sm:w-48')}
+                className={cn(selectClass, 'min-w-0 flex-1 text-ink sm:w-56 sm:flex-none')}
               >
-                <option value="fit">Best match for my CV</option>
+                <option value="fit">Most skill overlap</option>
                 <option value="recent">Newest first</option>
               </select>
             </label>
-            <p className="text-xs text-soft">Skill fit is a quick keyword check. Use Match my CV for a full analysis.</p>
+            <p className="w-full text-xs text-soft">
+              Skill overlap is a quick keyword check of your CV. Use Match my CV for the full AI analysis.
+            </p>
           </>
         ) : (
           <p className="text-soft">
@@ -308,7 +324,10 @@ export default function JobsPage() {
       {isError ? (
         <EmptyState title="Jobs could not be loaded" text="Please check your connection and try again." />
       ) : data?.refreshing && !data.items.length ? (
-        <div role="status" className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-6 text-soft">
+        <div
+          role="status"
+          className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-6 text-soft"
+        >
           <Spinner className="size-4" />
           Collecting open jobs from tracked companies. This takes about 20 seconds the first time.
         </div>
@@ -343,7 +362,12 @@ export default function JobsPage() {
               <span className="text-soft">
                 Page {page} of {pages}
               </span>
-              <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={page >= pages}
+                onClick={() => setPage(page + 1)}
+              >
                 Next
               </Button>
             </nav>

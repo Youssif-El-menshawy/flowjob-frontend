@@ -142,7 +142,7 @@ describe('JobsPage', () => {
     const withFit = () =>
       page({
         items: [
-          { ...page().items[0], fit: { score: 75, label: 'Strong fit', matched: ['Python', 'SQL', 'Docker', 'Git', 'Linux', 'React'],
+          { ...page().items[0], fit: { score: 75, label: 'High skill overlap', matched: ['Python', 'SQL', 'Docker', 'Git', 'Linux', 'React'],
             missing: ['AWS'], missingOptional: ['Kubernetes'], missingLanguages: ['German'] } },
           { ...page().items[1], fit: { score: null, label: 'Not enough detail', matched: [], missing: [],
             missingOptional: [], missingLanguages: [] } },
@@ -165,7 +165,7 @@ describe('JobsPage', () => {
       mocks.cvs = { data: CVS, isLoading: false };
       mocks.result.data = withFit();
       renderPage();
-      expect(screen.getByText('Strong fit · 75%')).toBeInTheDocument();
+      expect(screen.getByText('High skill overlap · 75%')).toBeInTheDocument();
       expect(screen.getByText('You have: Python, SQL, Docker, Git, Linux +1 more')).toBeInTheDocument();
       expect(screen.getByText('Missing: AWS')).toBeInTheDocument();
       expect(screen.getByText('Nice to have: Kubernetes')).toBeInTheDocument();

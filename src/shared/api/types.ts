@@ -467,7 +467,7 @@ export interface JobListing {
 export interface JobFit {
   /** 0-100, or null when the ad names too few known skills (or has no description). */
   score: number | null;
-  label: 'Strong fit' | 'Good fit' | 'Partial fit' | 'Low fit' | 'Not enough detail' | 'No description';
+  label: 'High skill overlap' | 'Some skill overlap' | 'Low skill overlap' | 'No skill overlap' | 'Not enough detail' | 'No description';
   matched: string[];
   missing: string[];
   missingOptional: string[];

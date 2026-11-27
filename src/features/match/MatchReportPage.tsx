@@ -32,7 +32,6 @@ const STATUS_LABEL: Record<string, string> = {
   uncertain: 'Unverified',
 };
 
-
 function Panel({
   title,
   children,
@@ -205,7 +204,10 @@ function Chevron({ open }: { open: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      className={cn('size-4 shrink-0 text-soft transition-transform motion-reduce:transition-none', open && 'rotate-180')}
+      className={cn(
+        'size-4 shrink-0 text-soft transition-transform motion-reduce:transition-none',
+        open && 'rotate-180',
+      )}
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
@@ -367,7 +369,10 @@ function CompareList({
   return (
     <div className="min-w-0">
       <h3 className="flex items-center gap-2.5 text-[17px] font-semibold">
-        <span aria-hidden className={cn('grid size-6 place-items-center rounded-full text-xs text-[#1c2b22]', tone)}>
+        <span
+          aria-hidden
+          className={cn('grid size-6 place-items-center rounded-full text-xs text-[#1c2b22]', tone)}
+        >
           {glyph}
         </span>
         {title}
@@ -381,7 +386,9 @@ function CompareList({
                 {badge(r)}
                 {label && <span className="text-xs text-soft">{label}</span>}
               </p>
-              {evidenceNote(r) && <p className="mt-0.5 text-[13px] leading-snug break-words text-soft">{evidenceNote(r)}</p>}
+              {evidenceNote(r) && (
+                <p className="mt-0.5 text-[13px] leading-snug break-words text-soft">{evidenceNote(r)}</p>
+              )}
             </li>
           ))}
         </ul>
@@ -402,12 +409,19 @@ function ImproveSection({ m, groups }: { m: MatchResult; groups: Groups }) {
         <ol className="flex flex-col gap-3">
           {list.map((it, i) => (
             <li key={i} className="flex gap-3.5">
-              <span aria-hidden className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-tint text-xs font-semibold">
+              <span
+                aria-hidden
+                className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-tint text-xs font-semibold"
+              >
                 {i + 1}
               </span>
               <div className="min-w-0">
                 <p className="text-[15px] leading-relaxed break-words">{it.text}</p>
-                {it.basis && <p className="mt-0.5 text-[13px] leading-snug break-words text-soft">Your CV says: {it.basis}</p>}
+                {it.basis && (
+                  <p className="mt-0.5 text-[13px] leading-snug break-words text-soft">
+                    Your CV says: {it.basis}
+                  </p>
+                )}
               </div>
             </li>
           ))}
@@ -424,15 +438,17 @@ function ImproveSection({ m, groups }: { m: MatchResult; groups: Groups }) {
             {gaps.map((r) => r.requirement).join(' · ')}
           </p>
           <p className="mt-2 text-sm text-soft">
-            Tailoring never adds experience you have not written yourself. Add it to your CV in your own words, then
-            check this job again.
+            Tailoring never adds experience you have not written yourself. Add it to your CV in your own
+            words, then check this job again.
           </p>
           <ButtonLink to={`/app/cv-builder/${m.cvId}`} variant="secondary" size="sm" className="mt-3">
             Edit my CV
           </ButtonLink>
         </div>
       )}
-      <p className="mt-4 text-[13px] text-soft">You review every suggestion before anything is saved. Your original CV never changes.</p>
+      <p className="mt-4 text-[13px] text-soft">
+        You review every suggestion before anything is saved. Your original CV never changes.
+      </p>
     </Panel>
   );
 }
@@ -446,7 +462,11 @@ function HeaderActions({ m, appQuery }: { m: MatchResult; appQuery: string }) {
       <Button
         className="w-full sm:w-auto"
         loading={tailor.isPending}
-        onClick={() => tailor.mutate(tailorFromMatch({ matchId: m.id }), { onSuccess: (draft) => nav(`/app/tailor/${draft.id}`) })}
+        onClick={() =>
+          tailor.mutate(tailorFromMatch({ matchId: m.id }), {
+            onSuccess: (draft) => nav(`/app/tailor/${draft.id}`),
+          })
+        }
       >
         Tailor my CV
       </Button>
@@ -455,7 +475,9 @@ function HeaderActions({ m, appQuery }: { m: MatchResult; appQuery: string }) {
       </ButtonLink>
       {tailor.isError && (
         <p role="alert" className="basis-full text-sm text-danger">
-          {tailor.error instanceof ApiError ? tailor.error.message : 'Could not tailor your CV. Please try again.'}
+          {tailor.error instanceof ApiError
+            ? tailor.error.message
+            : 'Could not tailor your CV. Please try again.'}
         </p>
       )}
     </div>
@@ -487,12 +509,16 @@ function Report({ m }: { m: MatchResult }) {
     ['Not shown', groups.unverified.length],
   ];
   const categories = categorySummary(m, groups);
+  // No requirement could be read from the post (too short, or no requirements section).
+  const nothingFound = groups.matched.length + groups.partial.length + groups.unverified.length === 0;
 
   return (
     <div className="flex flex-col gap-5">
       <header className="min-w-0">
         <p className="text-sm font-medium text-soft">Job match report</p>
-        <h1 className="mt-1 text-[28px] leading-tight font-semibold break-words sm:text-[32px]">{m.jobTitle}</h1>
+        <h1 className="mt-1 text-[28px] leading-tight font-semibold break-words sm:text-[32px]">
+          {m.jobTitle}
+        </h1>
         <p className="mt-1 text-base break-words text-soft">
           {[m.company, m.cvName ? `CV used: ${m.cvName}` : ''].filter(Boolean).join(' · ')}
         </p>
@@ -514,7 +540,12 @@ function Report({ m }: { m: MatchResult }) {
             ) : (
               <p className="font-display text-[30px] leading-tight font-semibold">Score unavailable</p>
             )}
-            <p className={cn('mt-1.5 text-base font-semibold', scoreAvailable && m.score >= 60 ? 'text-primary' : 'text-accent-ink')}>
+            <p
+              className={cn(
+                'mt-1.5 text-base font-semibold',
+                scoreAvailable && m.score >= 60 ? 'text-primary' : 'text-accent-ink',
+              )}
+            >
               {m.verdict}
             </p>
             {scoreAvailable && typeof previousScore === 'number' && (
@@ -522,19 +553,25 @@ function Report({ m }: { m: MatchResult }) {
             )}
           </div>
           <div className="min-w-0">
-            {scoreAvailable && <ProgressBar value={m.score} label="Match score" tone={m.score >= 60 ? 'primary' : 'accent'} />}
-            {overview.text && (
-              <p className={cn('text-[15px] leading-relaxed break-words', scoreAvailable && 'mt-3')}>{overview.text}</p>
+            {scoreAvailable && (
+              <ProgressBar value={m.score} label="Match score" tone={m.score >= 60 ? 'primary' : 'accent'} />
             )}
-            <dl className="mt-3 flex flex-wrap gap-2">
-              {stats.map(([k, n]) => (
-                <div key={k} className="flex items-baseline gap-1.5 rounded-full bg-bg px-3 py-1">
-                  <dd className="font-display text-base font-semibold">{n}</dd>
-                  <dt className="text-xs text-soft">{k}</dt>
-                </div>
-              ))}
-            </dl>
-            {categories && (
+            {overview.text && (
+              <p className={cn('text-[15px] leading-relaxed break-words', scoreAvailable && 'mt-3')}>
+                {overview.text}
+              </p>
+            )}
+            {!nothingFound && (
+              <dl className="mt-3 flex flex-wrap gap-2">
+                {stats.map(([k, n]) => (
+                  <div key={k} className="flex items-baseline gap-1.5 rounded-full bg-bg px-3 py-1">
+                    <dd className="font-display text-base font-semibold">{n}</dd>
+                    <dt className="text-xs text-soft">{k}</dt>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {categories && categories.length > 0 && (
               <p className="mt-2 text-[13px] text-soft">
                 Scored qualifications: {categories.map((c) => `${c.count} ${c.label}`).join(' · ')}
               </p>
@@ -558,23 +595,30 @@ function Report({ m }: { m: MatchResult }) {
       </Panel>
 
       <Panel headingId="compare-h" title="How your CV compares">
-        <div className="grid gap-6 md:grid-cols-2 md:gap-8">
-          <CompareList
-            title="What matches"
-            glyph="✓"
-            tone="bg-st-offer"
-            items={strongest}
-            empty="Nothing from this post is clearly shown in your CV yet."
-          />
-          <CompareList
-            title="What needs attention"
-            glyph="?"
-            tone="bg-accent"
-            items={attention}
-            empty="Every qualification this post lists is shown in your CV — nothing needs attention. Nice work."
-            note="“Not shown” means your CV doesn’t demonstrate it — not that you lack the skill."
-          />
-        </div>
+        {nothingFound ? (
+          <p className="text-[15px] leading-relaxed text-soft">
+            We couldn’t find any clear requirements in this post, so there is nothing to compare yet. Paste
+            the full job description, including the requirements section, and check again.
+          </p>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2 md:gap-8">
+            <CompareList
+              title="What matches"
+              glyph="✓"
+              tone="bg-st-offer"
+              items={strongest}
+              empty="Nothing from this post is clearly shown in your CV yet."
+            />
+            <CompareList
+              title="What needs attention"
+              glyph="?"
+              tone="bg-accent"
+              items={attention}
+              empty="Every qualification this post lists is shown in your CV — nothing needs attention. Nice work."
+              note="“Not shown” means your CV doesn’t demonstrate it — not that you lack the skill."
+            />
+          </div>
+        )}
       </Panel>
 
       <ImproveSection m={m} groups={groups} />
@@ -589,7 +633,10 @@ function DetailedAnalysis({ m, groups }: { m: MatchResult; groups: Groups }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   return (
-    <section aria-labelledby="detail-h" className="rounded-2xl border border-line bg-surface p-5 sm:p-7 animate-in">
+    <section
+      aria-labelledby="detail-h"
+      className="rounded-2xl border border-line bg-surface p-5 sm:p-7 animate-in"
+    >
       <h2 id="detail-h" className="text-xl font-semibold">
         <button
           type="button"
@@ -602,7 +649,9 @@ function DetailedAnalysis({ m, groups }: { m: MatchResult; groups: Groups }) {
           <Chevron open={open} />
         </button>
       </h2>
-      <p className="mt-1 text-sm text-soft">Every requirement with the evidence from your CV, plus the original job post.</p>
+      <p className="mt-1 text-sm text-soft">
+        Every requirement with the evidence from your CV, plus the original job post.
+      </p>
       <div id={panelId} hidden={!open} className="mt-5">
         <RequirementTabs groups={groups} />
         <JobDetails m={m} />
